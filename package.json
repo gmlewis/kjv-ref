@@ -1,0 +1,44 @@
+{
+  "name": "kjv-memorize",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "parse": "bun run parse-kjv.ts",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "e2e": "playwright test",
+    "e2e:headed": "playwright test --headed",
+    "e2e:ui": "playwright test --ui",
+    "e2e:setup": "bun run scripts/grab-session.ts",
+    "e2e:setup:manual": "bun run e2e/global-setup.ts",
+    "e2e:report": "playwright show-report e2e/report"
+  },
+  "dependencies": {
+    "date-fns": "^3.0.0",
+    "lucide-react": "^0.294.0",
+    "minisearch": "^7.2.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "recharts": "^2.12.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@testing-library/jest-dom": "^6.1.5",
+    "@testing-library/react": "^14.1.0",
+    "@types/node": "^25.5.0",
+    "@types/react": "^18.2.37",
+    "@types/react-dom": "^18.2.15",
+    "@vitejs/plugin-react": "^4.2.0",
+    "autoprefixer": "^10.4.16",
+    "jsdom": "^23.0.0",
+    "postcss": "^8.4.31",
+    "tailwindcss": "^3.3.5",
+    "typescript": "^5.2.2",
+    "vite": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}
