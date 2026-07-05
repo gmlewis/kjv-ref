@@ -229,14 +229,20 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
   useEffect(() => {
     if (loading || verses.length === 0 || scrollTarget === null) return;
     setHighlightedVerse(scrollTarget);
-    const el = document.getElementById(verseAnchorId(scrollTarget));
-    if (el) {
-      const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
-      const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
-      window.scrollTo({ top, behavior: 'smooth' });
-    }
+    // Wait for the highlight re-render to commit before measuring positions.
+    // Without this, getBoundingClientRect reads pre-highlight layout, and the
+    // ring-offset padding shifts everything down after the scroll starts.
+    let raf: number;
+    raf = requestAnimationFrame(() => {
+      const el = document.getElementById(verseAnchorId(scrollTarget));
+      if (el) {
+        const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
+        const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
+        window.scrollTo({ top, behavior: 'smooth' });
+      }
+    });
     const timer = setTimeout(() => setHighlightedVerse(null), 2500);
-    return () => clearTimeout(timer);
+    return () => { cancelAnimationFrame(raf); clearTimeout(timer); };
   }, [loading, verses, scrollTarget]);
 
   const [bookmarkData] = useMyBookmarks();
@@ -489,13 +495,15 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
                   onClick={() => {
                     const hash = `#v${v.verse}`;
                     history.replaceState(null, '', hash);
-                    const el = document.getElementById(verseAnchorId(v.verse));
-                    if (el) {
-                      const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
-                      const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
-                      window.scrollTo({ top, behavior: 'smooth' });
-                    }
                     setHighlightedVerse(v.verse);
+                    requestAnimationFrame(() => {
+                      const el = document.getElementById(verseAnchorId(v.verse));
+                      if (el) {
+                        const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
+                        const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
+                        window.scrollTo({ top, behavior: 'smooth' });
+                      }
+                    });
                     setTimeout(() => setHighlightedVerse(null), 2500);
                   }}
                   className="font-bold text-purple-500 text-sm min-w-[2.5rem] pt-0.5 cursor-pointer hover:text-purple-700 transition-colors"
