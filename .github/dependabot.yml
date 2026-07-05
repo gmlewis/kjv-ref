@@ -8,6 +8,10 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # lucide-react is pre-1.0 (0.x); caret ^0.294.0 pins to 0.294.x.
+      # Dependabot classifies 0.294→0.577 as "minor" but it's effectively breaking.
+      - dependency-name: "lucide-react"
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
     groups:
       minor-and-patch:
         update-types:
