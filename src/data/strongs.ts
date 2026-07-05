@@ -74,7 +74,7 @@ export async function getWordIndex(): Promise<Record<string, string[]>> {
   if (_wordIndex) return _wordIndex;
   if (!_wordIndexLoading) {
     // Direct fetch from public folder - no Prophet needed
-    _wordIndexLoading = fetch('./strongs/word-index.json')
+    _wordIndexLoading = fetch(`${import.meta.env.BASE_URL}strongs/word-index.json`)
       .then(r => r.json())
       .then(d => { _wordIndex = d; return d; });
   }
@@ -85,7 +85,7 @@ export async function getHebrewLexicon(): Promise<Record<string, any>> {
   if (_hebrewLexicon) return _hebrewLexicon;
   if (!_hebrewLoading) {
     // Direct fetch from public folder - no Prophet needed
-    _hebrewLoading = fetch('./strongs/hebrew.json')
+    _hebrewLoading = fetch(`${import.meta.env.BASE_URL}strongs/hebrew.json`)
       .then(r => r.json())
       .then(d => { _hebrewLexicon = d; return d; });
   }
@@ -96,7 +96,7 @@ export async function getGreekLexicon(): Promise<Record<string, any>> {
   if (_greekLexicon) return _greekLexicon;
   if (!_greekLoading) {
     // Direct fetch from public folder - no Prophet needed
-    _greekLoading = fetch('./strongs/greek.json')
+    _greekLoading = fetch(`${import.meta.env.BASE_URL}strongs/greek.json`)
       .then(r => r.json())
       .then(d => { _greekLexicon = d; return d; });
   }

@@ -21,7 +21,7 @@ export async function getInterlinearHebrew(): Promise<Record<string, string>> {
   if (_hebrew) return _hebrew;
   if (!_hebrewLoading) {
     // Direct fetch from public folder - no Prophet needed
-    _hebrewLoading = fetch('./interlinear/hebrew.json')
+    _hebrewLoading = fetch(`${import.meta.env.BASE_URL}interlinear/hebrew.json`)
       .then(r => r.json())
       .then(d => { _hebrew = d; return d; });
   }
@@ -32,7 +32,7 @@ export async function getInterlinearGreek(): Promise<Record<string, string>> {
   if (_greek) return _greek;
   if (!_greekLoading) {
     // Direct fetch from public folder - no Prophet needed
-    _greekLoading = fetch('./interlinear/greek.json')
+    _greekLoading = fetch(`${import.meta.env.BASE_URL}interlinear/greek.json`)
       .then(r => r.json())
       .then(d => { _greek = d; return d; });
   }
@@ -45,7 +45,7 @@ export const _wordLoading = new Map<string, Promise<BookWordMap>>();
 export async function getInterlinearWordBook(abbr: string): Promise<BookWordMap> {
   if (_wordCache.has(abbr)) return _wordCache.get(abbr)!;
   if (!_wordLoading.has(abbr)) {
-    const url = `./interlinear/words/${abbr}.json`;
+    const url = `${import.meta.env.BASE_URL}interlinear/words/${abbr}.json`;
     const p = fetch(url)
       .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json(); })
       .then((d: BookWordMap) => { _wordCache.set(abbr, d); return d; })
