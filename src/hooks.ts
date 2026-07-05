@@ -10,6 +10,22 @@ import {
   initializeStorage
 } from './storage';
 
+// Dispatch a custom event so same-tab hooks can re-read localStorage after mutations.
+// (The native 'storage' event only fires cross-tab.)
+export function notifyStorageChange(key: string) {
+  window.dispatchEvent(new CustomEvent('kjv-storage-change', { detail: { key } }));
+}
+
+function useStorageRefresh(key: string, callback: () => void) {
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if ((e as CustomEvent).detail?.key === key) callback();
+    };
+    window.addEventListener('kjv-storage-change', handler);
+    return () => window.removeEventListener('kjv-storage-change', handler);
+  }, [key, callback]);
+}
+
 // Initialize storage on first use
 let storageInitialized = false;
 export function useStorageInitializer() {
@@ -104,6 +120,9 @@ export function useMyProgress(): [any[] | null, boolean, { code: string; message
     };
   }, []);
   
+  const refreshProgress = useCallback(() => setData(getProgress()), []);
+  useStorageRefresh('kjv-memorize-progress', refreshProgress);
+  
   return [data, loading, error];
 }
 
@@ -146,6 +165,9 @@ export function useMySessions(): [any[] | null, boolean, { code: string; message
       isMounted = false;
     };
   }, []);
+  
+  const refreshSessions = useCallback(() => setData(getSessions()), []);
+  useStorageRefresh('kjv-memorize-sessions', refreshSessions);
   
   return [data, loading, error];
 }
@@ -190,6 +212,9 @@ export function useMyAchievements(): [any[] | null, boolean, { code: string; mes
     };
   }, []);
   
+  const refreshAchievements = useCallback(() => setData(getAchievements()), []);
+  useStorageRefresh('kjv-memorize-achievements', refreshAchievements);
+  
   return [data, loading, error];
 }
 
@@ -232,6 +257,9 @@ export function useMyBookmarks(): [any[] | null, boolean, { code: string; messag
       isMounted = false;
     };
   }, []);
+  
+  const refreshBookmarks = useCallback(() => setData(getBookmarks()), []);
+  useStorageRefresh('kjv-memorize-bookmarks', refreshBookmarks);
   
   return [data, loading, error];
 }
@@ -296,6 +324,18 @@ export function useDueReviews(): [any[] | null, boolean, { code: string; message
     };
   }, []);
   
+  const refreshDueReviews = useCallback(() => {
+    const schedule = getReviewSchedule();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    setData(schedule.filter((entry: any) => {
+      const dueDate = new Date(entry.dueDate);
+      dueDate.setHours(0, 0, 0, 0);
+      return dueDate <= today;
+    }));
+  }, []);
+  useStorageRefresh('kjv-memorize-review-schedule', refreshDueReviews);
+  
   return [data, loading, error];
 }
 
@@ -320,6 +360,7 @@ export function useCreateSessionMutation() {
     const sessions = getSessions();
     sessions.push(session);
     setSessions(sessions);
+    notifyStorageChange('kjv-memorize-sessions');
     
     return session.id;
   });
@@ -343,6 +384,7 @@ export function useAwardAchievementMutation() {
     const achievements = getAchievements();
     achievements.push(achievement);
     setAchievements(achievements);
+    notifyStorageChange('kjv-memorize-achievements');
     
     return achievement.id;
   });
@@ -388,6 +430,7 @@ export function useUpdateProgressMutation() {
       });
     }
     setProgress(progress);
+    notifyStorageChange('kjv-memorize-progress');
     return reference;
   });
 }
@@ -421,6 +464,7 @@ export function useUpsertReviewScheduleMutation() {
       dueDate: dueDate.toISOString(),
       reviewsCompleted: streak,
     });
+    notifyStorageChange('kjv-memorize-review-schedule');
     return reference;
   });
 }
@@ -454,6 +498,7 @@ export function useCreateBookmarkMutation() {
     const bookmarks = getBookmarks();
     bookmarks.push(bookmark);
     setBookmarks(bookmarks);
+    notifyStorageChange('kjv-memorize-bookmarks');
     
     return bookmark.id;
   });
@@ -465,6 +510,7 @@ export function useRemoveBookmarkMutation() {
     const bookmarks = getBookmarks();
     const filtered = bookmarks.filter(b => b.id !== args.bookmark.id);
     setBookmarks(filtered);
+    notifyStorageChange('kjv-memorize-bookmarks');
     
     return true;
   });
