@@ -12,14 +12,14 @@ export default defineConfig({
   css: {
     postcss: './postcss.config.js',
   },
-  base: './',
+  base: '/kjv-memorize/',
   test: {
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
     exclude: [
       'node_modules/**',
-      'e2e/**',   // Playwright specs — run via `bun run e2e`, not vitest
+      'e2e/**',
       'dist/**',
     ],
   },

@@ -20,9 +20,8 @@ let _greekLoading: Promise<Record<string, string>> | null = null;
 export async function getInterlinearHebrew(): Promise<Record<string, string>> {
   if (_hebrew) return _hebrew;
   if (!_hebrewLoading) {
-    const { getDataUrl } = await import('./dataUrls');
-    const url = getDataUrl('interlinear/hebrew.json', './interlinear/hebrew.json');
-    _hebrewLoading = fetch(url)
+    // Direct fetch from public folder - no Prophet needed
+    _hebrewLoading = fetch('./interlinear/hebrew.json')
       .then(r => r.json())
       .then(d => { _hebrew = d; return d; });
   }
@@ -32,13 +31,28 @@ export async function getInterlinearHebrew(): Promise<Record<string, string>> {
 export async function getInterlinearGreek(): Promise<Record<string, string>> {
   if (_greek) return _greek;
   if (!_greekLoading) {
-    const { getDataUrl } = await import('./dataUrls');
-    const url = getDataUrl('interlinear/greek.json', './interlinear/greek.json');
-    _greekLoading = fetch(url)
+    // Direct fetch from public folder - no Prophet needed
+    _greekLoading = fetch('./interlinear/greek.json')
       .then(r => r.json())
       .then(d => { _greek = d; return d; });
   }
   return _greekLoading;
+}
+
+export const _wordCache = new Map<string, BookWordMap>();
+export const _wordLoading = new Map<string, Promise<BookWordMap>>();
+
+export async function getInterlinearWordBook(abbr: string): Promise<BookWordMap> {
+  if (_wordCache.has(abbr)) return _wordCache.get(abbr)!;
+  if (!_wordLoading.has(abbr)) {
+    const url = `./interlinear/words/${abbr}.json`;
+    const p = fetch(url)
+      .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json(); })
+      .then((d: BookWordMap) => { _wordCache.set(abbr, d); return d; })
+      .catch(() => { _wordLoading.delete(abbr); return {} as BookWordMap; });
+    _wordLoading.set(abbr, p);
+  }
+  return _wordLoading.get(abbr)!;
 }
 
 /** Look up a single verse in the original language. Returns null if not found. */
@@ -58,24 +72,6 @@ export async function getInterlinearVerse(
     const map = await getInterlinearGreek();
     return map[key] ?? null;
   }
-}
-
-// ─── Per-book word data (lazy, cached) ───────────────────────────────────────
-export const _wordCache = new Map<string, BookWordMap>();
-export const _wordLoading = new Map<string, Promise<BookWordMap>>();
-
-export async function getInterlinearWordBook(abbr: string): Promise<BookWordMap> {
-  if (_wordCache.has(abbr)) return _wordCache.get(abbr)!;
-  if (!_wordLoading.has(abbr)) {
-    const { getDataUrl } = await import('./dataUrls');
-    const url = getDataUrl(`interlinear/words/${abbr}.json`, `./interlinear/words/${abbr}.json`);
-    const p = fetch(url)
-      .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json(); })
-      .then((d: BookWordMap) => { _wordCache.set(abbr, d); return d; })
-      .catch(() => { _wordLoading.delete(abbr); return {} as BookWordMap; });
-    _wordLoading.set(abbr, p);
-  }
-  return _wordLoading.get(abbr)!;
 }
 
 /**

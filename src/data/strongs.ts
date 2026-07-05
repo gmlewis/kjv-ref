@@ -73,9 +73,8 @@ let _greekLoading: Promise<Record<string, any>> | null = null;
 export async function getWordIndex(): Promise<Record<string, string[]>> {
   if (_wordIndex) return _wordIndex;
   if (!_wordIndexLoading) {
-    const { getDataUrl } = await import('./dataUrls');
-    const url = getDataUrl('strongs/word-index.json', './strongs/word-index.json');
-    _wordIndexLoading = fetch(url)
+    // Direct fetch from public folder - no Prophet needed
+    _wordIndexLoading = fetch('./strongs/word-index.json')
       .then(r => r.json())
       .then(d => { _wordIndex = d; return d; });
   }
@@ -85,9 +84,8 @@ export async function getWordIndex(): Promise<Record<string, string[]>> {
 export async function getHebrewLexicon(): Promise<Record<string, any>> {
   if (_hebrewLexicon) return _hebrewLexicon;
   if (!_hebrewLoading) {
-    const { getDataUrl } = await import('./dataUrls');
-    const url = getDataUrl('strongs/hebrew.json', './strongs/hebrew.json');
-    _hebrewLoading = fetch(url)
+    // Direct fetch from public folder - no Prophet needed
+    _hebrewLoading = fetch('./strongs/hebrew.json')
       .then(r => r.json())
       .then(d => { _hebrewLexicon = d; return d; });
   }
@@ -97,9 +95,8 @@ export async function getHebrewLexicon(): Promise<Record<string, any>> {
 export async function getGreekLexicon(): Promise<Record<string, any>> {
   if (_greekLexicon) return _greekLexicon;
   if (!_greekLoading) {
-    const { getDataUrl } = await import('./dataUrls');
-    const url = getDataUrl('strongs/greek.json', './strongs/greek.json');
-    _greekLoading = fetch(url)
+    // Direct fetch from public folder - no Prophet needed
+    _greekLoading = fetch('./strongs/greek.json')
       .then(r => r.json())
       .then(d => { _greekLexicon = d; return d; });
   }

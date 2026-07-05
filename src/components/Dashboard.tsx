@@ -1,7 +1,6 @@
-import { useSubscribe } from '@prophet/client/react';
-import { Link } from '@prophet/client/react';
+import { Link } from 'react-router-dom';
 import { BookOpen, TrendingUp, Calendar, Target, Sparkles, Flame, Star, Heart, Crown, Dumbbell, Bookmark } from 'lucide-react';
-import { MyProgress, MySessions, MyAchievements, MyBookmarks } from '../../kjv-memorize';
+import { useMyProgress, useMySessions, useMyAchievements, useMyBookmarks } from '../../hooks';
 import { KJV_VERSES } from '../data/kjv-verses';
 
 const FEATURED_VERSES = [
@@ -17,10 +16,10 @@ const FEATURED_VERSES = [
 }));
 
 function Dashboard() {
-  const { data: progress } = useSubscribe(MyProgress);
-  const { data: sessions } = useSubscribe(MySessions);
-  const { data: achievements } = useSubscribe(MyAchievements);
-  const { data: bookmarks } = useSubscribe(MyBookmarks);
+  const [progress] = useMyProgress();
+  const [sessions] = useMySessions();
+  const [achievements] = useMyAchievements();
+  const [bookmarks] = useMyBookmarks();
 
   const masteredCount = (progress ?? []).filter(p => p?.status === 'mastered').length;
   const learningCount = (progress ?? []).filter(p => p?.status === 'learning' || p?.status === 'reviewing').length;
@@ -48,13 +47,13 @@ function Dashboard() {
           Transform your spiritual journey by hiding God's word in your heart, one verse at a time
         </p>
         <div className="flex flex-wrap justify-center gap-4 mt-8">
-          <Link href="/practice">
+          <Link to="/practice">
             <button className="btn-primary text-white py-4 px-8 rounded-xl font-bold text-lg shadow-lg">
               <Dumbbell className="inline w-5 h-5 mr-2" />
               Start Practice
             </button>
           </Link>
-          <Link href="/books">
+          <Link to="/books">
             <button className="btn-secondary py-4 px-8 rounded-xl font-bold text-lg">
               <BookOpen className="inline w-5 h-5 mr-2" />
               Browse Bible
@@ -66,7 +65,7 @@ function Dashboard() {
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {statCards.map((card, index) => (
-          <Link key={index} href={card.link} className="block">
+          <Link key={index} to={card.link} className="block">
             <div className="stat-card rounded-2xl p-6 card-hover">
               <div className="flex items-center justify-between">
                 <div>
@@ -91,7 +90,7 @@ function Dashboard() {
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {FEATURED_VERSES.map((verse, index) => (
-            <Link href={`/practice/${encodeURIComponent(verse.reference)}`} key={index}>
+            <Link to={`/practice/${encodeURIComponent(verse.reference)}`} key={index}>
               <div className="verse-card rounded-xl p-5 cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
@@ -116,7 +115,7 @@ function Dashboard() {
           ))}
         </div>
         <div className="mt-6 text-center">
-          <Link href="/practice">
+          <Link to="/practice">
             <button className="btn-primary text-white py-3 px-8 rounded-xl font-bold shadow-lg">
               <Dumbbell className="inline w-5 h-5 mr-2" />
               Practice All Verses
@@ -149,7 +148,7 @@ function Dashboard() {
             <h3 className="font-bold text-lg text-gray-800">Daily Streaks</h3>
           </div>
           <p className="text-gray-600">Practice daily to build momentum and earn streak achievements!</p>
-          <Link href="/achievements">
+          <Link to="/achievements">
             <button className="mt-4 text-sm font-semibold text-purple-600 hover:text-purple-800">View Achievements →</button>
           </Link>
         </div>
@@ -159,7 +158,7 @@ function Dashboard() {
             <h3 className="font-bold text-lg text-gray-800">Spaced Repetition</h3>
           </div>
           <p className="text-gray-600">Review verses at increasing intervals for long-term retention.</p>
-          <Link href="/statistics">
+          <Link to="/statistics">
             <button className="mt-4 text-sm font-semibold text-purple-600 hover:text-purple-800">View Statistics →</button>
           </Link>
         </div>
@@ -169,7 +168,7 @@ function Dashboard() {
             <h3 className="font-bold text-lg text-gray-800">Master Verses</h3>
           </div>
           <p className="text-gray-600">Aim for mastery status by achieving 100% accuracy consistently.</p>
-          <Link href="/books">
+          <Link to="/books">
             <button className="mt-4 text-sm font-semibold text-purple-600 hover:text-purple-800">Browse Bible →</button>
           </Link>
         </div>

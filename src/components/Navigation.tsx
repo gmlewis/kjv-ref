@@ -1,10 +1,13 @@
 import { useState } from 'react';
-import { Link, useLocation } from '@prophet/client/react';
+import { Link } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { BookOpen, Dumbbell, BarChart3, Trophy, Menu, X, LayoutDashboard, Moon, Sun } from 'lucide-react';
 
 function Navigation() {
   const [isOpen, setIsOpen] = useState(false);
-  const [path, navigate] = useLocation();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const path = location.pathname;
   const [isDark, setIsDark] = useState(() =>
     document.documentElement.classList.contains('dark')
   );
@@ -38,7 +41,7 @@ function Navigation() {
     <nav className="glassmorphism sticky top-0 z-50 shadow-lg">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-18">
-          <Link href="/" className="flex items-center space-x-3 group">
+          <Link to="/" className="flex items-center space-x-3 group">
             <div className="p-2 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 shadow-lg group-hover:shadow-xl transition-shadow">
               <BookOpen className="w-8 h-8 text-white" />
             </div>
@@ -52,7 +55,7 @@ function Navigation() {
             {navItems.map((item) => (
               <Link
                 key={item.path}
-                href={item.path}
+                to={item.path}
                 className={`nav-item flex items-center space-x-2 px-4 py-3 rounded-xl transition-all ${
                   isActive(item.path)
                     ? 'bg-gradient-to-r from-purple-100 to-indigo-100 shadow-md'

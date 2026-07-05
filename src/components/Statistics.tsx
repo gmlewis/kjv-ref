@@ -1,16 +1,16 @@
-import { useSubscribe } from '@prophet/client/react';
-import { Link } from '@prophet/client/react';
+import { Link } from 'react-router-dom';
+import { useMyProgress, useMySessions } from '../../hooks';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area,
 } from 'recharts';
 import { TrendingUp, Award, Zap, Crown, Heart, Dumbbell } from 'lucide-react';
-import { MyProgress, MySessions } from '../../kjv-memorize';
+
 import { KJV_VERSES } from '../data/kjv-verses';
 
 function Statistics() {
-  const { data: progress, loading: progressLoading } = useSubscribe(MyProgress);
-  const { data: sessions, loading: sessionsLoading } = useSubscribe(MySessions);
+  const [progress, progressLoading] = useMyProgress();
+  const [sessions, sessionsLoading] = useMySessions();
 
   const progressList = progress ?? [];
   const sessionList = sessions ?? [];
@@ -107,7 +107,7 @@ function Statistics() {
           <Dumbbell className="w-16 h-16 text-purple-300 mx-auto mb-4" />
           <h3 className="text-2xl font-bold text-gray-500 mb-3">No Data Yet</h3>
           <p className="text-gray-400 mb-6">Start practicing to see your statistics here!</p>
-          <Link href="/practice">
+          <Link to="/practice">
             <button className="btn-primary text-white py-3 px-8 rounded-xl font-bold shadow-lg">
               Start Practicing
             </button>
@@ -257,7 +257,7 @@ function Statistics() {
               Consistent daily practice is the key to long-term memorization. Every verse you learn is a treasure stored in your heart.
             </p>
             <div className="mt-5">
-              <Link href="/practice">
+              <Link to="/practice">
                 <button className="bg-white/20 hover:bg-white/30 transition-all py-3 px-6 rounded-xl font-bold flex items-center gap-2">
                   <Dumbbell className="w-5 h-5" /> Practice Now
                 </button>

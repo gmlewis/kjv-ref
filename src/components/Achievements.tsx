@@ -1,10 +1,9 @@
-import { useSubscribe } from '@prophet/client/react';
-import { Link } from '@prophet/client/react';
+import { Link } from 'react-router-dom';
 import {
   Trophy, Star, Award, Heart, Flame, BookOpen, Target,
   Calendar, Crown, Shield, Sparkles, Dumbbell, Lock,
 } from 'lucide-react';
-import { MyAchievements, MySessions, MyProgress } from '../../kjv-memorize';
+import { useMyAchievements, useMySessions, useMyProgress } from '../../hooks';
 
 type AchievementType = 'first-verse' | 'ten-verses' | 'fifty-verses' | 'hundred-verses' |
   'seven-day-streak' | 'thirty-day-streak' | 'master-level' | 'daily-goal' |
@@ -62,9 +61,9 @@ const ACHIEVEMENT_INFO: Record<AchievementType, AchievementInfo> = {
 };
 
 function Achievements() {
-  const { data: achievements, loading } = useSubscribe(MyAchievements);
-  const { data: sessions } = useSubscribe(MySessions);
-  const { data: progress } = useSubscribe(MyProgress);
+  const [achievements, achievementsLoading] = useMyAchievements();
+  const [sessions] = useMySessions();
+  const [progress] = useMyProgress();
 
   const earnedTypes = new Set((achievements ?? []).map(a => a?.type as AchievementType));
   const allTypes = Object.keys(ACHIEVEMENT_INFO) as AchievementType[];
@@ -95,7 +94,7 @@ function Achievements() {
         </div>
         <h1 className="text-4xl font-bold gradient-text mb-3">Achievements</h1>
         <p className="text-gray-600 text-lg mb-6">
-          {loading ? 'Loading...' : `${earnedCount} of ${totalCount} earned`}
+          {achievementsLoading ? 'Loading...' : `${earnedCount} of ${totalCount} earned`}
         </p>
 
         {/* Progress Bar */}
@@ -185,12 +184,12 @@ function Achievements() {
       </div>
 
       {/* CTA if no achievements */}
-      {!loading && earnedCount === 0 && (
+      {!achievementsLoading && earnedCount === 0 && (
         <div className="glassmorphism rounded-2xl p-8 shadow-lg text-center">
           <Sparkles className="w-12 h-12 text-purple-300 mx-auto mb-4" />
           <h3 className="text-xl font-bold text-gray-600 mb-2">Start Earning Achievements!</h3>
           <p className="text-gray-500 mb-6">Complete your first practice session to earn the "First Steps" badge.</p>
-          <Link href="/practice">
+          <Link to="/practice">
             <button className="btn-primary text-white py-3 px-8 rounded-xl font-bold shadow-lg flex items-center gap-2 mx-auto">
               <Dumbbell className="w-5 h-5" /> Start Practicing
             </button>

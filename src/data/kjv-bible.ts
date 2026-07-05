@@ -134,9 +134,8 @@ let _loading: Promise<BibleMap> | null = null;
 async function getBible(): Promise<BibleMap> {
   if (_bible) return _bible;
   if (_loading) return _loading;
-  const { getDataUrl } = await import('./dataUrls');
-  const url = getDataUrl('kjv.txt', './kjv.txt');
-  _loading = fetch(url)
+  // Direct fetch from public folder - no Prophet needed
+  _loading = fetch('./kjv.txt')
     .then(r => r.text())
     .then(text => {
       _bible = parseKJVBible(text);

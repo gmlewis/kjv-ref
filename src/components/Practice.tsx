@@ -1,12 +1,13 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { useSubscribe, useMutation, useParams, useLocation } from '@prophet/client/react';
-import { Link } from '@prophet/client/react';
+import { Link } from 'react-router-dom';
+import { useMyProgress, useDueReviews, useMyBookmarks, useCreateSessionMutation, useAwardAchievementMutation } from '../../hooks';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
   CheckCircle, XCircle, RotateCcw, Sparkles, Zap, Target,
   Award, BookOpen, ArrowLeft, ChevronRight, Shuffle, Filter,
   Minus, Trophy, Layers, AlignLeft, Eye, Hash, Bookmark,
 } from 'lucide-react';
-import { MyProgress, DueReviews, MyBookmarks, createSession, awardAchievement } from '../../kjv-memorize';
+
 import { KJV_VERSES, type KJVVerse } from '../data/kjv-verses';
 import { getKJVVerse } from '../data/kjv-bible';
 import { extractKeywords, assessDifficulty } from '../utils/spacedRepetition';
@@ -76,7 +77,7 @@ function SessionSummary({
         <button onClick={onNewMode} className="btn-secondary py-3 px-8 rounded-xl font-bold flex items-center gap-2">
           <Shuffle className="w-5 h-5" /> Change Mode
         </button>
-        <Link href="/"><button className="glassmorphism py-3 px-8 rounded-xl font-bold text-gray-700 hover:shadow-lg transition-all">Dashboard</button></Link>
+        <Link to="/"><button className="glassmorphism py-3 px-8 rounded-xl font-bold text-gray-700 hover:shadow-lg transition-all">Dashboard</button></Link>
       </div>
     </div>
   );
@@ -662,27 +663,23 @@ function ModeSelector({ onSelect, dueCount }: { onSelect: (mode: PracticeMode) =
 // ─── Practice (main) ──────────────────────────────────────────────────────────
 function Practice() {
   const params = useParams() as { reference?: string };
-  const [, navigate] = useLocation();
-  const [mode, setMode] = useState<PracticeMode | null>(null);
-  const [difficultyFilter, setDifficultyFilter] = useState<'all' | 'easy' | 'medium' | 'hard'>('all');
-  const [collectionFilter, setCollectionFilter] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return new URLSearchParams(window.location.search).get('collection') === '1';
-    }
-    return false;
-  });
+  const navigate = useNavigate();
+  const [progressData] = useMyProgress();
+  const [dueReviewData] = useDueReviews();
+  const [bookmarkData] = useMyBookmarks();
+  const [difficultyFilter, setDifficultyFilter] = useState<"all" | "easy" | "medium" | "hard">("all");
+  const [collectionFilter, setCollectionFilter] = useState(false);
   const [extraCollectionVerses, setExtraCollectionVerses] = useState<KJVVerse[]>([]);
-  const [sessionComplete, setSessionComplete] = useState(false);
-  const [finalScore, setFinalScore] = useState({ score: 0, total: 0 });
-  const [sessionKey, setSessionKey] = useState(0);
-
-  const { data: progressData } = useSubscribe(MyProgress);
-  const { data: dueReviewData } = useSubscribe(DueReviews);
-  const { data: bookmarkData } = useSubscribe(MyBookmarks);
-  const { mutate: doCreateSession } = useMutation(createSession);
-  const { mutate: doAwardAchievement } = useMutation(awardAchievement);
+  const { mutate: doCreateSession } = useCreateSessionMutation();
+  const { mutate: doAwardAchievement } = useAwardAchievementMutation();
 
   const targetReference = params.reference ? decodeURIComponent(params.reference) : null;
+
+  // State variables
+  const [mode, setMode] = useState<PracticeMode | null>(null);
+  const [sessionComplete, setSessionComplete] = useState(false);
+  const [sessionKey, setSessionKey] = useState(0);
+  const [finalScore, setFinalScore] = useState<{ score: number; total: number }>({ score: 0, total: 0 });
 
   // Bookmarked references set
   const bookmarkedRefs = useMemo<Set<string>>(() => new Set((bookmarkData ?? []).map(b => b.reference as string)), [bookmarkData]);
@@ -838,7 +835,7 @@ function Practice() {
               <Bookmark className="w-12 h-12 text-purple-300 mx-auto" />
               <p className="text-gray-600 font-semibold">No bookmarked verses yet</p>
               <p className="text-gray-400 text-sm">Tap the bookmark icon on any verse in the Books view to add it here.</p>
-              <Link href="/books">
+              <Link to="/books">
                 <button className="btn-primary text-white py-2 px-6 rounded-xl font-bold">Browse Books</button>
               </Link>
             </div>

@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, useParams, useSubscribe, useMutation, useFile } from '@prophet/client/react';
+import { Link } from 'react-router-dom';
+import { useMyBookmarks, useCreateBookmarkMutation, useRemoveBookmarkMutation, useParams } from '../../hooks';
 import { ChevronRight, BookOpen, Search, Star, ArrowLeft, ArrowRight, Dumbbell, Hash, Loader2, X, Bookmark, BookmarkCheck, ExternalLink } from 'lucide-react';
-import { MyBookmarks, createBookmark, removeBookmark } from '../../kjv-memorize';
+
 import { KJV_VERSES, getVersesByBook } from '../data/kjv-verses';
 import { getKJVChapter, getKJVChapterList, type KJVVerseEntry, BOOK_ABBR_MAP } from '../data/kjv-bible';
 import { searchKJV, type SearchResult } from '../data/kjv-search';
@@ -12,8 +13,7 @@ import { getInterlinearChapter, getInterlinearWordBook, type WordEntry } from '.
 import { bibleHubInterlinearUrl, stepBibleUrl } from '../utils/studyLinks';
 import { StrongsPopover } from './StrongsPopover';
 import { InterlinearWordPopover } from './InterlinearWordPopover';
-import { setDataUrl } from '../data/dataUrls';
-import { PROPHET_FILE_IDS } from '../data/prophet-file-ids';
+// No longer needed for static site - dataUrls always returns fallback paths
 import { BIBLE_BOOKS, getPrevNextChapter } from '../utils/bibleBooks';
 
 // Target verse to scroll to on next ChapterView mount (set by search result clicks
@@ -148,7 +148,7 @@ function SearchPanel({ onNavigateAway }: { onNavigateAway: () => void }) {
             return (
               <Link
                 key={result.reference}
-                href={buildChapterUrl(result.book, chapterNum, result.verse)}
+                to={buildChapterUrl(result.book, chapterNum, result.verse)}
               >
                 <div
                   className="glassmorphism rounded-2xl p-5 shadow-md cursor-pointer hover:shadow-lg hover:border-purple-200 border-2 border-transparent transition-all"
@@ -208,70 +208,18 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
     return isNaN(n) ? null : n;
   });
 
-  // Compute book identity for URL resolution (plain variables, safe before hooks)
-  const isOldTestament = BIBLE_BOOKS.find(b => b.name === bookName)?.testament === 'old';
-  const internalAbbr = Object.entries(BOOK_ABBR_MAP).find(([, info]) => info.name === bookName)?.[0];
+   // Compute book identity for URL resolution (plain variables, safe before hooks)
+   const isOldTestament = BIBLE_BOOKS.find(b => b.name === bookName)?.testament === 'old';
+   const internalAbbr = Object.entries(BOOK_ABBR_MAP).find(([, info]) => info.name === bookName)?.[0];
 
-  // Resolve presigned download URLs from Prophet file storage
-  const { file: kjvFile } = useFile(PROPHET_FILE_IDS.kjvTxt);
-  const { file: wordsFile } = useFile(PROPHET_FILE_IDS.interlinearWords[internalAbbr ?? 'Ge']);
-  const { file: interlinearTextFile } = useFile(
-    isOldTestament ? PROPHET_FILE_IDS.interlinearHebrew : PROPHET_FILE_IDS.interlinearGreek
-  );
-  const { file: strongsIndexFile } = useFile(PROPHET_FILE_IDS.strongsWordIndex);
-  const { file: strongsLexFile } = useFile(
-    isOldTestament ? PROPHET_FILE_IDS.strongsHebrew : PROPHET_FILE_IDS.strongsGreek
-  );
+   // For static site, data is loaded directly from public/ folder
+   // No need for Prophet file handling or URL registration
 
-  // In dev, relative paths work fine; in prod, wait for presigned URLs
-  const [urlsReady, setUrlsReady] = useState(() => import.meta.env.DEV as boolean);
-  // Tracks whether the per-book words URL is registered for the current book.
-  // Reset on book change so navigation never reuses a stale "ready" flag.
-  const [wordsUrlReady, setWordsUrlReady] = useState(() => import.meta.env.DEV as boolean);
-  useEffect(() => {
-    if (import.meta.env.DEV) return;
-    setWordsUrlReady(false);
-  }, [internalAbbr]);
-
-  // Register presigned URLs as they arrive; mark ready once KJV URL is available
-  useEffect(() => {
-    if (import.meta.env.DEV || !kjvFile?.downloadUrl) return;
-    setDataUrl('kjv.txt', kjvFile.downloadUrl);
-    if (wordsFile?.downloadUrl && internalAbbr) {
-      setDataUrl(`interlinear/words/${internalAbbr}.json`, wordsFile.downloadUrl);
-      setWordsUrlReady(true);
-    }
-    if (interlinearTextFile?.downloadUrl) {
-      setDataUrl(
-        isOldTestament ? 'interlinear/hebrew.json' : 'interlinear/greek.json',
-        interlinearTextFile.downloadUrl
-      );
-    }
-    if (strongsIndexFile?.downloadUrl) {
-      setDataUrl('strongs/word-index.json', strongsIndexFile.downloadUrl);
-    }
-    if (strongsLexFile?.downloadUrl) {
-      setDataUrl(
-        isOldTestament ? 'strongs/hebrew.json' : 'strongs/greek.json',
-        strongsLexFile.downloadUrl
-      );
-    }
-    setUrlsReady(true);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kjvFile?.downloadUrl, wordsFile?.downloadUrl, interlinearTextFile?.downloadUrl, strongsIndexFile?.downloadUrl, strongsLexFile?.downloadUrl]);
-
-  useEffect(() => {
-    if (!urlsReady) return;
-    setLoading(true);
-    Promise.all([
-      getKJVChapter(bookName, chapterNum),
-      getKJVChapterList(bookName),
-    ]).then(([v, c]) => {
-      setVerses(v);
-      setAllChapters(c);
-      setLoading(false);
-    });
-  }, [bookName, chapterNum, urlsReady]);
+   useEffect(() => {
+     if (import.meta.env.DEV) return;
+     // In production, data is already available via public/ folder
+     // No additional setup needed
+   }, []);
 
   // Scroll to and highlight the target verse once data is loaded
   useEffect(() => {
@@ -283,9 +231,9 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
     return () => clearTimeout(timer);
   }, [loading, verses, scrollTarget]);
 
-  const { data: bookmarkData } = useSubscribe(MyBookmarks);
-  const { mutate: doCreateBookmark } = useMutation(createBookmark);
-  const { mutate: doRemoveBookmark } = useMutation(removeBookmark);
+  const [bookmarkData] = useMyBookmarks();
+  const { mutate: doCreateBookmark } = useCreateBookmarkMutation();
+  const { mutate: doRemoveBookmark } = useRemoveBookmarkMutation();
 
   const bookmarks = bookmarkData ?? [];
   const bookmarkRefToId = new Map(bookmarks.map(b => [b.reference, b.id]));
@@ -395,7 +343,7 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
   const [wordDataLoading, setWordDataLoading] = useState(false);
 
   useEffect(() => {
-    if (!interlinearEnabled || loading || verses.length === 0 || !wordsUrlReady) return;
+    if (!interlinearEnabled || loading || verses.length === 0) return;
     const abbr = internalAbbr;
     if (!abbr) return;
     setWordDataLoading(true);
@@ -410,7 +358,7 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
       setWordDataLoading(false);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [interlinearEnabled, loading, verses, internalAbbr, chapterNum, wordsUrlReady]);
+  }, [interlinearEnabled, loading, verses, internalAbbr, chapterNum]);
 
   // Active interlinear word popover
   const [activeWordPopover, setActiveWordPopover] = useState<{
@@ -441,7 +389,7 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
       {/* Header */}
       <div className="glassmorphism rounded-3xl p-8 shadow-xl">
         <div className="flex items-center gap-4 mb-4">
-          <Link href={`/books/${encodeURIComponent(bookName)}`}>
+          <Link to={`/books/${encodeURIComponent(bookName)}`}>
             <button className="p-2 rounded-xl hover:bg-purple-100 transition-colors">
               <ArrowLeft className="w-6 h-6 text-purple-600" />
             </button>
@@ -461,7 +409,7 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
           </div>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <Link href={`/books/${encodeURIComponent(bookName)}`}>
+          <Link to={`/books/${encodeURIComponent(bookName)}`}>
             <button className="btn-secondary text-white py-2 px-5 rounded-xl text-sm font-bold">
               <ArrowLeft className="inline w-4 h-4 mr-1" /> All Chapters
             </button>
@@ -496,12 +444,12 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
           const { prev, next } = getPrevNextChapter(bookName, chapterNum);
           return (
             <div className="flex items-center justify-between mt-3 gap-2">
-              <Link href={buildChapterUrl(prev.book, prev.chapter)}>
+              <Link to={buildChapterUrl(prev.book, prev.chapter)}>
                 <button className="btn-secondary text-white py-2 px-5 rounded-xl text-sm font-bold">
                   <ArrowLeft className="inline w-4 h-4 mr-1" /> {prev.book} {prev.chapter}
                 </button>
               </Link>
-              <Link href={buildChapterUrl(next.book, next.chapter)}>
+              <Link to={buildChapterUrl(next.book, next.chapter)}>
                 <button className="btn-secondary text-white py-2 px-5 rounded-xl text-sm font-bold">
                   {next.book} {next.chapter} <ArrowRight className="inline w-4 h-4 ml-1" />
                 </button>
@@ -647,7 +595,7 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
                   }
                 </button>
                 {isFeatured && (
-                  <Link href={`/practice/${encodeURIComponent(v.reference)}`}>
+                  <Link to={`/practice/${encodeURIComponent(v.reference)}`}>
                     <button className="btn-primary text-white py-1.5 px-3 rounded-lg text-xs font-bold whitespace-nowrap flex-shrink-0 flex items-center gap-1">
                       <Dumbbell className="w-3 h-3" /> Practice
                     </button>
@@ -679,7 +627,7 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
           </h3>
           <div className="flex flex-wrap gap-2">
             {allChapters.map((ch) => (
-              <Link key={ch} href={`/books/${encodeURIComponent(bookName)}/${ch}`}>
+              <Link key={ch} to={`/books/${encodeURIComponent(bookName)}/${ch}`}>
                 <button className={`w-10 h-10 rounded-lg text-sm font-bold transition-all ${
                   ch === chapterNum
                     ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg'
@@ -738,7 +686,7 @@ function BookDetailView({ bookName }: { bookName: string }) {
     return (
       <div className="text-center py-20 glassmorphism rounded-3xl">
         <p className="text-2xl font-bold text-gray-400">Book not found</p>
-        <Link href="/books">
+        <Link to="/books">
           <button className="mt-4 btn-primary text-white py-3 px-6 rounded-xl font-bold">Back to Books</button>
         </Link>
       </div>
@@ -752,7 +700,7 @@ function BookDetailView({ bookName }: { bookName: string }) {
       {/* Header */}
       <div className="glassmorphism rounded-3xl p-8 shadow-xl">
         <div className="flex items-center gap-4 mb-4">
-          <Link href="/books">
+          <Link to="/books">
             <button className="p-2 rounded-xl hover:bg-purple-100 transition-colors">
               <ArrowLeft className="w-6 h-6 text-purple-600" />
             </button>
@@ -773,12 +721,12 @@ function BookDetailView({ bookName }: { bookName: string }) {
           </div>
         </div>
         <div className="flex gap-3 flex-wrap mt-4">
-          <Link href="/books">
+          <Link to="/books">
             <button className="btn-secondary text-white py-2 px-5 rounded-xl text-sm font-bold">
               <ArrowLeft className="inline w-4 h-4 mr-1" /> All Books
             </button>
           </Link>
-          <Link href="/practice">
+          <Link to="/practice">
             <button className="btn-primary text-white py-2 px-5 rounded-xl text-sm font-bold">
               <Dumbbell className="inline w-4 h-4 mr-1" /> Practice All Verses
             </button>
@@ -795,7 +743,7 @@ function BookDetailView({ bookName }: { bookName: string }) {
           {Array.from({ length: book.chapters }, (_, i) => i + 1).map((ch) => {
             const hasFeatured = chaptersWithVerses.has(ch);
             return (
-              <Link key={ch} href={`/books/${encodeURIComponent(book.name)}/${ch}`}>
+              <Link key={ch} to={`/books/${encodeURIComponent(book.name)}/${ch}`}>
                 <button className={`w-full aspect-square rounded-xl text-sm font-bold transition-all hover:scale-105 ${
                   hasFeatured
                     ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg'
@@ -833,7 +781,7 @@ function BookDetailView({ bookName }: { bookName: string }) {
                   </div>
                   <p className="verse-text text-gray-700 italic text-sm leading-relaxed">"{verse.text}"</p>
                 </div>
-                <Link href={`/practice/${encodeURIComponent(verse.reference)}`}>
+                <Link to={`/practice/${encodeURIComponent(verse.reference)}`}>
                   <button className="btn-primary text-white py-2 px-4 rounded-lg text-sm font-bold whitespace-nowrap flex-shrink-0">
                     Practice
                   </button>
@@ -957,7 +905,7 @@ function BooksGrid() {
           const hasFeatured = booksWithVerses.has(book.name);
           const featuredCount = KJV_VERSES.filter(v => v.book === book.name).length;
           return (
-            <Link key={book.name} href={`/books/${encodeURIComponent(book.name)}`}>
+            <Link key={book.name} to={`/books/${encodeURIComponent(book.name)}`}>
               <div className={`glassmorphism rounded-2xl p-6 card-hover cursor-pointer ${hasFeatured ? 'border-2 border-purple-100' : ''}`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
