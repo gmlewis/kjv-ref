@@ -440,28 +440,4 @@ export function usePresence() {
   };
 }
 
-// Mock routing hooks (will be replaced with react-router-dom)
-export function useLocation() {
-  return [window.location.pathname, (path: string) => { window.history.pushState({}, '', path); window.dispatchEvent(new PopStateEvent('popstate')); }];
-}
-
-export function useParams() {
-  // Simple implementation - in practice this will be replaced by react-router-dom
-  const path = window.location.pathname;
-  const params: Record<string, string> = {};
-  
-  // Extract simple params like /books/:book/:chapter
-  const matches = path.match(/^\/(\w+)\/([^\/]+)(?:\/([^\/]+))?/);
-  if (matches) {
-    if (matches[1]) params.book = matches[1];
-    if (matches[2]) params.chapter = matches[2];
-    if (matches[3]) params.verse = matches[3];
-  }
-  
-  return params;
-}
-
-// Mock useRoute (simplified)
-export function useRoute(path: string) {
-  return [window.location.pathname === path, {}];
-}
+// (Routing hooks useParams/useLocation are provided by react-router-dom.)

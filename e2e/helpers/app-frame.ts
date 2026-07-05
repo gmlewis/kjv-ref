@@ -1,72 +1,55 @@
-import type { Page, Frame, Locator } from '@playwright/test';
+import type { Page } from '@playwright/test';
 
 /**
- * The KJV Memorize app runs inside an iframe injected by the Prophet platform.
- * This helper finds and returns the Frame containing the app.
+ * The KJV Ref app is a static SPA — no iframe, no Prophet platform.
+ * These helpers navigate the app and wait for it to be ready.
  *
- * Strategy: look for a non-main frame whose DOM contains our app's navigation.
- * Falls back to the main frame if no iframe is found (defensive).
+ * `openApp` returns the Page itself (tests call page.locator() directly).
+ * The name and signature are preserved so existing specs keep working with
+ * minimal edits — they just receive a Page where they previously received a
+ * Frame, and both expose the same locator API.
  */
-export async function getAppFrame(page: Page): Promise<Frame> {
-  const deadline = Date.now() + 20_000;
-
-  while (Date.now() < deadline) {
-    for (const frame of page.frames()) {
-      if (frame === page.mainFrame()) continue;
-      // Our app's nav always contains the word "Practice"
-      try {
-        const count = await frame.locator('text=Practice').count();
-        if (count > 0) return frame;
-      } catch {
-        // Frame detached or not yet ready — keep polling
-      }
-    }
-    await page.waitForTimeout(300);
-  }
-
-  // Fallback: return main frame (e.g., if architecture changes)
-  return page.mainFrame();
-}
 
 /**
- * Navigate to the app and wait for the app frame to be ready.
- * Returns the frame so tests can call frame.locator() directly.
+ * Navigate to the app and wait for the nav to be ready.
+ * Returns the page so tests can call page.locator() directly.
+ *
+ * Default path is the app root under the /kjv-ref/ subpath (matches the
+ * production GitHub Pages URL and the local `vite preview` base).
  */
-export async function openApp(page: Page, path = '/exp/kjv-memorize'): Promise<Frame> {
+export async function openApp(page: Page, path: string = '/kjv-ref/'): Promise<Page> {
   await page.goto(path, { waitUntil: 'domcontentloaded' });
-  const frame = await getAppFrame(page);
-  // Wait for the nav to be visible before returning
-  await frame.locator('nav').waitFor({ state: 'visible', timeout: 20_000 });
-  return frame;
+  await page.locator('nav').waitFor({ state: 'visible', timeout: 20_000 });
+  return page;
 }
 
 /**
  * Click a navigation link by its label text and wait for the target heading.
  */
 export async function navigateTo(
-  frame: Frame,
+  page: Page,
   label: string,
   expectedHeading: string,
 ): Promise<void> {
   // Desktop nav: find link inside nav
-  const navLink = frame.locator(`nav >> text="${label}"`).first();
+  const navLink = page.locator(`nav >> text="${label}"`).first();
   if (await navLink.isVisible({ timeout: 2_000 }).catch(() => false)) {
     await navLink.click();
   } else {
     // Mobile: open hamburger, then click
-    const hamburger = frame.locator('nav button').first();
+    const hamburger = page.locator('nav button').first();
     await hamburger.click();
-    await frame.locator(`text="${label}"`).first().click();
+    await page.locator(`text="${label}"`).first().click();
   }
-  await frame.locator(`text=${expectedHeading}`).first().waitFor({ state: 'visible', timeout: 10_000 });
+  await page.locator(`text=${expectedHeading}`).first().waitFor({ state: 'visible', timeout: 10_000 });
 }
 
 /**
  * Wait for a toast / notification to disappear, or a loading spinner.
  */
-export async function waitForIdle(frame: Frame): Promise<void> {
+export async function waitForIdle(page: Page): Promise<void> {
   // If there's a loading spinner, wait for it to go away
-  const spinner = frame.locator('[class*="animate-spin"]');
+  const spinner = page.locator('[class*="animate-spin"]');
   try {
     await spinner.waitFor({ state: 'hidden', timeout: 10_000 });
   } catch {

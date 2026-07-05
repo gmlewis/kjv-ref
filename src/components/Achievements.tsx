@@ -3,7 +3,7 @@ import {
   Trophy, Star, Award, Heart, Flame, BookOpen, Target,
   Calendar, Crown, Shield, Sparkles, Dumbbell, Lock,
 } from 'lucide-react';
-import { useMyAchievements, useMySessions, useMyProgress } from '../../hooks';
+import { useMyAchievements, useMySessions, useMyProgress } from '../hooks';
 
 type AchievementType = 'first-verse' | 'ten-verses' | 'fifty-verses' | 'hundred-verses' |
   'seven-day-streak' | 'thirty-day-streak' | 'master-level' | 'daily-goal' |

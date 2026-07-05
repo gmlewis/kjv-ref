@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { BookOpen, TrendingUp, Calendar, Target, Sparkles, Flame, Star, Heart, Crown, Dumbbell, Bookmark } from 'lucide-react';
-import { useMyProgress, useMySessions, useMyAchievements, useMyBookmarks } from '../../hooks';
+import { useMyProgress, useMySessions, useMyAchievements, useMyBookmarks } from '../hooks';
 import { KJV_VERSES } from '../data/kjv-verses';
 
 const FEATURED_VERSES = [

@@ -6,9 +6,13 @@ import Statistics from "./components/Statistics";
 import Achievements from "./components/Achievements";
 import Navigation from "./components/Navigation";
 
+// Vite sets BASE_URL from `base` in vite.config.ts ('/kjv-ref/' in prod, '/' in dev).
+// BrowserRouter needs it as basename so routes match under the project subpath.
+const ROUTER_BASENAME = import.meta.env.BASE_URL.replace(/\/$/, '') || '/';
+
 function App() {
   return (
-    <Router>
+    <Router basename={ROUTER_BASENAME}>
       <div className="min-h-screen">
         <Navigation />
         <main className="container mx-auto px-4 py-8">

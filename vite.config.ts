@@ -12,7 +12,7 @@ export default defineConfig({
   css: {
     postcss: './postcss.config.js',
   },
-  base: '/kjv-memorize/',
+  base: '/kjv-ref/',
   test: {
     environment: 'jsdom',
     globals: true,

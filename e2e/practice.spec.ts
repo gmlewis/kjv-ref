@@ -1,4 +1,4 @@
-import { test, expect, type Frame } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { openApp, navigateTo } from './helpers/app-frame';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -11,10 +11,10 @@ async function openPractice(page: Parameters<typeof openApp>[0]) {
 }
 
 /** Select a practice mode by its label */
-async function selectMode(frame: Frame, label: string) {
-  await frame.locator(`text=${label}`).first().click();
+async function selectMode(page: Page, label: string) {
+  await page.locator(`text=${label}`).first().click();
   // Wait for the verse card to appear (has a reference like "John 3:16")
-  await frame.locator('text=Verse 1 of').waitFor({ state: 'visible', timeout: 10_000 });
+  await page.locator('text=Verse 1 of').waitFor({ state: 'visible', timeout: 10_000 });
 }
 
 // ─── Mode Selector ─────────────────────────────────────────────────────────────

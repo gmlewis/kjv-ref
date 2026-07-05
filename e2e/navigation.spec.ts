@@ -11,7 +11,8 @@ test.describe('Navigation', () => {
   test('desktop nav shows all five sections', async ({ page }) => {
     const frame = await openApp(page);
     const nav = frame.locator('nav');
-    for (const label of ['Dashboard', 'Practice', 'Books', 'Statistics', 'Achievements']) {
+    // Nav labels are: Dashboard, Practice, Books, Stats, Awards
+    for (const label of ['Dashboard', 'Practice', 'Books', 'Stats', 'Awards']) {
       await expect(nav.locator(`text=${label}`).first()).toBeVisible();
     }
   });
@@ -30,12 +31,12 @@ test.describe('Navigation', () => {
 
   test('navigates to Statistics page', async ({ page }) => {
     const frame = await openApp(page);
-    await navigateTo(frame, 'Statistics', 'Your Statistics');
+    await navigateTo(frame, 'Stats', 'Your Statistics');
   });
 
   test('navigates to Achievements page', async ({ page }) => {
     const frame = await openApp(page);
-    await navigateTo(frame, 'Achievements', 'Achievements');
+    await navigateTo(frame, 'Awards', 'Achievements');
     await expect(frame.locator('text=of').first()).toBeVisible(); // "X of Y earned"
   });
 
@@ -50,14 +51,18 @@ test.describe('Navigation', () => {
     await page.setViewportSize({ width: 375, height: 812 });
     const frame = await openApp(page);
 
-    // The hamburger button should be visible
-    const hamburger = frame.locator('nav button').first();
+    // The hamburger is the third nav button (0=desktop dark-mode, 1=mobile
+    // dark-mode, 2=hamburger). On mobile, button[0] is hidden (it's in the
+    // desktop-only section), so buttons 1 and 2 are the visible mobile controls.
+    const hamburger = frame.locator('nav button').nth(2);
     await expect(hamburger).toBeVisible();
     await hamburger.click();
 
-    // Menu items should appear
-    await expect(frame.locator('text=Practice').first()).toBeVisible();
-    await frame.locator('text=Statistics').first().click();
+    // The mobile menu is a div.md:hidden that becomes visible after clicking.
+    // Its items are <div> elements (not <a>), scoped inside the menu container.
+    const mobileMenu = frame.locator('div.md\\:hidden').last();
+    await expect(mobileMenu.locator('text=Practice').first()).toBeVisible();
+    await mobileMenu.locator('text=Stats').first().click();
     await expect(frame.locator('text=Your Statistics').first()).toBeVisible();
   });
 });

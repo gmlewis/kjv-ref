@@ -1,5 +1,5 @@
 {
-  "name": "kjv-memorize",
+  "name": "kjv-ref",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
@@ -13,8 +13,6 @@
     "e2e": "playwright test",
     "e2e:headed": "playwright test --headed",
     "e2e:ui": "playwright test --ui",
-    "e2e:setup": "bun run scripts/grab-session.ts",
-    "e2e:setup:manual": "bun run e2e/global-setup.ts",
     "e2e:report": "playwright show-report e2e/report"
   },
   "dependencies": {

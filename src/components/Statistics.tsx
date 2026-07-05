@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { useMyProgress, useMySessions } from '../../hooks';
+import { useMyProgress, useMySessions } from '../hooks';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area,

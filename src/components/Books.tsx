@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Link } from 'react-router-dom';
-import { useMyBookmarks, useCreateBookmarkMutation, useRemoveBookmarkMutation, useParams } from '../../hooks';
+import { Link, useParams } from 'react-router-dom';
+import { useMyBookmarks, useCreateBookmarkMutation, useRemoveBookmarkMutation } from '../hooks';
 import { ChevronRight, BookOpen, Search, Star, ArrowLeft, ArrowRight, Dumbbell, Hash, Loader2, X, Bookmark, BookmarkCheck, ExternalLink } from 'lucide-react';
 
 import { KJV_VERSES, getVersesByBook } from '../data/kjv-verses';
@@ -395,8 +395,7 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
             </button>
           </Link>
           <div>
-            <p className="text-sm text-gray-500 font-semibold">{bookName}</p>
-            <h1 className="text-3xl font-bold gradient-text">Chapter {chapterNum}</h1>
+            <h1 className="text-3xl font-bold gradient-text">{bookName} Chapter {chapterNum}</h1>
             <p className="text-sm text-gray-400">
               {verses.length} verse{verses.length !== 1 ? 's' : ''}
               {featuredRefs.size > 0 ? ` · ${featuredRefs.size} featured` : ''}
