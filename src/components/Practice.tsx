@@ -898,14 +898,14 @@ function Practice() {
                 My Collection ({bookmarkedRefs.size})
               </button>
             </div>
-            {bookmarkedRefs.size > 0 && (
+            {verses.length > 0 && (
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowCollectionList(s => !s)}
                   className="text-xs font-semibold text-purple-600 hover:text-purple-800 flex items-center gap-1 transition-colors"
                 >
-                  <Star className="w-3 h-3" />
-                  {showCollectionList ? 'Hide' : 'Show'} {bookmarkedRefs.size} verse{bookmarkedRefs.size !== 1 ? 's' : ''} in collection
+                  {collectionFilter && <Star className="w-3 h-3" />}
+                  {showCollectionList ? 'Hide' : 'Show'} {verses.length} verse{verses.length !== 1 ? 's' : ''} in collection
                 </button>
               </div>
             )}
@@ -938,40 +938,33 @@ function Practice() {
                 </p>
               </div>
 
-              {collectionFilter && showCollectionList && bookmarkedRefs.size > 0 && (
+              {showCollectionList && verses.length > 0 && (
                 <div className="glassmorphism rounded-2xl p-4 shadow-lg">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="font-bold text-gray-800 text-sm flex items-center gap-1.5">
-                      <Star className="w-4 h-4 text-yellow-500" /> My Collection
+                      <Star className="w-4 h-4 text-yellow-500" /> {verses.length} verse{verses.length !== 1 ? 's' : ''} in collection
                     </h3>
                     <button onClick={() => setShowCollectionList(false)} className="p-1 rounded-lg hover:bg-purple-100 transition-colors" title="Close">
                       <X className="w-4 h-4 text-gray-400" />
                     </button>
                   </div>
                   <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
-                    {[...bookmarkedRefs]
+                    {[...verses]
                       .sort((a, b) => {
-                        const pa = parseVerseRef(a);
-                        const pb = parseVerseRef(b);
-                        if (!pa || !pb) return 0;
-                        if (pa.book !== pb.book) return pa.book.localeCompare(pb.book);
-                        if (pa.chapter !== pb.chapter) return pa.chapter - pb.chapter;
-                        return pa.verse - pb.verse;
+                        if (a.book !== b.book) return a.book.localeCompare(b.book);
+                        if (a.chapter !== b.chapter) return a.chapter - b.chapter;
+                        return a.verse - b.verse;
                       })
-                      .map((ref) => {
-                        const parsed = parseVerseRef(ref);
-                        if (!parsed) return null;
-                        return (
+                      .map((v) => (
                           <Link
-                            key={ref}
-                            to={`/books/${encodeURIComponent(parsed.book)}/${parsed.chapter}#v${parsed.verse}`}
+                            key={v.reference}
+                            to={`/books/${encodeURIComponent(v.book)}/${v.chapter}#v${v.verse}`}
                             className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-purple-50 transition-colors group"
                           >
-                            <Star className="w-3 h-3 text-yellow-400 fill-yellow-400 flex-shrink-0" />
-                            <span className="text-sm font-semibold text-purple-700 group-hover:text-purple-900">{ref}</span>
+                            {bookmarkedRefs.has(v.reference) && <Star className="w-3 h-3 text-yellow-400 fill-yellow-400 flex-shrink-0" />}
+                            <span className="text-sm font-semibold text-purple-700 group-hover:text-purple-900">{v.reference}</span>
                           </Link>
-                        );
-                      })}
+                      ))}
                   </div>
                 </div>
               )}
