@@ -212,14 +212,17 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
    const isOldTestament = BIBLE_BOOKS.find(b => b.name === bookName)?.testament === 'old';
    const internalAbbr = Object.entries(BOOK_ABBR_MAP).find(([, info]) => info.name === bookName)?.[0];
 
-   // For static site, data is loaded directly from public/ folder
-   // No need for Prophet file handling or URL registration
-
    useEffect(() => {
-     if (import.meta.env.DEV) return;
-     // In production, data is already available via public/ folder
-     // No additional setup needed
-   }, []);
+     setLoading(true);
+     Promise.all([
+       getKJVChapter(bookName, chapterNum),
+       getKJVChapterList(bookName),
+     ]).then(([v, c]) => {
+       setVerses(v);
+       setAllChapters(c);
+       setLoading(false);
+     });
+   }, [bookName, chapterNum]);
 
   // Scroll to and highlight the target verse once data is loaded
   useEffect(() => {
