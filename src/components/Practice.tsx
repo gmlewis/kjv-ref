@@ -5,8 +5,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   CheckCircle, XCircle, RotateCcw, Sparkles, Zap, Target,
   Award, BookOpen, ArrowLeft, ChevronRight, Shuffle, Filter,
-  Minus, Trophy, Layers, AlignLeft, Eye, Hash, Star,
+  Minus, Trophy, Layers, AlignLeft, Eye, Hash, Star, X,
 } from 'lucide-react';
+import { parseVerseRef } from '../utils/urlHelpers';
 
 import { KJV_VERSES, type KJVVerse } from '../data/kjv-verses';
 import { getKJVVerse } from '../data/kjv-bible';
@@ -704,6 +705,7 @@ function Practice() {
   const [bookmarkData] = useMyBookmarks();
   const [difficultyFilter, setDifficultyFilter] = useState<"all" | "easy" | "medium" | "hard">("all");
   const [collectionFilter, setCollectionFilter] = useState(false);
+  const [showCollectionList, setShowCollectionList] = useState(false);
   const [extraCollectionVerses, setExtraCollectionVerses] = useState<KJVVerse[]>([]);
   const { mutate: doCreateSession } = useCreateSessionMutation();
   const { mutate: doAwardAchievement } = useAwardAchievementMutation();
@@ -872,7 +874,7 @@ function Practice() {
             <div className="flex items-center gap-3 flex-wrap">
               <span className="text-sm font-semibold text-gray-600 flex items-center gap-1"><Filter className="w-4 h-4" /> Difficulty:</span>
               {(['all', 'easy', 'medium', 'hard'] as const).map((d) => (
-                <button key={d} onClick={() => { setDifficultyFilter(d); setCollectionFilter(false); }}
+                <button key={d} onClick={() => { setDifficultyFilter(d); setCollectionFilter(false); setShowCollectionList(false); }}
                   className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
                     !collectionFilter && difficultyFilter === d
                       ? d === 'easy' ? 'bg-green-500 text-white shadow-md'
@@ -885,7 +887,7 @@ function Practice() {
                 </button>
               ))}
               <button
-                onClick={() => { setCollectionFilter(c => !c); }}
+                onClick={() => { setCollectionFilter(c => !c); if (collectionFilter) setShowCollectionList(false); }}
                 className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 ${
                   collectionFilter
                     ? 'bg-gradient-to-r from-violet-500 to-purple-600 text-white shadow-md'
@@ -897,9 +899,15 @@ function Practice() {
               </button>
             </div>
             {collectionFilter && bookmarkedRefs.size > 0 && (
-              <p className="text-xs text-purple-600 font-semibold flex items-center gap-1">
-                <Star className="w-3 h-3" /> {bookmarkedRefs.size} verse{bookmarkedRefs.size !== 1 ? 's' : ''} in your collection
-              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowCollectionList(s => !s)}
+                  className="text-xs font-semibold text-purple-600 hover:text-purple-800 flex items-center gap-1 transition-colors"
+                >
+                  <Star className="w-3 h-3" />
+                  {showCollectionList ? 'Hide' : 'Show'} {bookmarkedRefs.size} verse{bookmarkedRefs.size !== 1 ? 's' : ''} in collection
+                </button>
+              </div>
             )}
           </div>
         )}
@@ -929,6 +937,45 @@ function Practice() {
                   {dueCount > 0 && <span className="text-orange-600 font-semibold"> · {dueCount} due for review</span>}
                 </p>
               </div>
+
+              {collectionFilter && showCollectionList && bookmarkedRefs.size > 0 && (
+                <div className="glassmorphism rounded-2xl p-4 shadow-lg">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-bold text-gray-800 text-sm flex items-center gap-1.5">
+                      <Star className="w-4 h-4 text-yellow-500" /> My Collection
+                    </h3>
+                    <button onClick={() => setShowCollectionList(false)} className="p-1 rounded-lg hover:bg-purple-100 transition-colors" title="Close">
+                      <X className="w-4 h-4 text-gray-400" />
+                    </button>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
+                    {[...bookmarkedRefs]
+                      .sort((a, b) => {
+                        const pa = parseVerseRef(a);
+                        const pb = parseVerseRef(b);
+                        if (!pa || !pb) return 0;
+                        if (pa.book !== pb.book) return pa.book.localeCompare(pb.book);
+                        if (pa.chapter !== pb.chapter) return pa.chapter - pb.chapter;
+                        return pa.verse - pb.verse;
+                      })
+                      .map((ref) => {
+                        const parsed = parseVerseRef(ref);
+                        if (!parsed) return null;
+                        return (
+                          <Link
+                            key={ref}
+                            to={`/books/${encodeURIComponent(parsed.book)}/${parsed.chapter}#v${parsed.verse}`}
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-purple-50 transition-colors group"
+                          >
+                            <Star className="w-3 h-3 text-yellow-400 fill-yellow-400 flex-shrink-0" />
+                            <span className="text-sm font-semibold text-purple-700 group-hover:text-purple-900">{ref}</span>
+                          </Link>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
               <ModeSelector onSelect={setMode} dueCount={dueCount} />
             </>
           )}
