@@ -13,15 +13,15 @@ test.describe('Dashboard', () => {
 
   test('shows stat cards (verses tracked, mastery rate, etc.)', async ({ page }) => {
     const frame = await openApp(page);
-    // Stats cards use uppercase tracking labels
-    await expect(frame.locator('text=Mastery Rate').first()).toBeVisible();
-    await expect(frame.locator('text=Sessions').first()).toBeVisible();
+    // Stats cards have uppercase titles
+    await expect(frame.locator('text=Verses Mastered').first()).toBeVisible();
+    await expect(frame.locator('text=Practice Sessions').first()).toBeVisible();
   });
 
   test('shows quick-action / featured verse cards', async ({ page }) => {
     const frame = await openApp(page);
     // Featured section heading
-    await expect(frame.locator('text=Featured').first()).toBeVisible();
+    await expect(frame.locator('text=Popular Verses to Memorize').first()).toBeVisible();
   });
 
   test('Start Practice button navigates to practice mode selector', async ({ page }) => {
