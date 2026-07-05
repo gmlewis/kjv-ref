@@ -5,7 +5,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   CheckCircle, XCircle, RotateCcw, Sparkles, Zap, Target,
   Award, BookOpen, ArrowLeft, ChevronRight, Shuffle, Filter,
-  Minus, Trophy, Layers, AlignLeft, Eye, Hash, Bookmark,
+  Minus, Trophy, Layers, AlignLeft, Eye, Hash, Star,
 } from 'lucide-react';
 
 import { KJV_VERSES, type KJVVerse } from '../data/kjv-verses';
@@ -892,13 +892,13 @@ function Practice() {
                     : 'glassmorphism text-gray-600 hover:shadow-md'
                 }`}
               >
-                <Bookmark className="w-3.5 h-3.5" />
+                <Star className="w-3.5 h-3.5" />
                 My Collection ({bookmarkedRefs.size})
               </button>
             </div>
             {collectionFilter && bookmarkedRefs.size > 0 && (
               <p className="text-xs text-purple-600 font-semibold flex items-center gap-1">
-                <Bookmark className="w-3 h-3" /> {bookmarkedRefs.size} verse{bookmarkedRefs.size !== 1 ? 's' : ''} in your collection
+                <Star className="w-3 h-3" /> {bookmarkedRefs.size} verse{bookmarkedRefs.size !== 1 ? 's' : ''} in your collection
               </p>
             )}
           </div>
@@ -912,9 +912,9 @@ function Practice() {
         <>
           {collectionFilter && bookmarkedRefs.size === 0 ? (
             <div className="glassmorphism rounded-2xl p-12 shadow-lg text-center space-y-4">
-              <Bookmark className="w-12 h-12 text-purple-300 mx-auto" />
-              <p className="text-gray-600 font-semibold">No bookmarked verses yet</p>
-              <p className="text-gray-400 text-sm">Tap the bookmark icon on any verse in the Books view to add it here.</p>
+              <Star className="w-12 h-12 text-purple-300 mx-auto" />
+              <p className="text-gray-600 font-semibold">No favorites yet</p>
+              <p className="text-gray-400 text-sm">Tap the star icon on any verse in the Books view to add it here.</p>
               <Link to="/books">
                 <button className="btn-primary text-white py-2 px-6 rounded-xl font-bold">Browse Books</button>
               </Link>

@@ -18,12 +18,7 @@
           var restored = l.search
             .slice(2)                          // drop '?/'
             .replace(/~and~/g, '&');           // restore '&'
-          var hash = '';
-          var hashIdx = restored.indexOf('#');
-          if (hashIdx >= 0) {
-            hash = restored.slice(hashIdx);
-            restored = restored.slice(0, hashIdx);
-          }
+          var hash = l.hash || '';
           var query = '';
           var qIdx = restored.indexOf('&');
           if (qIdx >= 0) {

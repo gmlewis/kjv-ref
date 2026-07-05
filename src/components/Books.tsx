@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useParams } from 'react-router-dom';
 import { useMyBookmarks, useCreateBookmarkMutation, useRemoveBookmarkMutation } from '../hooks';
-import { ChevronRight, BookOpen, Search, Star, ArrowLeft, ArrowRight, Dumbbell, Hash, Loader2, X, Bookmark, BookmarkCheck, ExternalLink, LinkIcon } from 'lucide-react';
+import { ChevronRight, BookOpen, Search, Star, ArrowLeft, ArrowRight, Dumbbell, Hash, Loader2, X, ExternalLink, LinkIcon } from 'lucide-react';
 
 import { KJV_VERSES, getVersesByBook } from '../data/kjv-verses';
 import { getKJVChapter, getKJVChapterList, type KJVVerseEntry, BOOK_ABBR_MAP } from '../data/kjv-bible';
@@ -230,7 +230,11 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
     if (loading || verses.length === 0 || scrollTarget === null) return;
     setHighlightedVerse(scrollTarget);
     const el = document.getElementById(verseAnchorId(scrollTarget));
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (el) {
+      const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
+      const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
+      window.scrollTo({ top, behavior: 'smooth' });
+    }
     const timer = setTimeout(() => setHighlightedVerse(null), 2500);
     return () => clearTimeout(timer);
   }, [loading, verses, scrollTarget]);
@@ -405,7 +409,7 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
               {featuredRefs.size > 0 ? ` · ${featuredRefs.size} featured` : ''}
               {bookmarkedInChapter > 0 && (
                 <span className="ml-2 inline-flex items-center gap-1 text-purple-500 font-semibold">
-                  <Bookmark className="w-3 h-3" /> {bookmarkedInChapter} bookmarked
+                  <Star className="w-3 h-3" /> {bookmarkedInChapter} favorited
                 </span>
               )}
             </p>
@@ -481,7 +485,21 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
               } ${highlightedVerse === v.verse ? 'ring-4 ring-purple-400 ring-offset-2 bg-purple-50' : ''}`}
             >
               <div className="flex items-start gap-3">
-                <span className="font-bold text-purple-500 text-sm min-w-[2.5rem] pt-0.5">{v.verse}</span>
+                <span
+                  onClick={() => {
+                    const hash = `#v${v.verse}`;
+                    history.replaceState(null, '', hash);
+                    const el = document.getElementById(verseAnchorId(v.verse));
+                    if (el) {
+                      const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
+                      const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
+                      window.scrollTo({ top, behavior: 'smooth' });
+                    }
+                    setHighlightedVerse(v.verse);
+                    setTimeout(() => setHighlightedVerse(null), 2500);
+                  }}
+                  className="font-bold text-purple-500 text-sm min-w-[2.5rem] pt-0.5 cursor-pointer hover:text-purple-700 transition-colors"
+                >{v.verse}</span>
                 <div className="flex-1 min-w-0">
                   {strongsEnabled ? (
                     <p className="verse-text text-gray-800 leading-relaxed">
@@ -590,11 +608,11 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
                 <button
                   onClick={() => handleBookmarkToggle(v.reference)}
                   className="p-1.5 rounded-lg hover:bg-purple-50 transition-colors flex-shrink-0"
-                  title={bookmarkedRefs.has(v.reference) ? 'Remove bookmark' : 'Bookmark this verse'}
+                  title={bookmarkedRefs.has(v.reference) ? 'Remove from favorites' : 'Add to favorites'}
                 >
                   {bookmarkedRefs.has(v.reference)
-                    ? <BookmarkCheck className="w-4 h-4 text-purple-600" />
-                    : <Bookmark className="w-4 h-4 text-gray-400 hover:text-purple-400" />
+                    ? <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
+                    : <Star className="w-4 h-4 text-gray-400 hover:text-yellow-400" />
                   }
                 </button>
                 <button

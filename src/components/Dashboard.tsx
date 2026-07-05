@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { BookOpen, TrendingUp, Calendar, Target, Sparkles, Flame, Star, Heart, Crown, Dumbbell, Bookmark } from 'lucide-react';
+import { BookOpen, TrendingUp, Calendar, Target, Sparkles, Flame, Star, Heart, Crown, Dumbbell } from 'lucide-react';
 import { useMyProgress, useMySessions, useMyAchievements, useMyBookmarks } from '../hooks';
 import { KJV_VERSES } from '../data/kjv-verses';
 
@@ -37,7 +37,7 @@ function Dashboard() {
     { title: 'In Progress', value: learningCount, icon: TrendingUp, gradient: 'from-blue-400 to-indigo-600', link: '/practice', description: 'Currently learning' },
     { title: 'Practice Sessions', value: (sessions ?? []).length, icon: Flame, gradient: 'from-orange-400 to-red-600', link: '/statistics', description: 'Total sessions' },
     { title: 'Achievements', value: (achievements ?? []).length, icon: Star, gradient: 'from-yellow-400 to-amber-600', link: '/achievements', description: 'Badges earned' },
-    { title: 'My Collection', value: bookmarkCount, icon: Bookmark, gradient: 'from-violet-400 to-purple-600', link: '/practice?collection=1', description: 'Bookmarked verses' },
+    { title: 'My Collection', value: bookmarkCount, icon: Star, gradient: 'from-violet-400 to-purple-600', link: '/practice?collection=1', description: 'Favorited verses' },
   ];
 
   return (
