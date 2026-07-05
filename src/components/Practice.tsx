@@ -8,6 +8,9 @@ import {
   Minus, Trophy, Layers, AlignLeft, Eye, Hash, Star, X,
 } from 'lucide-react';
 import { parseVerseRef } from '../utils/urlHelpers';
+import { BIBLE_BOOKS } from '../utils/bibleBooks';
+
+const BOOK_ORDER = new Map(BIBLE_BOOKS.map((b, i) => [b.name, i]));
 
 import { KJV_VERSES, type KJVVerse } from '../data/kjv-verses';
 import { getKJVVerse } from '../data/kjv-bible';
@@ -703,8 +706,14 @@ function Practice() {
   const [progressData] = useMyProgress();
   const [dueReviewData] = useDueReviews();
   const [bookmarkData] = useMyBookmarks();
-  const [difficultyFilter, setDifficultyFilter] = useState<"all" | "easy" | "medium" | "hard">("all");
-  const [collectionFilter, setCollectionFilter] = useState(false);
+
+  // Initialize filter from URL hash so users can bookmark filter state
+  const [difficultyFilter, setDifficultyFilter] = useState<"all" | "easy" | "medium" | "hard">(() => {
+    const h = window.location.hash.replace('#', '');
+    if (['easy', 'medium', 'hard'].includes(h)) return h as "easy" | "medium" | "hard";
+    return 'all';
+  });
+  const [collectionFilter, setCollectionFilter] = useState(() => window.location.hash === '#my-collection');
   const [showCollectionList, setShowCollectionList] = useState(false);
   const [extraCollectionVerses, setExtraCollectionVerses] = useState<KJVVerse[]>([]);
   const { mutate: doCreateSession } = useCreateSessionMutation();
@@ -720,6 +729,29 @@ function Practice() {
   const [sessionComplete, setSessionComplete] = useState(false);
   const [sessionKey, setSessionKey] = useState(0);
   const [finalScore, setFinalScore] = useState<{ score: number; total: number }>({ score: 0, total: 0 });
+
+  // Update URL hash when filter changes so users can bookmark the filter
+  useEffect(() => {
+    const hash = collectionFilter ? '#my-collection' : `#${difficultyFilter}`;
+    if (window.location.hash !== hash) {
+      history.replaceState(null, '', hash);
+    }
+  }, [difficultyFilter, collectionFilter]);
+
+  // Sync filter state from browser back/forward navigation
+  useEffect(() => {
+    const onHashChange = () => {
+      const h = window.location.hash.replace('#', '');
+      if (h === 'my-collection') {
+        setCollectionFilter(true);
+      } else if (['easy', 'medium', 'hard', 'all'].includes(h)) {
+        setCollectionFilter(false);
+        setDifficultyFilter(h as "all" | "easy" | "medium" | "hard");
+      }
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
 
   // Bookmarked references set
   const bookmarkedRefs = useMemo<Set<string>>(() => new Set((bookmarkData ?? []).map(b => b.reference as string)), [bookmarkData]);
@@ -951,7 +983,9 @@ function Practice() {
                   <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
                     {[...verses]
                       .sort((a, b) => {
-                        if (a.book !== b.book) return a.book.localeCompare(b.book);
+                        const oa = BOOK_ORDER.get(a.book) ?? 999;
+                        const ob = BOOK_ORDER.get(b.book) ?? 999;
+                        if (oa !== ob) return oa - ob;
                         if (a.chapter !== b.chapter) return a.chapter - b.chapter;
                         return a.verse - b.verse;
                       })
