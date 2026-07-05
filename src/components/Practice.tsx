@@ -898,7 +898,7 @@ function Practice() {
                 My Collection ({bookmarkedRefs.size})
               </button>
             </div>
-            {collectionFilter && bookmarkedRefs.size > 0 && (
+            {bookmarkedRefs.size > 0 && (
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowCollectionList(s => !s)}
