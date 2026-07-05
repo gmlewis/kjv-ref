@@ -442,6 +442,33 @@ function PracticeSession({
     }
   }, [idx, verses.length, score, total, results, onComplete]);
 
+  const skipVerse = useCallback(() => {
+    recordResult(false);
+    setTimeout(() => advance(), 100);
+  }, [recordResult, advance]);
+
+  // Keyboard navigation for multiple-choice and reference modes
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (mode !== 'multiple-choice' && mode !== 'reference') return;
+      if (revealed) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); advance(); }
+        return;
+      }
+      const options = mode === 'reference' ? refOptions : textOptions;
+      if (['1', '2', '3', '4'].includes(e.key)) {
+        const idx = parseInt(e.key) - 1;
+        if (idx < options.length) {
+          const option = options[idx];
+          const isCorrect = mode === 'reference' ? option === verse.reference : option === verse.text;
+          handleChoiceSelect(option, isCorrect);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mode, revealed, textOptions, refOptions, verse, advance]);
+
   const handleRecallCheck = () => {
     const pct = scoreRecall(userInput, verse.text);
     setRecallScore(pct);
@@ -584,12 +611,20 @@ function PracticeSession({
 
         {/* Next button */}
         {revealed && (
-          <button
-            onClick={advance}
-            className="mt-6 w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2"
-          >
-            {idx + 1 >= verses.length ? <><Trophy className="w-5 h-5" /> Finish Session</> : <>Next Verse <ChevronRight className="w-5 h-5" /></>}
-          </button>
+          <div className="flex gap-3 mt-6">
+            <button
+              onClick={skipVerse}
+              className="flex-1 py-4 rounded-xl font-bold text-lg border-2 border-orange-300 text-orange-600 hover:bg-orange-50 active:scale-95 transition-all flex items-center justify-center gap-2"
+            >
+              <RotateCcw className="w-5 h-5" /> Skip
+            </button>
+            <button
+              onClick={advance}
+              className="flex-[2] bg-gradient-to-r from-indigo-500 to-purple-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2"
+            >
+              {idx + 1 >= verses.length ? <><Trophy className="w-5 h-5" /> Finish Session</> : <>Next Verse <ChevronRight className="w-5 h-5" /></>}
+            </button>
+          </div>
         )}
       </div>
 

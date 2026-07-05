@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 
 /**
- * The KJV Ref app is a static SPA — no iframe, no Prophet platform.
+ * The KJV Ref app is a static SPA — no iframe, no server.
  * These helpers navigate the app and wait for it to be ready.
  *
  * `openApp` returns the Page itself (tests call page.locator() directly).

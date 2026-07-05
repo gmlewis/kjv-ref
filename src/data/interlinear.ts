@@ -20,7 +20,7 @@ let _greekLoading: Promise<Record<string, string>> | null = null;
 export async function getInterlinearHebrew(): Promise<Record<string, string>> {
   if (_hebrew) return _hebrew;
   if (!_hebrewLoading) {
-    // Direct fetch from public folder - no Prophet needed
+    // Fetch from public folder
     _hebrewLoading = fetch(`${import.meta.env.BASE_URL}interlinear/hebrew.json`)
       .then(r => r.json())
       .then(d => { _hebrew = d; return d; });
@@ -31,7 +31,7 @@ export async function getInterlinearHebrew(): Promise<Record<string, string>> {
 export async function getInterlinearGreek(): Promise<Record<string, string>> {
   if (_greek) return _greek;
   if (!_greekLoading) {
-    // Direct fetch from public folder - no Prophet needed
+    // Fetch from public folder
     _greekLoading = fetch(`${import.meta.env.BASE_URL}interlinear/greek.json`)
       .then(r => r.json())
       .then(d => { _greek = d; return d; });

@@ -73,4 +73,4 @@ Automatic on push to `main` via `.github/workflows/deploy.yml` (runs
 - Do not create a `package-lock.json` — this repo uses `bun.lock`.
 - Do not run `npm install` or commit `node_modules`.
 - Do not commit `dist/` or `e2e/report/`.
-- Do not add Prophet dependencies — the Prophet platform has been fully removed.
+- Do not add external backend dependencies — all data is served statically.

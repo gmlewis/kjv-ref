@@ -1,12 +1,31 @@
 # KJV Ref
 
 A KJV Bible memorization app that runs entirely in the browser on GitHub Pages
-at **[gmlewis.github.io/kjv-ref](https://gmlewis.github.io/kjv-ref)**. No
-backend, no account, no server — all your progress is stored in your browser's
-`localStorage`.
+at **[gmlewis.github.io/kjv-ref](https://gmlewis.github.io/kjv-ref)**.
 
-Uses proven memorization techniques — Word Bank, First Letters, and Vanishing
-Cloze — backed by spaced repetition to help you retain scripture long-term.
+### Privacy by design
+
+- **No ads. No tracking. No data collection. No analytics.**
+- **No accounts, no login, no cookies, no third-party services.**
+- **All your data stays in your browser's `localStorage`** — it never leaves your device.
+- **Fully open source** — inspect every line of code.
+
+---
+
+## Features
+
+- **6 practice modes:** Word Bank, First Letters, Vanishing Cloze, Multiple Choice, Reference Match, Full Recall
+- **Spaced repetition:** SM-2 algorithm schedules reviews at increasing intervals
+- **Strong's Concordance:** tap any word for Hebrew/Greek lexicon data
+- **Interlinear text:** side-by-side original language with English
+- **Full-text search** across all 31,102 KJV verses
+- **Bookmarks** — save verses for focused practice
+- **Daily goals** — track your memorization streak
+- **Achievements** — earn badges for milestones
+- **Dark mode** — toggle in the nav bar
+- **Keyboard shortcuts** — `Ctrl+K` for search, `1-4` for multiple choice
+- **Verse sharing** — copy direct links to any verse
+- **Zero dependencies on external services** — all data is static JSON served from GitHub Pages
 
 ---
 
@@ -50,7 +69,7 @@ bunx playwright install chromium
 bun install
 ```
 
-That's it. There is no SDK to install, no platform account, no typegen step.
+That's it. No SDK to install, no platform account, no typegen step.
 
 ---
 
@@ -60,8 +79,8 @@ That's it. There is no SDK to install, no platform account, no typegen step.
 bun run dev
 ```
 
-The app renders fully in the local dev server — no iframe handshake, no blank
-screen. Open the URL Vite prints (typically `http://localhost:3000`).
+The app renders fully in the local dev server — no iframe, no blank screen.
+Open the URL Vite prints (typically `http://localhost:3000`).
 
 > The Vite `base` is `/kjv-ref/` to match the GitHub Pages project path. In dev
 > this is handled automatically by `import.meta.env.BASE_URL`, which the
@@ -130,8 +149,7 @@ bunx playwright test --grep "Word Bank" --headed
 ```
 
 > **No auth setup needed.** The static site is fully public — there is no
-> Google OAuth, no cookie extraction, no `e2e/.auth/state.json`. The old
-> Prophet-era e2e setup scripts have been removed.
+> Google OAuth, no cookie extraction, no `e2e/.auth/state.json`.
 
 | Spec file | What it covers |
 |-----------|----------------|
@@ -166,7 +184,7 @@ Deployment is **automatic**. Pushing to `main` triggers
 publishes `./dist` to GitHub Pages. The site goes live at
 `https://gmlewis.github.io/kjv-ref/`.
 
-There is no manual deploy script and no `prophet deploy`/`prophet promote`.
+There is no manual deploy step.
 
 ### GitHub Pages setup (one-time repo config)
 
@@ -295,9 +313,6 @@ kjv-ref/
 
 ## Background
 
-This repo was originally a KJV memorization app built on the Prophet platform
-(`@prophet/client/react`, server-side entities, real-time subscriptions, Google
-OAuth, presigned file URLs). It has been fully ported to a static GitHub Pages
-site: Prophet was replaced with `localStorage` + static JSON in `public/`,
-routing moved to `react-router-dom`, and authentication was removed (the site
-is fully public).
+This is a fully static KJV Bible memorization app. All user data lives in
+`localStorage`, all reference data is served as static JSON from `public/`,
+and the site deploys automatically to GitHub Pages on push to `master`.

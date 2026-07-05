@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useParams } from 'react-router-dom';
 import { useMyBookmarks, useCreateBookmarkMutation, useRemoveBookmarkMutation } from '../hooks';
-import { ChevronRight, BookOpen, Search, Star, ArrowLeft, ArrowRight, Dumbbell, Hash, Loader2, X, Bookmark, BookmarkCheck, ExternalLink } from 'lucide-react';
+import { ChevronRight, BookOpen, Search, Star, ArrowLeft, ArrowRight, Dumbbell, Hash, Loader2, X, Bookmark, BookmarkCheck, ExternalLink, LinkIcon } from 'lucide-react';
 
 import { KJV_VERSES, getVersesByBook } from '../data/kjv-verses';
 import { getKJVChapter, getKJVChapterList, type KJVVerseEntry, BOOK_ABBR_MAP } from '../data/kjv-bible';
@@ -191,6 +191,7 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
   const [loading, setLoading] = useState(true);
   const [optimisticBookmarks, setOptimisticBookmarks] = useState<Set<string>>(new Set());
   const [highlightedVerse, setHighlightedVerse] = useState<number | null>(null);
+  const [copiedVerse, setCopiedVerse] = useState<number | null>(null);
 
   // Capture scroll target synchronously at mount time.
   // _pendingScrollVerse is set by search result clicks (before navigation) to avoid
@@ -595,6 +596,19 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
                     ? <BookmarkCheck className="w-4 h-4 text-purple-600" />
                     : <Bookmark className="w-4 h-4 text-gray-400 hover:text-purple-400" />
                   }
+                </button>
+                <button
+                  onClick={() => {
+                    const url = `${window.location.origin}/kjv-ref/books/${encodeURIComponent(bookName)}/${chapterNum}#v${v.verse}`;
+                    navigator.clipboard.writeText(url).then(() => {
+                      setCopiedVerse(v.verse);
+                      setTimeout(() => setCopiedVerse(null), 2000);
+                    });
+                  }}
+                  className="p-1.5 rounded-lg hover:bg-purple-50 transition-colors flex-shrink-0"
+                  title="Copy link to this verse"
+                >
+                  <LinkIcon className={`w-4 h-4 ${copiedVerse === v.verse ? 'text-green-500' : 'text-gray-400 hover:text-purple-400'}`} />
                 </button>
                 {isFeatured && (
                   <Link to={`/practice/${encodeURIComponent(v.reference)}`}>

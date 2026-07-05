@@ -134,7 +134,7 @@ let _loading: Promise<BibleMap> | null = null;
 async function getBible(): Promise<BibleMap> {
   if (_bible) return _bible;
   if (_loading) return _loading;
-  // Direct fetch from public folder - no Prophet needed
+  // Fetch from public folder
   _loading = fetch(`${import.meta.env.BASE_URL}kjv.txt`)
     .then(r => r.text())
     .then(text => {

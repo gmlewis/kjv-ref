@@ -3,6 +3,13 @@ import { BookOpen, TrendingUp, Calendar, Target, Sparkles, Flame, Star, Heart, C
 import { useMyProgress, useMySessions, useMyAchievements, useMyBookmarks } from '../hooks';
 import { KJV_VERSES } from '../data/kjv-verses';
 
+function getDailyGoal() {
+  try {
+    const data = localStorage.getItem('kjv-memorize-daily-goal');
+    return data ? JSON.parse(data) : null;
+  } catch { return null; }
+}
+
 const FEATURED_VERSES = [
   { reference: 'John 3:16', theme: 'salvation', difficulty: 'medium' as const },
   { reference: 'Philippians 4:13', theme: 'strength', difficulty: 'easy' as const },
@@ -81,6 +88,34 @@ function Dashboard() {
           </Link>
         ))}
       </div>
+
+      {/* Daily Goal Progress */}
+      {(() => {
+        const goal = getDailyGoal();
+        if (!goal) return null;
+        const pct = goal.targetVerses > 0 ? Math.min(Math.round((goal.completedVerses / goal.targetVerses) * 100), 100) : 0;
+        return (
+          <div className="glassmorphism rounded-2xl p-6 shadow-lg">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                <Target className="w-5 h-5 text-purple-500" /> Today's Goal
+              </h3>
+              <span className="text-sm font-bold text-purple-600">{goal.completedVerses} / {goal.targetVerses} verses</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-700 ${goal.completed ? 'bg-gradient-to-r from-green-400 to-emerald-500' : 'bg-gradient-to-r from-purple-500 to-indigo-600'}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            {goal.completed && (
+              <p className="text-sm text-green-600 font-semibold mt-2 flex items-center gap-1">
+                <Star className="w-4 h-4" /> Daily goal completed! Great job!
+              </p>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Featured Verses */}
       <div className="glassmorphism rounded-3xl p-8 shadow-xl">

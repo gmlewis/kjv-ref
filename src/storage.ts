@@ -1,4 +1,4 @@
-// LocalStorage-based storage solution to replace Prophet entities
+// LocalStorage-based storage for user progress, sessions, achievements, and bookmarks
 
 // Storage keys
 const STORAGE_KEYS = {

@@ -1,4 +1,4 @@
-// React hooks that replace Prophet hooks with localStorage implementations
+// React hooks with localStorage implementations
 import { useState, useEffect, useCallback } from 'react';
 import { 
   getProgress, setProgress,
@@ -494,7 +494,7 @@ export function useMutation<TArgs, TReturns>(mutateFn: (args: TArgs) => Promise<
   return { mutate, data, loading, error };
 }
 
-// Mock implementations for Prophet-specific hooks we don't need
+// Stubs for hook signatures used in component imports
 export function useCurrentUser() {
   return {
     user: { id: 'anonymous', email: 'anonymous@example.com' },
