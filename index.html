@@ -14,9 +14,9 @@
       // so the router sees the correct URL.
       (function() {
         var l = window.location;
-        if (l.search && l.search.indexOf('/?/') === 0) {
+        if (l.search && l.search.indexOf('?/') === 0) {
           var restored = l.search
-            .slice(2)                          // drop '/?'
+            .slice(2)                          // drop '?/'
             .replace(/~and~/g, '&');           // restore '&'
           var hash = '';
           var hashIdx = restored.indexOf('#');
