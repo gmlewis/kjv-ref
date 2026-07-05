@@ -189,12 +189,12 @@ test.describe('Books — chapter view', () => {
     await expect(frame.locator('text=Browse Chapters').first()).toBeVisible({ timeout: 10_000 });
     await frame.locator('[class*="glassmorphism"] button:has-text("23")').first().click();
     await frame.locator('[class*="animate-spin"]').waitFor({ state: 'hidden', timeout: 15_000 }).catch(() => {});
-    await expect(frame.locator('text=Chapter 23').first()).toBeVisible({ timeout: 5_000 });
+    await expect(frame.locator('text=Psalms Chapter 23').first()).toBeVisible({ timeout: 5_000 });
     await expect(frame.locator('text=The LORD is my shepherd').first()).toBeVisible({ timeout: 15_000 });
     // Jump to chapter 100 via the chapter list
     await frame.locator('[class*="Jump to Chapter"] button:has-text("100")').first().click();
     await frame.locator('[class*="animate-spin"]').waitFor({ state: 'hidden', timeout: 15_000 }).catch(() => {});
-    await expect(frame.locator('text=Chapter 100').first()).toBeVisible({ timeout: 5_000 });
+    await expect(frame.locator('text=Psalms Chapter 100').first()).toBeVisible({ timeout: 5_000 });
   });
 
   test('back button from chapter returns to book detail', async ({ page }) => {
@@ -203,7 +203,7 @@ test.describe('Books — chapter view', () => {
     await frame.locator('text=Genesis').first().click();
     await expect(frame.locator('text=Browse Chapters').first()).toBeVisible({ timeout: 10_000 });
     await frame.locator('[class*="glassmorphism"] button:has-text("1")').first().click();
-    await expect(frame.locator('text=Chapter 1').first()).toBeVisible({ timeout: 5_000 });
+    await expect(frame.locator('text=Genesis Chapter 1').first()).toBeVisible({ timeout: 5_000 });
     await frame.locator('button:has-text("All Chapters")').click();
     await expect(frame.locator('text=Browse Chapters').first()).toBeVisible({ timeout: 5_000 });
   });
