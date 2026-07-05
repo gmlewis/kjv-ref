@@ -348,6 +348,95 @@ export function useAwardAchievementMutation() {
   });
 }
 
+// Progress mutation hook
+export function useUpdateProgressMutation() {
+  return useMutation(async (args: {
+    reference: string;
+    correct: boolean;
+    accuracy: number;
+  }) => {
+    const { reference, correct, accuracy } = args;
+    const progress = getProgress();
+    const existing = progress.find((p: any) => p?.verse?.reference === reference);
+    if (existing) {
+      existing.timesRecited = (existing.timesRecited ?? 0) + 1;
+      existing.lastPracticed = new Date().toISOString();
+      if (correct) {
+        existing.streak = (existing.streak ?? 0) + 1;
+        existing.accuracy = Math.round(((existing.accuracy ?? 0) * (existing.timesRecited - 1) + accuracy) / existing.timesRecited);
+        if (existing.streak >= 5 && existing.accuracy >= 90) existing.status = 'mastered';
+        else if (existing.streak >= 2 || existing.accuracy >= 70) existing.status = 'reviewing';
+        else existing.status = 'learning';
+      } else {
+        existing.streak = 0;
+        existing.accuracy = Math.round(((existing.accuracy ?? 0) * (existing.timesRecited - 1) + accuracy) / existing.timesRecited);
+        existing.status = 'learning';
+      }
+    } else {
+      progress.push({
+        id: Date.now().toString(),
+        user: { id: 'anonymous' },
+        verse: { reference },
+        status: correct ? (accuracy >= 90 ? 'reviewing' : 'learning') : 'learning',
+        timesRecited: 1,
+        lastPracticed: new Date().toISOString(),
+        nextReview: null,
+        accuracy,
+        streak: correct ? 1 : 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    setProgress(progress);
+    return reference;
+  });
+}
+
+// Review schedule mutation hook
+export function useUpsertReviewScheduleMutation() {
+  return useMutation(async (args: {
+    reference: string;
+    correct: boolean;
+    streak: number;
+    accuracy: number;
+  }) => {
+    const { reference, correct, streak, accuracy } = args;
+    let interval: number;
+    if (!correct) {
+      interval = 1;
+    } else if (streak <= 1) {
+      interval = 1;
+    } else if (streak === 2) {
+      interval = 3;
+    } else {
+      interval = Math.min(Math.round(streak * accuracy / 50), 30);
+    }
+    const easeFactor = 2.5 + (accuracy - 60) / 100;
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + interval);
+    upsertReviewSchedule({
+      verse: { reference },
+      interval,
+      easeFactor: Math.max(1.3, Math.min(easeFactor, 3.0)),
+      dueDate: dueDate.toISOString(),
+      reviewsCompleted: streak,
+    });
+    return reference;
+  });
+}
+
+// Daily goal mutation hook
+export function useUpdateDailyGoalMutation() {
+  return useMutation(async (args: { completedVerses: number }) => {
+    const goal = getDailyGoal();
+    if (!goal) return;
+    goal.completedVerses = args.completedVerses;
+    goal.completed = args.completedVerses >= goal.targetVerses;
+    updateDailyGoal(goal);
+    return goal;
+  });
+}
+
 // Bookmark mutation hooks
 export function useCreateBookmarkMutation() {
   return useMutation(async (args: { reference: string }) => {

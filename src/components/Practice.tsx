@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { useMyProgress, useDueReviews, useMyBookmarks, useCreateSessionMutation, useAwardAchievementMutation } from '../hooks';
+import { useMyProgress, useDueReviews, useMyBookmarks, useCreateSessionMutation, useAwardAchievementMutation, useUpdateProgressMutation, useUpsertReviewScheduleMutation, useUpdateDailyGoalMutation } from '../hooks';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   CheckCircle, XCircle, RotateCcw, Sparkles, Zap, Target,
@@ -672,6 +672,9 @@ function Practice() {
   const [extraCollectionVerses, setExtraCollectionVerses] = useState<KJVVerse[]>([]);
   const { mutate: doCreateSession } = useCreateSessionMutation();
   const { mutate: doAwardAchievement } = useAwardAchievementMutation();
+  const { mutate: doUpdateProgress } = useUpdateProgressMutation();
+  const { mutate: doUpsertReviewSchedule } = useUpsertReviewScheduleMutation();
+  const { mutate: doUpdateDailyGoal } = useUpdateDailyGoalMutation();
 
   const targetReference = params.reference ? decodeURIComponent(params.reference) : null;
 
@@ -744,19 +747,61 @@ function Practice() {
     });
   }, [targetReference, difficultyFilter, collectionFilter, bookmarkedRefs, extraCollectionVerses, dueReviewData, progressMap]);
 
-  const handleComplete = async (score: number, total: number, _results: { verse: KJVVerse; correct: boolean; rating: PerformanceRating }[]) => {
+  const handleComplete = async (score: number, total: number, results: { verse: KJVVerse; correct: boolean; rating: PerformanceRating }[]) => {
     setFinalScore({ score, total });
     setSessionComplete(true);
     try {
       await doCreateSession({
-        versesPracticed: [],
+        versesPracticed: results.map(r => r.verse.reference),
         mode: mode === 'recall' ? 'recall' : mode === 'multiple-choice' ? 'multiple-choice' : mode === 'reference' ? 'reference' : 'fill-blank',
         score: total > 0 ? Math.round((score / total) * 100) : 0,
         totalQuestions: total,
       });
-      if (score > 0) await doAwardAchievement({ type: 'first-verse' }).catch(() => {});
-      if ((progressData ?? []).length >= 9) await doAwardAchievement({ type: 'ten-verses' }).catch(() => {});
-    } catch { /* silently handle unauthenticated state */ }
+
+      // Update per-verse progress and review schedule
+      for (const result of results) {
+        const accuracy = result.correct ? 100 : 0;
+        await doUpdateProgress({ reference: result.verse.reference, correct: result.correct, accuracy }).catch(() => {});
+        const progress = (progressData ?? []).find((p: any) => p?.verse?.reference === result.verse.reference);
+        const streak = result.correct ? (progress?.streak ?? 0) + 1 : 0;
+        await doUpsertReviewSchedule({ reference: result.verse.reference, correct: result.correct, streak, accuracy }).catch(() => {});
+      }
+
+      // Update daily goal
+      const totalCorrect = results.filter(r => r.correct).length;
+      const prevCorrect = (progressData ?? []).reduce((sum: number, p: any) => sum + (p?.timesRecited ?? 0), 0);
+      await doUpdateDailyGoal({ completedVerses: prevCorrect + totalCorrect }).catch(() => {});
+
+      // Check achievements
+      const correctCount = results.filter(r => r.correct).length;
+      const masteredCount = (progressData ?? []).filter((p: any) => p?.status === 'mastered').length;
+      const totalPracticed = (progressData ?? []).length;
+      const newTotal = totalPracticed + results.filter(r => !(progressData ?? []).some((p: any) => p?.verse?.reference === r.verse.reference)).length;
+
+      if (correctCount > 0) await doAwardAchievement({ type: 'first-verse' }).catch(() => {});
+      if (newTotal >= 10 || totalPracticed >= 10) await doAwardAchievement({ type: 'ten-verses' }).catch(() => {});
+      if (newTotal >= 50 || totalPracticed >= 50) await doAwardAchievement({ type: 'fifty-verses' }).catch(() => {});
+      if (newTotal >= 100 || totalPracticed >= 100) await doAwardAchievement({ type: 'hundred-verses' }).catch(() => {});
+      if (masteredCount >= 1) await doAwardAchievement({ type: 'master-level' }).catch(() => {});
+
+      // Streak achievements (check if practiced on consecutive days)
+      const sessions = JSON.parse(localStorage.getItem('kjv-memorize-sessions') ?? '[]');
+      const daySet = new Set(sessions.map((s: any) => new Date(s.startTime).toISOString().split('T')[0]));
+      const today = new Date().toISOString().split('T')[0];
+      daySet.add(today);
+      let streakDays = 0;
+      const d = new Date(today);
+      while (daySet.has(d.toISOString().split('T')[0])) {
+        streakDays++;
+        d.setDate(d.getDate() - 1);
+      }
+      if (streakDays >= 7) await doAwardAchievement({ type: 'seven-day-streak' }).catch(() => {});
+      if (streakDays >= 30) await doAwardAchievement({ type: 'thirty-day-streak' }).catch(() => {});
+
+      // Daily goal achievement
+      const dailyGoal = JSON.parse(localStorage.getItem('kjv-memorize-daily-goal') ?? '{}');
+      if (dailyGoal.completed) await doAwardAchievement({ type: 'daily-goal' }).catch(() => {});
+    } catch { /* silently handle errors */ }
   };
 
   const handleRestart = () => { setSessionComplete(false); setSessionKey(k => k + 1); };

@@ -145,11 +145,11 @@ export function setReviewSchedule(schedule: any[]): void {
   localStorage.setItem(STORAGE_KEYS.REVIEW_SCHEDULE, JSON.stringify(schedule));
 }
 
-// Add or update a review schedule entry
+// Add or update a review schedule entry (matched by verse reference)
 export function upsertReviewSchedule(entry: any): void {
   if (typeof window === 'undefined') return;
   const schedule = getReviewSchedule();
-  const index = schedule.findIndex((e: any) => e.verse?.id === entry.verse?.id);
+  const index = schedule.findIndex((e: any) => e.verse?.reference === entry.verse?.reference);
   if (index >= 0) {
     schedule[index] = entry;
   } else {
