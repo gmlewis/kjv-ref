@@ -4,12 +4,11 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    # Only open PRs for security updates, not routine version bumps.
-    # Major version bumps (React 18->19, Vite 6->8, etc.) break the build
-    # and require manual testing.
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
-      # Group minor/patch updates together to reduce PR noise
       minor-and-patch:
         update-types:
           - "minor"
@@ -19,3 +18,6 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
