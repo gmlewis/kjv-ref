@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMyBookmarks, useCreateBookmarkMutation, useRemoveBookmarkMutation } from '../hooks';
 import { ChevronRight, BookOpen, Search, Star, ArrowLeft, ArrowRight, Dumbbell, Hash, Loader2, X, ExternalLink, LinkIcon } from 'lucide-react';
 
@@ -35,9 +35,9 @@ function highlightText(text: string, query: string): React.ReactNode {
 }
 
 // ─── Search Panel ────────────────────────────────────────────────────────────
-function SearchPanel({ onNavigateAway }: { onNavigateAway: () => void }) {
-  const [query, setQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
+function SearchPanel({ onNavigateAway, initialQuery = '' }: { onNavigateAway: () => void; initialQuery?: string }) {
+  const [query, setQuery] = useState(initialQuery);
+  const [debouncedQuery, setDebouncedQuery] = useState(initialQuery);
   const [testament, setTestament] = useState<'all' | 'old' | 'new'>('all');
   const [results, setResults] = useState<(SearchResult | BibleSearchResult)[]>([]);
   const [searching, setSearching] = useState(false);
@@ -999,7 +999,9 @@ function BookDetailView({ bookName }: { bookName: string }) {
 
 // ─── Books Grid (main list) ───────────────────────────────────────────────────
 function BooksGrid() {
-  const [view, setView] = useState<'grid' | 'search'>('grid');
+  const [searchParams] = useSearchParams();
+  const initialSearch = searchParams.get('search');
+  const [view, setView] = useState<'grid' | 'search'>(initialSearch ? 'search' : 'grid');
   const [testamentFilter, setTestamentFilter] = useState<'all' | 'old' | 'new'>('all');
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -1033,7 +1035,7 @@ function BooksGrid() {
             <Search className="w-4 h-4" /> Search
           </button>
         </div>
-        <SearchPanel onNavigateAway={handleNavigateAway} />
+        <SearchPanel onNavigateAway={handleNavigateAway} initialQuery={initialSearch ?? ''} />
       </div>
     );
   }
