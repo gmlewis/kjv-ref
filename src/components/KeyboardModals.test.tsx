@@ -15,8 +15,12 @@ vi.mock('react-router-dom', async () => {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+let unmountFn: (() => void) | null = null;
+
 function renderModal(ui: React.ReactElement) {
-  return render(<MemoryRouter>{ui}</MemoryRouter>);
+  const result = render(<MemoryRouter>{ui}</MemoryRouter>);
+  unmountFn = result.unmount;
+  return result;
 }
 
 function pressKey(key: string) {
@@ -25,11 +29,14 @@ function pressKey(key: string) {
   });
 }
 
+beforeEach(() => { navigateSpy.mockClear(); });
+afterEach(() => {
+  if (unmountFn) { unmountFn(); unmountFn = null; }
+});
+
 // ─── ShortcutsModal tests ────────────────────────────────────────────────────
 
 describe('ShortcutsModal', () => {
-  afterEach(() => { document.body.innerHTML = ''; });
-
   it('renders the modal with title', () => {
     renderModal(<ShortcutsModal onClose={() => {}} />);
     expect(screen.getByText('Keyboard Shortcuts')).toBeDefined();
@@ -102,12 +109,8 @@ describe('ShortcutsModal', () => {
 // ─── SearchModal tests ───────────────────────────────────────────────────────
 
 describe('SearchModal', () => {
-  beforeEach(() => { navigateSpy.mockClear(); });
-  afterEach(() => { document.body.innerHTML = ''; });
-
   it('renders the modal with title', () => {
     renderModal(<SearchModal onClose={() => {}} />);
-    // Title is in an h2
     const title = document.querySelector('.modal-title');
     expect(title?.textContent).toBe('Search Full Bible');
   });

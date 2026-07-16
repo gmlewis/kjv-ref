@@ -99,6 +99,7 @@ function SearchPanel({ onNavigateAway, initialQuery = '' }: { onNavigateAway: ()
             placeholder="Search verses… use &quot;phrase&quot;, lov*, l?ve, |, -exclude"
             value={query}
             onChange={e => setQuery(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Escape') { setQuery(''); (e.target as HTMLInputElement).focus(); } }}
             className="w-full pl-12 pr-12 py-3 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:outline-none bg-white/70 text-base"
           />
           {searching && (

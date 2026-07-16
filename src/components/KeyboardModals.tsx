@@ -38,15 +38,15 @@ export function ShortcutsModal({ onClose }: { onClose: () => void }) {
       <div className="modal-card">
         <div className="modal-header">
           <div className="modal-icon-wrapper">
-            <Keyboard className="w-7 h-7 text-white" />
+            <Keyboard className="w-8 h-8 text-white" />
           </div>
           <h2 className="modal-title">Keyboard Shortcuts</h2>
           <button onClick={onClose} className="modal-close-btn">
-            <X className="w-5 h-5" />
+            <X className="w-12 h-12" />
           </button>
         </div>
         <div className="modal-body">
-          <div className="space-y-2">
+          <div className="shortcut-columns">
             {shortcuts.map((s, i) => (
               <div key={i} className="shortcut-row">
                 <div className="shortcut-keys">
@@ -58,7 +58,7 @@ export function ShortcutsModal({ onClose }: { onClose: () => void }) {
                   ))}
                 </div>
                 <div className="shortcut-desc">
-                  <s.icon className="w-4 h-4 text-purple-500 flex-shrink-0" />
+                  <s.icon className="w-10 h-10 text-purple-500 flex-shrink-0" />
                   <span>{s.desc}</span>
                 </div>
               </div>
@@ -106,11 +106,11 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
       <div className="modal-card">
         <div className="modal-header">
           <div className="modal-icon-wrapper">
-            <Search className="w-7 h-7 text-white" />
+            <Search className="w-8 h-8 text-white" />
           </div>
           <h2 className="modal-title">Search Full Bible</h2>
           <button onClick={onClose} className="modal-close-btn">
-            <X className="w-5 h-5" />
+            <X className="w-12 h-12" />
           </button>
         </div>
         <div className="modal-body">
@@ -131,7 +131,7 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
               <span className="kbd-key inline">Esc</span> to cancel
             </p>
             <button type="submit" className="modal-search-btn">
-              <Search className="w-5 h-5" />
+              <Search className="w-10 h-10" />
               <span>Search Full Bible</span>
             </button>
           </form>

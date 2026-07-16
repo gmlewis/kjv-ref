@@ -428,8 +428,8 @@ html.dark .verse-selected {
 }
 
 .modal-content-wrapper {
-  max-width: 92vw;
-  width: 640px;
+  max-width: 95vw;
+  width: 920px;
 }
 
 .modal-card {
@@ -464,7 +464,7 @@ html.dark .verse-selected {
 
 .modal-title {
   flex: 1;
-  font-size: 1.5rem;
+  font-size: 1.75rem;
   font-weight: 700;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   -webkit-background-clip: text;
@@ -480,6 +480,9 @@ html.dark .verse-selected {
   background: transparent;
   border: none;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .modal-close-btn:hover {
@@ -505,11 +508,18 @@ html.dark .verse-selected {
   background: rgba(139, 92, 246, 0.06);
 }
 
+/* Two-column layout for shortcuts */
+.shortcut-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem 2rem;
+}
+
 .shortcut-keys {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  min-width: 120px;
+  min-width: 130px;
   flex-shrink: 0;
 }
 
@@ -517,14 +527,14 @@ html.dark .verse-selected {
   display: inline-flex;
   align-items: center;
   font-family: 'SF Mono', 'Monaco', 'Cascadia Code', monospace;
-  font-size: 0.8rem;
+  font-size: 1rem;
   font-weight: 600;
-  padding: 0.25rem 0.6rem;
+  padding: 0.3rem 0.7rem;
   border-radius: 0.5rem;
   background: rgba(139, 92, 246, 0.1);
   border: 1px solid rgba(139, 92, 246, 0.25);
   color: #7c3aed;
-  min-width: 1.75rem;
+  min-width: 2rem;
   justify-content: center;
 }
 
@@ -533,7 +543,7 @@ html.dark .verse-selected {
   align-items: center;
   gap: 0.5rem;
   color: #475569;
-  font-size: 0.875rem;
+  font-size: 1.0625rem;
   line-height: 1.4;
 }
 
@@ -542,17 +552,17 @@ html.dark .verse-selected {
   padding-top: 1rem;
   border-top: 1px solid rgba(148, 163, 184, 0.15);
   text-align: center;
-  font-size: 0.75rem;
+  font-size: 1.25rem;
   color: #94a3b8;
 }
 
 /* Search modal input */
 .modal-search-input {
   width: 100%;
-  padding: 0.875rem 1rem;
+  padding: 1rem 1.25rem;
   border: 2px solid rgba(148, 163, 184, 0.25);
   border-radius: 0.875rem;
-  font-size: 1rem;
+  font-size: 1.25rem;
   background: rgba(255, 255, 255, 0.8);
   color: #1e293b;
   transition: border-color 0.2s;
@@ -564,7 +574,7 @@ html.dark .verse-selected {
 }
 
 .modal-search-hint {
-  font-size: 0.75rem;
+  font-size: 1.25rem;
   color: #94a3b8;
   text-align: center;
 }
@@ -575,10 +585,10 @@ html.dark .verse-selected {
   justify-content: center;
   gap: 0.5rem;
   width: 100%;
-  padding: 0.875rem;
+  padding: 1rem;
   border-radius: 0.875rem;
   font-weight: 700;
-  font-size: 0.95rem;
+  font-size: 1.1875rem;
   color: white;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   border: none;
