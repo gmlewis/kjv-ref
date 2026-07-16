@@ -101,3 +101,57 @@ export function getPrevNextChapter(bookName: string, chapterNum: number) {
     next: { book: nextBook.name, chapter: nextChapter },
   };
 }
+
+// ─── Verse-level navigation (used by arrow-key shortcuts) ─────────────────────
+
+/**
+ * Compute the next verse target, with full book/chapter/Bible wraparound.
+ *
+ * @param bookName           Current book name
+ * @param chapterNum         Current chapter number
+ * @param currentVerse       Current verse number, or `null` if no verse is in the URL
+ * @param chapterVerseCount  Number of verses in the current chapter
+ * @returns                  Target `{ book, chapter, verse }` to navigate to
+ */
+export function getNextVerse(
+  bookName: string,
+  chapterNum: number,
+  currentVerse: number | null,
+  chapterVerseCount: number,
+): { book: string; chapter: number; verse: number } {
+  if (currentVerse === null) {
+    return { book: bookName, chapter: chapterNum, verse: 1 };
+  }
+  if (currentVerse < chapterVerseCount) {
+    return { book: bookName, chapter: chapterNum, verse: currentVerse + 1 };
+  }
+  // At or past the last verse → advance to verse 1 of the next chapter
+  const { next } = getPrevNextChapter(bookName, chapterNum);
+  return { book: next.book, chapter: next.chapter, verse: 1 };
+}
+
+/**
+ * Compute the previous verse target, with full book/chapter/Bible wraparound.
+ *
+ * When wrapping to the previous chapter, `verse` is `null` because the verse
+ * count of the previous chapter is unknown to this pure function. The caller
+ * must resolve it (e.g. by fetching the chapter data and using `.length`).
+ *
+ * @param bookName      Current book name
+ * @param chapterNum    Current chapter number
+ * @param currentVerse  Current verse number, or `null` if no verse is in the URL
+ * @returns             Target `{ book, chapter, verse }` where `verse` may be
+ *                      `null` (meaning "last verse of that chapter")
+ */
+export function getPrevVerse(
+  bookName: string,
+  chapterNum: number,
+  currentVerse: number | null,
+): { book: string; chapter: number; verse: number | null } {
+  if (currentVerse !== null && currentVerse > 1) {
+    return { book: bookName, chapter: chapterNum, verse: currentVerse - 1 };
+  }
+  // No verse selected, or at verse 1 → go to the previous chapter's last verse
+  const { prev } = getPrevNextChapter(bookName, chapterNum);
+  return { book: prev.book, chapter: prev.chapter, verse: null };
+}

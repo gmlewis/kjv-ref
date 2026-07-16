@@ -400,3 +400,15 @@ html.dark .glassmorphism > [class*="from-"],
 html.dark .glassmorphism [class*="bg-gradient"] {
   background-image: none;
 }
+
+/* ─── Selected verse glow ─────────────────────────────────────────────────── */
+
+.verse-selected {
+  border: 2px solid rgba(139, 92, 246, 0.6) !important;
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.35), 0 0 40px rgba(139, 92, 246, 0.15) !important;
+}
+
+html.dark .verse-selected {
+  border-color: rgba(167, 139, 250, 0.7) !important;
+  box-shadow: 0 0 24px rgba(167, 139, 250, 0.4), 0 0 48px rgba(139, 92, 246, 0.2) !important;
+}

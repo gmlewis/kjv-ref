@@ -149,6 +149,12 @@ export async function getKJVChapter(book: string, chapter: number): Promise<KJVV
   return bible.get(book)?.get(chapter) ?? [];
 }
 
+/** Returns the verse count for a chapter, or 0 if not found. Uses cached Bible data. */
+export async function getKJVChapterVerseCount(book: string, chapter: number): Promise<number> {
+  const bible = await getBible();
+  return bible.get(book)?.get(chapter)?.length ?? 0;
+}
+
 export async function getKJVVerse(reference: string): Promise<KJVVerseEntry | null> {
   const m = reference.match(/^(.+) (\d+):(\d+)$/);
   if (!m) return null;

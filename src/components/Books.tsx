@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useMyBookmarks, useCreateBookmarkMutation, useRemoveBookmarkMutation } from '../hooks';
 import { ChevronRight, BookOpen, Search, Star, ArrowLeft, ArrowRight, Dumbbell, Hash, Loader2, X, ExternalLink, LinkIcon } from 'lucide-react';
 
 import { KJV_VERSES, getVersesByBook } from '../data/kjv-verses';
-import { getKJVChapter, getKJVChapterList, type KJVVerseEntry, BOOK_ABBR_MAP } from '../data/kjv-bible';
+import { getKJVChapter, getKJVChapterList, getKJVChapterVerseCount, type KJVVerseEntry, BOOK_ABBR_MAP } from '../data/kjv-bible';
 import { searchKJV, type SearchResult } from '../data/kjv-search';
 import { verseAnchorId, buildChapterUrl } from '../utils/urlHelpers';
 import { getVerseWordData, type StrongsEntry } from '../data/strongs';
@@ -14,7 +14,7 @@ import { bibleHubInterlinearUrl, stepBibleUrl } from '../utils/studyLinks';
 import { StrongsPopover } from './StrongsPopover';
 import { InterlinearWordPopover } from './InterlinearWordPopover';
 // No longer needed for static site - dataUrls always returns fallback paths
-import { BIBLE_BOOKS, getPrevNextChapter } from '../utils/bibleBooks';
+import { BIBLE_BOOKS, getPrevNextChapter, getNextVerse, getPrevVerse } from '../utils/bibleBooks';
 
 // Target verse to scroll to on next ChapterView mount (set by search result clicks
 // before navigation so the value is available synchronously at mount time).
@@ -192,12 +192,35 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
   const [optimisticBookmarks, setOptimisticBookmarks] = useState<Set<string>>(new Set());
   const [highlightedVerse, setHighlightedVerse] = useState<number | null>(null);
   const [copiedVerse, setCopiedVerse] = useState<number | null>(null);
+  // Track the highlight fade timer so we can cancel it on rapid navigation
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Currently-selected verse (persistent glow). Tracks the URL hash so the
+  // glow survives re-renders and stays in sync with arrow-key / click navigation.
+  const [selectedVerse, setSelectedVerse] = useState<number | null>(() => {
+    const hash = window.location.hash;
+    if (!hash.startsWith('#v')) return null;
+    const n = parseInt(hash.slice(2), 10);
+    return isNaN(n) ? null : n;
+  });
+
+  // Keep selectedVerse in sync when the URL hash changes (back/forward, etc.)
+  useEffect(() => {
+    const onHashChange = () => {
+      const hash = window.location.hash;
+      if (!hash.startsWith('#v')) { setSelectedVerse(null); return; }
+      const n = parseInt(hash.slice(2), 10);
+      setSelectedVerse(isNaN(n) ? null : n);
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
 
   // Capture scroll target synchronously at mount time.
   // _pendingScrollVerse is set by search result clicks (before navigation) to avoid
   // a race where cached data makes the effect fire before history.pushState sets the hash.
   // Falls back to window.location.hash for direct URL / bookmark navigation.
-  const [scrollTarget] = useState<number | null>(() => {
+  const [scrollTarget, setScrollTarget] = useState<number | null>(() => {
     if (_pendingScrollVerse !== null) {
       const t = _pendingScrollVerse;
       _pendingScrollVerse = null;
@@ -209,43 +232,146 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
     return isNaN(n) ? null : n;
   });
 
+  // When the book/chapter changes (e.g. arrow-key cross-chapter navigation),
+  // React Router reuses the same ChapterView instance — the useState initializer
+  // above does NOT re-run. This effect updates the scroll target for the new chapter.
+  useEffect(() => {
+    if (_pendingScrollVerse !== null) {
+      const t = _pendingScrollVerse;
+      _pendingScrollVerse = null;
+      setScrollTarget(t);
+    } else {
+      const hash = window.location.hash;
+      if (hash.startsWith('#v')) {
+        const n = parseInt(hash.slice(2), 10);
+        setScrollTarget(isNaN(n) ? null : n);
+      } else {
+        setScrollTarget(null);
+      }
+    }
+  }, [bookName, chapterNum]);
+
    // Compute book identity for URL resolution (plain variables, safe before hooks)
    const isOldTestament = BIBLE_BOOKS.find(b => b.name === bookName)?.testament === 'old';
    const internalAbbr = Object.entries(BOOK_ABBR_MAP).find(([, info]) => info.name === bookName)?.[0];
 
    useEffect(() => {
-     setLoading(true);
+     // Clear old chapter's verses immediately so the scroll effect doesn't
+     // fire against stale verse elements from the previous chapter.
+     setVerses([]);
+     // Check if Bible data is already cached — if so, skip the loading spinner
+     // for instant cross-chapter navigation on arrow-key presses.
+     let cancelled = false;
      Promise.all([
        getKJVChapter(bookName, chapterNum),
        getKJVChapterList(bookName),
      ]).then(([v, c]) => {
+       if (cancelled) return;
        setVerses(v);
        setAllChapters(c);
        setLoading(false);
      });
+     // Only show the loading spinner on the very first load (when verses is empty).
+     // On subsequent chapter changes (arrow-key navigation), the cached Bible data
+     // resolves in a microtask and the flash of loading spinner is worse than no spinner.
+     if (verses.length === 0) setLoading(true);
+     return () => { cancelled = true; };
    }, [bookName, chapterNum]);
 
-  // Scroll to and highlight the target verse once data is loaded
+   // Scroll to and highlight the target verse once data is loaded
+   useEffect(() => {
+     if (loading || verses.length === 0 || scrollTarget === null) return;
+     setSelectedVerse(scrollTarget);
+     setHighlightedVerse(scrollTarget);
+     // Wait for the highlight re-render to commit before measuring positions.
+     let timer: ReturnType<typeof setTimeout>;
+     timer = setTimeout(() => {
+       const el = document.getElementById(verseAnchorId(scrollTarget));
+       if (el) {
+         const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
+         const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
+         window.scrollTo({ top, behavior: 'smooth' });
+       }
+     }, 0);
+     // Clear any previous highlight timer, then set a short fade.
+     if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+     highlightTimerRef.current = setTimeout(() => setHighlightedVerse(null), 600);
+     return () => { clearTimeout(timer); };
+   }, [loading, verses, scrollTarget]);
+
+  const navigate = useNavigate();
+
+  // Helper: scroll to a verse element on the current page (accounts for sticky nav).
+  // Uses instant scroll for snappy keyboard navigation; the highlight flash is short.
+  const scrollToVerse = useCallback((verseNum: number) => {
+    // Cancel any pending highlight fade so rapid arrow presses don't stack timers
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    setHighlightedVerse(verseNum);
+    setSelectedVerse(verseNum);
+    const el = document.getElementById(verseAnchorId(verseNum));
+    if (el) {
+      const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
+      const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
+      window.scrollTo({ top });
+    }
+    highlightTimerRef.current = setTimeout(() => setHighlightedVerse(null), 600);
+  }, []);
+
+  // Helper: navigate to a book/chapter/verse, updating the URL and scrolling.
+  // For same-chapter moves we use history.replaceState + scroll (no full remount).
+  // For cross-chapter moves we use navigate() so React Router swaps the chapter.
+  // _pendingScrollVerse ensures the new ChapterView scrolls to the right verse on mount.
+  const goToVerse = useCallback((targetBook: string, targetChapter: number, targetVerse: number) => {
+    if (targetBook === bookName && targetChapter === chapterNum) {
+      const hash = `#v${targetVerse}`;
+      history.replaceState(null, '', hash);
+      scrollToVerse(targetVerse);
+    } else {
+      _pendingScrollVerse = targetVerse;
+      navigate(buildChapterUrl(targetBook, targetChapter, targetVerse));
+    }
+  }, [bookName, chapterNum, navigate, scrollToVerse]);
+
+  // Keyboard shortcuts: ← / → to navigate between verses with full wraparound.
+  // Ignore key events when the user is typing in an input/textarea or has a
+  // popover open (so arrow keys still work for accessibility inside form fields).
   useEffect(() => {
-    if (loading || verses.length === 0 || scrollTarget === null) return;
-    setHighlightedVerse(scrollTarget);
-    // Wait for the highlight re-render to commit before measuring positions.
-    // requestAnimationFrame fires too early — before React commits the
-    // setHighlightedVerse state update. setTimeout(fn, 0) runs after the
-    // current task queue, ensuring the ring-offset padding is in the DOM.
-    let timer: ReturnType<typeof setTimeout>;
-    let highlightTimer: ReturnType<typeof setTimeout>;
-    timer = setTimeout(() => {
-      const el = document.getElementById(verseAnchorId(scrollTarget));
-      if (el) {
-        const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
-        const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
-        window.scrollTo({ top, behavior: 'smooth' });
+    if (loading) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
       }
-    }, 0);
-    highlightTimer = setTimeout(() => setHighlightedVerse(null), 2500);
-    return () => { clearTimeout(timer); clearTimeout(highlightTimer); };
-  }, [loading, verses, scrollTarget]);
+      e.preventDefault();
+
+      // Read the current verse from the URL hash (live, not stale state)
+      const hash = window.location.hash;
+      const currentVerse = hash.startsWith('#v') ? parseInt(hash.slice(2), 10) : null;
+      const parsedVerse = isNaN(currentVerse as number) ? null : currentVerse;
+
+      if (e.key === 'ArrowRight') {
+        const next = getNextVerse(bookName, chapterNum, parsedVerse, verses.length);
+        goToVerse(next.book, next.chapter, next.verse);
+      } else {
+        const prev = getPrevVerse(bookName, chapterNum, parsedVerse);
+        if (prev.verse !== null) {
+          // Same chapter or wrapping forward — verse number is known
+          goToVerse(prev.book, prev.chapter, prev.verse);
+        } else {
+          // Wrapping to the previous chapter — need the last verse number.
+          // The Bible data is cached in memory, so this resolves in a microtask.
+          getKJVChapterVerseCount(prev.book, prev.chapter).then(count => {
+            const lastVerse = count > 0 ? count : 1;
+            goToVerse(prev.book, prev.chapter, lastVerse);
+          });
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [loading, bookName, chapterNum, verses.length, goToVerse]);
 
   const [bookmarkData] = useMyBookmarks();
   const { mutate: doCreateBookmark } = useCreateBookmarkMutation();
@@ -488,25 +614,27 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
             <div
               key={v.reference}
               id={verseAnchorId(v.verse)}
-              className={`glassmorphism rounded-2xl p-5 shadow-md transition-all duration-500 ${
+              className={`glassmorphism rounded-2xl p-5 shadow-md transition-all duration-150 ${
                 isFeatured ? 'border-2 border-purple-200' : ''
-              } ${highlightedVerse === v.verse ? 'ring-4 ring-purple-400 ring-offset-2 bg-purple-50' : ''}`}
+              } ${highlightedVerse === v.verse ? 'ring-4 ring-purple-400 ring-offset-2 bg-purple-50' : ''} ${
+                selectedVerse === v.verse ? 'verse-selected' : ''
+              }`}
             >
               <div className="flex items-start gap-3">
                 <span
                   onClick={() => {
                     const hash = `#v${v.verse}`;
                     history.replaceState(null, '', hash);
+                    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+                    setSelectedVerse(v.verse);
                     setHighlightedVerse(v.verse);
-                    setTimeout(() => {
-                      const el = document.getElementById(verseAnchorId(v.verse));
-                      if (el) {
-                        const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
-                        const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
-                        window.scrollTo({ top, behavior: 'smooth' });
-                      }
-                    }, 0);
-                    setTimeout(() => setHighlightedVerse(null), 2500);
+                    const el = document.getElementById(verseAnchorId(v.verse));
+                    if (el) {
+                      const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
+                      const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
+                      window.scrollTo({ top, behavior: 'smooth' });
+                    }
+                    highlightTimerRef.current = setTimeout(() => setHighlightedVerse(null), 600);
                   }}
                   className="font-bold text-purple-500 text-sm min-w-[2.5rem] pt-0.5 cursor-pointer hover:text-purple-700 transition-colors"
                 >{v.verse}</span>
