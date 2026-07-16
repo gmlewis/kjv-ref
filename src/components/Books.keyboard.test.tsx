@@ -55,9 +55,9 @@ function renderBooksAt(initialPath: string, initialHash = '') {
 }
 
 /** Fire a real keydown event on window. */
-function pressKey(key: string, shift = false) {
+function pressKey(key: string, shift = false, meta = false) {
   act(() => {
-    window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, shiftKey: shift }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, shiftKey: shift, metaKey: meta }));
   });
 }
 
@@ -481,6 +481,69 @@ describe('Books ChapterView keyboard shortcuts', () => {
 
     expect(screen.getByText('John Chapter 3')).toBeDefined();
     expect(window.location.hash).toBe('#v36');
+    unmount();
+  });
+
+  // ─── Cmd/Ctrl+Arrow: chapter navigation ────────────────────────────────────
+
+  it('Cmd+Right navigates to the next chapter', async () => {
+    const { unmount } = renderBooksAt('/books/John/3', '#v5');
+    await flush();
+    expect(screen.getByText('John Chapter 3')).toBeDefined();
+
+    pressKey('ArrowRight', false, true);
+    await flush(300);
+
+    expect(screen.getByText('John Chapter 4')).toBeDefined();
+    unmount();
+  });
+
+  it('Cmd+Left navigates to the previous chapter', async () => {
+    const { unmount } = renderBooksAt('/books/John/3', '#v5');
+    await flush();
+    expect(screen.getByText('John Chapter 3')).toBeDefined();
+
+    pressKey('ArrowLeft', false, true);
+    await flush(300);
+
+    expect(screen.getByText('John Chapter 2')).toBeDefined();
+    unmount();
+  });
+
+  it('Cmd+Right wraps to the next book at last chapter', async () => {
+    // Malachi 4 → Matthew 1
+    const { unmount } = renderBooksAt('/books/Malachi/4', '#v1');
+    await flush();
+    expect(screen.getByText('Malachi Chapter 4')).toBeDefined();
+
+    pressKey('ArrowRight', false, true);
+    await flush(300);
+
+    expect(screen.getByText('Matthew Chapter 1')).toBeDefined();
+    unmount();
+  });
+
+  it('Cmd+Left wraps to the previous book at chapter 1', async () => {
+    // Matthew 1 → Malachi 4
+    const { unmount } = renderBooksAt('/books/Matthew/1', '#v1');
+    await flush();
+    expect(screen.getByText('Matthew Chapter 1')).toBeDefined();
+
+    pressKey('ArrowLeft', false, true);
+    await flush(300);
+
+    expect(screen.getByText('Malachi Chapter 4')).toBeDefined();
+    unmount();
+  });
+
+  it('Cmd+Right wraps around the entire Bible (Revelation 22 → Genesis 1)', async () => {
+    const { unmount } = renderBooksAt('/books/Revelation/22', '#v1');
+    await flush();
+
+    pressKey('ArrowRight', false, true);
+    await flush(300);
+
+    expect(screen.getByText('Genesis Chapter 1')).toBeDefined();
     unmount();
   });
 });

@@ -363,6 +363,17 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
       }
       e.preventDefault();
 
+      // Cmd/Ctrl+Arrow: jump to next/previous CHAPTER (same as the buttons)
+      if (e.metaKey || e.ctrlKey) {
+        const { prev, next } = getPrevNextChapter(bookName, chapterNum);
+        if (e.key === 'ArrowRight') {
+          navigate(buildChapterUrl(next.book, next.chapter));
+        } else {
+          navigate(buildChapterUrl(prev.book, prev.chapter));
+        }
+        return;
+      }
+
       // Shift+Arrow: jump to first/last verse of the CURRENT chapter (no chapter change)
       if (e.shiftKey) {
         if (e.key === 'ArrowRight' && verses.length > 0) {
@@ -402,6 +413,40 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [loading, bookName, chapterNum, verses.length, goToVerse]);
+
+  // Font size for verse text (persisted to localStorage)
+  const [verseFontSize, setVerseFontSize] = useState(() => {
+    try { return parseFloat(localStorage.getItem('kjv-verse-font-size') ?? '1.25') || 1.25; } catch { return 1.25; }
+  });
+
+  // +/- keyboard shortcut to increase/decrease verse font size
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '+' && e.key !== '=' && e.key !== '-' && e.key !== '_') return;
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
+      }
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        setVerseFontSize(prev => {
+          const next = Math.min(prev + 0.125, 2.5);
+          try { localStorage.setItem('kjv-verse-font-size', String(next)); } catch {}
+          return next;
+        });
+      } else {
+        e.preventDefault();
+        setVerseFontSize(prev => {
+          const next = Math.max(prev - 0.125, 0.75);
+          try { localStorage.setItem('kjv-verse-font-size', String(next)); } catch {}
+          return next;
+        });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const [bookmarkData] = useMyBookmarks();
   const { mutate: doCreateBookmark } = useCreateBookmarkMutation();
@@ -670,8 +715,8 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
                 >{v.verse}</span>
                 <div className="flex-1 min-w-0">
                   {strongsEnabled ? (
-                    <p className="verse-text text-gray-800 leading-relaxed">
-                      {strongsLoading && !strongsCache.has(v.reference) ? (
+                     <p className="verse-text text-gray-800 leading-relaxed" style={{ fontSize: verseFontSize + 'rem' }}>
+                       {strongsLoading && !strongsCache.has(v.reference) ? (
                         <span className="inline-block h-4 w-full bg-purple-100 rounded animate-pulse" />
                       ) : (
                         (strongsCache.get(v.reference) ?? [{ token: v.text, strongs: null }]).map((wd, wi) => (
@@ -704,7 +749,7 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
                       )}
                     </p>
                   ) : (
-                    <p className="verse-text text-gray-800 leading-relaxed">{v.text}</p>
+                    <p className="verse-text text-gray-800 leading-relaxed" style={{ fontSize: verseFontSize + 'rem' }}>{v.text}</p>
                   )}
                   {interlinearEnabled && (
                     <div className="mt-2">

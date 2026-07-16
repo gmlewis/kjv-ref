@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Search, X, Keyboard, ArrowLeft, ArrowRight, ChevronUp, ChevronDown } from 'lucide-react';
+import { Search, X, Keyboard, ArrowLeft, ArrowRight, ChevronUp, ChevronDown, BookOpen, Moon, Sun, Home, Plus, Minus, CornerDownLeft } from 'lucide-react';
 
 // ─── Keyboard Shortcuts Modal (? key) ────────────────────────────────────────
 
@@ -17,10 +18,18 @@ export function ShortcutsModal({ onClose }: { onClose: () => void }) {
   const shortcuts = [
     { keys: ['?'], icon: Keyboard, desc: 'Show this keyboard shortcuts help' },
     { keys: ['/'], icon: Search, desc: 'Open full-Bible search dialog' },
-    { keys: ['\u2192'], icon: ArrowRight, desc: 'Advance to the next verse (wraps across chapters and books)' },
-    { keys: ['\u2190'], icon: ArrowLeft, desc: 'Go back to the previous verse (wraps across chapters and books)' },
+    { keys: ['\u2192'], icon: ArrowRight, desc: 'Next verse (wraps across chapters and books)' },
+    { keys: ['\u2190'], icon: ArrowLeft, desc: 'Previous verse (wraps across chapters and books)' },
     { keys: ['Shift', '\u2192'], icon: ChevronDown, desc: 'Jump to the last verse of the current chapter' },
     { keys: ['Shift', '\u2190'], icon: ChevronUp, desc: 'Jump to verse 1 of the current chapter' },
+    { keys: ['\u2318', '\u2192'], icon: BookOpen, desc: 'Next chapter (same as the button)' },
+    { keys: ['\u2318', '\u2190'], icon: BookOpen, desc: 'Previous chapter (same as the button)' },
+    { keys: ['g'], icon: BookOpen, desc: 'Go to the book list' },
+    { keys: ['t'], icon: Moon, desc: 'Toggle dark / light theme' },
+    { keys: ['+'], icon: Plus, desc: 'Increase verse text size' },
+    { keys: ['\u2212'], icon: Minus, desc: 'Decrease verse text size' },
+    { keys: ['Home'], icon: Home, desc: 'Scroll to the top of the page' },
+    { keys: ['End'], icon: CornerDownLeft, desc: 'Scroll to the bottom of the page' },
     { keys: ['Esc'], icon: X, desc: 'Close this dialog (or any open popover)' },
   ];
 
@@ -135,7 +144,10 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
 // ─── Shared modal overlay ────────────────────────────────────────────────────
 
 function ModalOverlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
-  return (
+  // Render via portal on document.body so the modal escapes any ancestor
+  // that has backdrop-filter (which creates a containing block for fixed
+  // positioning, causing the modal to be constrained to the nav bar).
+  return createPortal(
     <div
       className="modal-overlay"
       onClick={onClose}
@@ -143,6 +155,7 @@ function ModalOverlay({ children, onClose }: { children: React.ReactNode; onClos
       <div onClick={e => e.stopPropagation()} className="modal-content-wrapper">
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

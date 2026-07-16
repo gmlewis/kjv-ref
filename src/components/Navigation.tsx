@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { BookOpen, Dumbbell, BarChart3, Trophy, Menu, X, LayoutDashboard, Moon, Sun, ArrowUp } from 'lucide-react';
@@ -16,6 +16,20 @@ function Navigation() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
 
+  const toggleDark = useCallback(() => {
+    setIsDark(prev => {
+      const next = !prev;
+      if (next) {
+        document.documentElement.classList.add('dark');
+        localStorage.setItem('kjv-theme', 'dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+        localStorage.setItem('kjv-theme', 'light');
+      }
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     const onScroll = () => setShowTop(window.scrollY > 400);
     window.addEventListener('scroll', onScroll, { passive: true });
@@ -29,34 +43,54 @@ function Navigation() {
         navigate('/books');
         return;
       }
-      // Only handle ? and / when no modal is open and not typing in an input
+      // Only handle shortcuts when no modal is open and not typing in an input
       if (showShortcuts || showSearch) return;
       const target = e.target as HTMLElement | null;
       if (target) {
         const tag = target.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
       }
-      if (e.key === '?' || (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey)) {
+
+      // ? — shortcuts help
+      if (e.key === '?') {
         e.preventDefault();
-        if (e.key === '?') setShowShortcuts(true);
-        else setShowSearch(true);
+        setShowShortcuts(true);
+        return;
+      }
+      // / — search dialog
+      if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        setShowSearch(true);
+        return;
+      }
+      // g — go to book list
+      if (e.key === 'g' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        navigate('/books');
+        return;
+      }
+      // t — toggle dark/light theme
+      if (e.key === 't' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        toggleDark();
+        return;
+      }
+      // Home — scroll to top of page
+      if (e.key === 'Home' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+      // End — scroll to bottom of page
+      if (e.key === 'End' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+        return;
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [navigate, showShortcuts, showSearch]);
-
-  const toggleDark = () => {
-    const next = !isDark;
-    setIsDark(next);
-    if (next) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('kjv-theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('kjv-theme', 'light');
-    }
-  };
+  }, [navigate, showShortcuts, showSearch, toggleDark]);
 
   const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },

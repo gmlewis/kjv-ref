@@ -39,10 +39,18 @@ describe('ShortcutsModal', () => {
     renderModal(<ShortcutsModal onClose={() => {}} />);
     expect(screen.getByText(/Show this keyboard shortcuts help/)).toBeDefined();
     expect(screen.getByText(/Open full-Bible search dialog/)).toBeDefined();
-    expect(screen.getByText(/Advance to the next verse/)).toBeDefined();
-    expect(screen.getByText(/Go back to the previous verse/)).toBeDefined();
+    expect(screen.getByText(/Next verse/)).toBeDefined();
+    expect(screen.getByText(/Previous verse/)).toBeDefined();
     expect(screen.getByText(/Jump to the last verse/)).toBeDefined();
     expect(screen.getByText(/Jump to verse 1/)).toBeDefined();
+    expect(screen.getByText(/Next chapter/)).toBeDefined();
+    expect(screen.getByText(/Previous chapter/)).toBeDefined();
+    expect(screen.getByText(/Go to the book list/)).toBeDefined();
+    expect(screen.getByText(/Toggle dark/)).toBeDefined();
+    expect(screen.getByText(/Increase verse text size/)).toBeDefined();
+    expect(screen.getByText(/Decrease verse text size/)).toBeDefined();
+    expect(screen.getByText(/Scroll to the top/)).toBeDefined();
+    expect(screen.getByText(/Scroll to the bottom/)).toBeDefined();
   });
 
   it('calls onClose when any key is pressed', () => {
