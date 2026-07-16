@@ -164,7 +164,10 @@ test.describe('Books — chapter view', () => {
 
     // Verse numbers like "1", "2", "3" should be visible
     await expect(frame.locator('text=In the beginning').first()).toBeVisible({ timeout: 15_000 });
-    const verseNums = frame.locator('[class*="text-purple-500"][class*="font-bold"]');
+    // Wait a moment for all verse cards to render, then count verse number spans.
+    // Verse numbers are <span> elements with purple text and cursor-pointer.
+    await frame.locator('span[class*="text-purple-500"][class*="cursor-pointer"]').first().waitFor({ state: 'visible', timeout: 5_000 });
+    const verseNums = frame.locator('span[class*="text-purple-500"][class*="cursor-pointer"]');
     const count = await verseNums.count();
     expect(count).toBeGreaterThan(20); // Genesis 1 has 31 verses
   });
@@ -192,7 +195,8 @@ test.describe('Books — chapter view', () => {
     await expect(frame.locator('text=Psalms Chapter 23').first()).toBeVisible({ timeout: 5_000 });
     await expect(frame.locator('text=The LORD is my shepherd').first()).toBeVisible({ timeout: 15_000 });
     // Jump to chapter 100 via the chapter list
-    await frame.locator('[class*="Jump to Chapter"] button:has-text("100")').first().click();
+    const jumpSection = frame.locator('h3:has-text("Jump to Chapter")').locator('..');
+    await jumpSection.locator('button:has-text("100")').first().click();
     await frame.locator('[class*="animate-spin"]').waitFor({ state: 'hidden', timeout: 15_000 }).catch(() => {});
     await expect(frame.locator('text=Psalms Chapter 100').first()).toBeVisible({ timeout: 5_000 });
   });
