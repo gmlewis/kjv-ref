@@ -55,9 +55,9 @@ function renderBooksAt(initialPath: string, initialHash = '') {
 }
 
 /** Fire a real keydown event on window. */
-function pressKey(key: string) {
+function pressKey(key: string, shift = false) {
   act(() => {
-    window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, shiftKey: shift }));
   });
 }
 
@@ -391,6 +391,96 @@ describe('Books ChapterView keyboard shortcuts', () => {
     expect(window.scrollTo).toHaveBeenCalled();
     const v1El = document.getElementById('v1');
     expect(v1El).not.toBeNull();
+    unmount();
+  });
+
+  // ─── Shift+Arrow: jump to first/last verse of current chapter ──────────────
+
+  it('Shift+RightArrow jumps to the last verse of the current chapter', async () => {
+    // John 3 has 36 verses
+    const { unmount } = renderBooksAt('/books/John/3', '#v5');
+    await flush();
+    expect(window.location.hash).toBe('#v5');
+
+    pressKey('ArrowRight', true);
+    await flush();
+
+    expect(window.location.hash).toBe('#v36');
+    expect(window.scrollTo).toHaveBeenCalled();
+    unmount();
+  });
+
+  it('Shift+LeftArrow jumps to verse 1 of the current chapter', async () => {
+    const { unmount } = renderBooksAt('/books/John/3', '#v20');
+    await flush();
+    expect(window.location.hash).toBe('#v20');
+
+    pressKey('ArrowLeft', true);
+    await flush();
+
+    expect(window.location.hash).toBe('#v1');
+    expect(window.scrollTo).toHaveBeenCalled();
+    unmount();
+  });
+
+  it('Shift+RightArrow stays in the current chapter (no chapter change)', async () => {
+    const { unmount } = renderBooksAt('/books/John/3', '#v1');
+    await flush();
+    expect(screen.getByText('John Chapter 3')).toBeDefined();
+
+    pressKey('ArrowRight', true);
+    await flush();
+
+    // Still on John 3, not John 4
+    expect(screen.getByText('John Chapter 3')).toBeDefined();
+    expect(window.location.hash).toBe('#v36');
+    unmount();
+  });
+
+  it('Shift+LeftArrow stays in the current chapter (no chapter change)', async () => {
+    const { unmount } = renderBooksAt('/books/John/3', '#v36');
+    await flush();
+
+    pressKey('ArrowLeft', true);
+    await flush();
+
+    expect(screen.getByText('John Chapter 3')).toBeDefined();
+    expect(window.location.hash).toBe('#v1');
+    unmount();
+  });
+
+  it('Shift+RightArrow from verse 1 jumps to last verse', async () => {
+    const { unmount } = renderBooksAt('/books/John/3', '#v1');
+    await flush();
+
+    pressKey('ArrowRight', true);
+    await flush();
+
+    expect(window.location.hash).toBe('#v36');
+    unmount();
+  });
+
+  it('Shift+LeftArrow from last verse jumps to verse 1', async () => {
+    const { unmount } = renderBooksAt('/books/John/3', '#v36');
+    await flush();
+
+    pressKey('ArrowLeft', true);
+    await flush();
+
+    expect(window.location.hash).toBe('#v1');
+    unmount();
+  });
+
+  it('Shift+arrow does not navigate cross-chapter even at chapter boundary', async () => {
+    // At last verse of John 3, Shift+Right should stay on John 3:36 (not go to John 4)
+    const { unmount } = renderBooksAt('/books/John/3', '#v36');
+    await flush();
+
+    pressKey('ArrowRight', true);
+    await flush();
+
+    expect(screen.getByText('John Chapter 3')).toBeDefined();
+    expect(window.location.hash).toBe('#v36');
     unmount();
   });
 });

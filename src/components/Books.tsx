@@ -346,6 +346,19 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
       }
       e.preventDefault();
 
+      // Shift+Arrow: jump to first/last verse of the CURRENT chapter (no chapter change)
+      if (e.shiftKey) {
+        if (e.key === 'ArrowRight' && verses.length > 0) {
+          const lastVerse = verses[verses.length - 1].verse;
+          history.replaceState(null, '', `#v${lastVerse}`);
+          scrollToVerse(lastVerse);
+        } else if (e.key === 'ArrowLeft') {
+          history.replaceState(null, '', '#v1');
+          scrollToVerse(1);
+        }
+        return;
+      }
+
       // Read the current verse from the URL hash (live, not stale state)
       const hash = window.location.hash;
       const currentVerse = hash.startsWith('#v') ? parseInt(hash.slice(2), 10) : null;
