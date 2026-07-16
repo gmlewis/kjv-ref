@@ -136,18 +136,23 @@ describe('spacedRepetition utilities', () => {
     });
 
     it('calculates consecutive days', () => {
+      // Use noon to avoid midnight boundary issues with differenceInDays
+      const today = new Date();
+      today.setHours(12, 0, 0, 0);
       const dates = [
-        new Date(),
-        new Date(Date.now() - 86400000),
-        new Date(Date.now() - 86400000 * 2),
+        new Date(today),
+        new Date(today.getTime() - 86400000),
+        new Date(today.getTime() - 86400000 * 2),
       ];
       expect(calculateStreak(dates)).toBe(3);
     });
 
     it('stops at gap', () => {
+      const today = new Date();
+      today.setHours(12, 0, 0, 0);
       const dates = [
-        new Date(),
-        new Date(Date.now() - 86400000 * 3),
+        new Date(today),
+        new Date(today.getTime() - 86400000 * 3),
       ];
       expect(calculateStreak(dates)).toBe(1);
     });
