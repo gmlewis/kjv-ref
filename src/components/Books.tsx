@@ -7,6 +7,7 @@ import { ChevronRight, BookOpen, Search, Star, ArrowLeft, ArrowRight, Dumbbell, 
 import { KJV_VERSES, getVersesByBook } from '../data/kjv-verses';
 import { getKJVChapter, getKJVChapterList, getKJVChapterVerseCount, type KJVVerseEntry, BOOK_ABBR_MAP } from '../data/kjv-bible';
 import { searchKJV, type SearchResult } from '../data/kjv-search';
+import { searchBibleQuery, hasSpecialSyntax, type BibleSearchResult } from '../utils/bibleQueryEval';
 import { verseAnchorId, buildChapterUrl } from '../utils/urlHelpers';
 import { getVerseWordData, type StrongsEntry } from '../data/strongs';
 import { getInterlinearChapter, getInterlinearWordBook, type WordEntry } from '../data/interlinear';
@@ -38,7 +39,7 @@ function SearchPanel({ onNavigateAway }: { onNavigateAway: () => void }) {
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [testament, setTestament] = useState<'all' | 'old' | 'new'>('all');
-  const [results, setResults] = useState<SearchResult[]>([]);
+  const [results, setResults] = useState<(SearchResult | BibleSearchResult)[]>([]);
   const [searching, setSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -53,7 +54,10 @@ function SearchPanel({ onNavigateAway }: { onNavigateAway: () => void }) {
     return () => clearTimeout(timer);
   }, [query]);
 
-  // Run search when debounced query or testament filter changes
+  // Run search when debounced query or testament filter changes.
+  // If the query uses special syntax (wildcards, |, quotes, -), use the
+  // KJVCanOpener-style query engine. Otherwise fall back to MiniSearch
+  // for fuzzy/prefix matching.
   useEffect(() => {
     if (!debouncedQuery.trim()) {
       setResults([]);
@@ -62,7 +66,11 @@ function SearchPanel({ onNavigateAway }: { onNavigateAway: () => void }) {
     }
     setSearching(true);
     const opts = testament !== 'all' ? { testament } : {};
-    searchKJV(debouncedQuery, opts).then(r => {
+    const isSpecial = hasSpecialSyntax(debouncedQuery);
+    const searchFn = isSpecial
+      ? searchBibleQuery(debouncedQuery, opts)
+      : searchKJV(debouncedQuery, opts);
+    searchFn.then(r => {
       setResults(r);
       setSearching(false);
     });
@@ -88,7 +96,7 @@ function SearchPanel({ onNavigateAway }: { onNavigateAway: () => void }) {
           <input
             ref={inputRef}
             type="text"
-            placeholder="Search all 24,857 verses..."
+            placeholder="Search verses… use &quot;phrase&quot;, lov*, l?ve, |, -exclude"
             value={query}
             onChange={e => setQuery(e.target.value)}
             className="w-full pl-12 pr-12 py-3 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:outline-none bg-white/70 text-base"
@@ -126,6 +134,15 @@ function SearchPanel({ onNavigateAway }: { onNavigateAway: () => void }) {
             </button>
           ))}
         </div>
+
+        {/* Syntax help */}
+        {hasSpecialSyntax(debouncedQuery) && (
+          <p className="text-xs text-purple-500 mt-3">
+            Using advanced search: <code className="font-mono">&quot;phrase&quot;</code> = exact match ·{' '}
+            <code className="font-mono">|</code> = OR · <code className="font-mono">*</code>/{'[?]' as string} = wildcard ·{' '}
+            <code className="font-mono">-</code> = exclude
+          </p>
+        )}
       </div>
 
       {/* Results */}
