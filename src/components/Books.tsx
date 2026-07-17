@@ -777,7 +777,18 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
                                   if (activeWordPopover?.entry === wordEntry) {
                                     setActiveWordPopover(null);
                                   } else {
-                                    setActiveWordPopover({ entry: wordEntry, rect: (e.target as HTMLElement).getBoundingClientRect() });
+                                    // Use Range.getBoundingClientRect() instead of the element's
+                                    // getBoundingClientRect() for accurate positioning of inline
+                                    // elements in RTL text. In RTL (Hebrew), inline spans that wrap
+                                    // to a new line can report a bounding rect spanning the full
+                                    // line width rather than just the word's visual position.
+                                    // Range gives us the tight bounds of the actual text.
+                                    const target = e.target as HTMLElement;
+                                    const range = document.createRange();
+                                    range.selectNodeContents(target);
+                                    const rect = range.getBoundingClientRect();
+                                    range.detach();
+                                    setActiveWordPopover({ entry: wordEntry, rect });
                                   }
                                 }}
                               >
