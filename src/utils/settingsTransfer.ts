@@ -36,11 +36,11 @@ for (let i = 0; i < BIBLE_BOOKS.length; i++) {
 }
 
 /**
- * Parse a reference like "1 John 3:16" into { book, chapter, verse }.
- * Handles multi-word book names (e.g. "Song of Solomon", "1 Corinthians").
+ * Parse a reference like "1 John 3:16" or "Psalms 23:1-6" into { book, chapter, verse }.
+ * Handles multi-word book names and verse ranges.
  */
 function parseRef(ref: string): { book: string; chapter: number; verse: number } | null {
-  const m = ref.match(/^(.+?) (\d+):(\d+)$/);
+  const m = ref.match(/^(.+?) (\d+):(\d+)(?:-(\d+))?$/);
   if (!m) return null;
   return { book: m[1], chapter: parseInt(m[2], 10), verse: parseInt(m[3], 10) };
 }

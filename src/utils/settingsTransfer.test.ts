@@ -639,3 +639,117 @@ describe('Export → Import round-trip', () => {
     expect(stored.map((b: any) => b.reference).sort()).toEqual(['Isaiah 26:3', 'Isaiah 26:4']);
   });
 });
+
+// ─── Group bookmark (verse range) tests ──────────────────────────────────────
+
+describe('Group bookmarks (verse ranges)', () => {
+  beforeEach(() => { localStorage.clear(); });
+
+  it('exports group bookmarks as reference strings like "Psalms 23:1-6"', () => {
+    setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([
+      { reference: 'Psalms 23:1-6' },
+      { reference: 'John 3:16' },
+    ]));
+
+    const data = collectSettings();
+    const refs = JSON.parse(data.keys['kjv-memorize-bookmarks']);
+    expect(refs).toContain('Psalms 23:1-6');
+    expect(refs).toContain('John 3:16');
+  });
+
+  it('sorts group bookmarks alongside single-verse bookmarks in Bible order', () => {
+    setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([
+      { reference: 'John 3:16' },
+      { reference: 'Psalms 23:1-6' },
+      { reference: 'Genesis 1:1' },
+    ]));
+
+    const data = collectSettings();
+    const refs = JSON.parse(data.keys['kjv-memorize-bookmarks']);
+    expect(refs).toEqual(['Genesis 1:1', 'Psalms 23:1-6', 'John 3:16']);
+  });
+
+  it('deduplicates group bookmarks with the same reference', () => {
+    setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([
+      { reference: 'Psalms 23:1-6' },
+      { reference: 'Psalms 23:1-6' },
+    ]));
+
+    const data = collectSettings();
+    const refs = JSON.parse(data.keys['kjv-memorize-bookmarks']);
+    expect(refs).toEqual(['Psalms 23:1-6']);
+  });
+
+  it('imports group bookmarks from a settings file', () => {
+    const json = makeExportedSettings(['Psalms 23:1-6', 'John 3:16']);
+    const result = importSettings(json);
+    expect(result.addedBookmarks).toBe(2);
+
+    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
+    expect(stored.map((b: any) => b.reference).sort()).toEqual(['John 3:16', 'Psalms 23:1-6']);
+  });
+
+  it('imports group bookmarks without duplicating existing ones', () => {
+    setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([
+      { reference: 'Psalms 23:1-6' },
+    ]));
+
+    const json = makeExportedSettings(['Psalms 23:1-6', 'John 3:16']);
+    const result = importSettings(json);
+    expect(result.addedBookmarks).toBe(1);
+    expect(result.skippedDuplicates).toBe(1);
+
+    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
+    expect(stored).toHaveLength(2);
+  });
+
+  it('group and single-verse bookmarks for the same chapter coexist', () => {
+    setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([
+      { reference: 'Psalms 23:1' },
+      { reference: 'Psalms 23:1-6' },
+    ]));
+
+    const data = collectSettings();
+    const refs = JSON.parse(data.keys['kjv-memorize-bookmarks']);
+    expect(refs).toContain('Psalms 23:1');
+    expect(refs).toContain('Psalms 23:1-6');
+    expect(refs).toHaveLength(2);
+  });
+
+  it('round-trip: export group bookmarks → clear → import restores them', () => {
+    setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([
+      { reference: 'Psalms 23:1-6' },
+      { reference: 'Romans 8:28-39' },
+      { reference: 'John 3:16' },
+    ]));
+
+    const exported = collectSettings();
+    const json = JSON.stringify(exported);
+
+    localStorage.clear();
+    const result = importSettings(json);
+    expect(result.addedBookmarks).toBe(3);
+
+    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
+    const refs = stored.map((b: any) => b.reference).sort();
+    expect(refs).toEqual(['John 3:16', 'Psalms 23:1-6', 'Romans 8:28-39']);
+  });
+
+  it('exports and sorts multiple group bookmarks correctly', () => {
+    setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([
+      { reference: 'Romans 8:28-39' },
+      { reference: 'Psalms 23:1-6' },
+      { reference: '1 Corinthians 13:1-13' },
+      { reference: 'Genesis 1:1-3' },
+    ]));
+
+    const data = collectSettings();
+    const refs = JSON.parse(data.keys['kjv-memorize-bookmarks']);
+    expect(refs).toEqual([
+      'Genesis 1:1-3',
+      'Psalms 23:1-6',
+      'Romans 8:28-39',
+      '1 Corinthians 13:1-13',
+    ]);
+  });
+});

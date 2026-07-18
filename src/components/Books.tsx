@@ -727,6 +727,39 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
         })()}
       </div>
 
+      {/* Group favorite button — appears when a multi-verse range is selected */}
+      {selectedRange && selectedRange.start !== selectedRange.end && !loading && verses.length > 0 && (
+        <div className="glassmorphism rounded-2xl p-4 shadow-lg flex items-center gap-3 animate-fade-in">
+          <BookOpen className="w-5 h-5 text-purple-500 flex-shrink-0" />
+          <div className="flex-1">
+            <span className="font-bold text-purple-600">
+              {bookName} {chapterNum}:{selectedRange.start}-{selectedRange.end}
+            </span>
+            <span className="text-sm text-gray-500 ml-2">
+              {selectedRange.end - selectedRange.start + 1} verses selected
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              const groupRef = `${bookName} ${chapterNum}:${selectedRange.start}-${selectedRange.end}`;
+              handleBookmarkToggle(groupRef);
+            }}
+            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-1.5 ${
+              bookmarkedRefs.has(`${bookName} ${chapterNum}:${selectedRange.start}-${selectedRange.end}`)
+                ? 'bg-yellow-100 text-yellow-700 border-2 border-yellow-300'
+                : 'btn-primary text-white'
+            }`}
+            title={bookmarkedRefs.has(`${bookName} ${chapterNum}:${selectedRange.start}-${selectedRange.end}`) ? 'Remove group from favorites' : 'Add this verse range to favorites'}
+          >
+            <Star className="w-4 h-4" />
+            {bookmarkedRefs.has(`${bookName} ${chapterNum}:${selectedRange.start}-${selectedRange.end}`)
+              ? 'Favorited'
+              : 'Favorite this range'
+            }
+          </button>
+        </div>
+      )}
+
       {/* All verses from kjv.txt */}
       {loading ? (
         <div className="glassmorphism rounded-2xl p-12 shadow-lg text-center">
@@ -1235,8 +1268,8 @@ function BooksGrid() {
               </div>
             </Link>
           );
-        })}
-      </div>
+          })}
+       </div>
     </div>
   );
 }
