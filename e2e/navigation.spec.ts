@@ -51,10 +51,10 @@ test.describe('Navigation', () => {
     await page.setViewportSize({ width: 375, height: 812 });
     const frame = await openApp(page);
 
-    // The hamburger is the third nav button (0=desktop dark-mode, 1=mobile
-    // dark-mode, 2=hamburger). On mobile, button[0] is hidden (it's in the
-    // desktop-only section), so buttons 1 and 2 are the visible mobile controls.
-    const hamburger = frame.locator('nav button').nth(2);
+    // Find the hamburger button by its icon — it contains either a Menu or X
+    // SVG. The hamburger is the last button in the mobile nav section.
+    const mobileSection = frame.locator('nav div.md\\:hidden');
+    const hamburger = mobileSection.locator('button').last();
     await expect(hamburger).toBeVisible();
     await hamburger.click();
 
