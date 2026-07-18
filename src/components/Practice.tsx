@@ -7,7 +7,7 @@ import {
   Award, BookOpen, ArrowLeft, ChevronRight, Shuffle, Filter,
   Minus, Trophy, Layers, AlignLeft, Eye, Hash, Star, X,
 } from 'lucide-react';
-import { parseVerseRef } from '../utils/urlHelpers';
+import { parseVerseRef, parseVerseRangeRef } from '../utils/urlHelpers';
 import { BIBLE_BOOKS } from '../utils/bibleBooks';
 
 const BOOK_ORDER = new Map(BIBLE_BOOKS.map((b, i) => [b.name, i]));
@@ -783,6 +783,69 @@ function Practice() {
     });
   }, [collectionFilter, bookmarkedRefs]);
 
+  // Load verses for a multi-verse range reference (e.g. "Psalms 23:1-6").
+  // KJV_VERSES only has ~41 curated verses, so most verses in a range need
+  // to be fetched from the full Bible data via getKJVVerse.
+  const [targetRangeVerses, setTargetRangeVerses] = useState<KJVVerse[]>([]);
+  const isRangeReference = useMemo(() => {
+    if (!targetReference) return false;
+    const parsed = parseVerseRangeRef(targetReference);
+    return parsed !== null && parsed.verseEnd > parsed.verseStart;
+  }, [targetReference]);
+
+  useEffect(() => {
+    if (!targetReference || !isRangeReference) {
+      setTargetRangeVerses([]);
+      return;
+    }
+    const parsed = parseVerseRangeRef(targetReference);
+    if (!parsed) { setTargetRangeVerses([]); return; }
+    const { book, chapter, verseStart, verseEnd } = parsed;
+    let cancelled = false;
+    const refs: string[] = [];
+    for (let v = verseStart; v <= verseEnd; v++) {
+      refs.push(`${book} ${chapter}:${v}`);
+    }
+    // First, collect what we can from KJV_VERSES (synchronous)
+    const kvMap = new Map(KJV_VERSES.map(v => [v.reference, v]));
+    const found: KJVVerse[] = [];
+    const missing: string[] = [];
+    for (const ref of refs) {
+      const kv = kvMap.get(ref);
+      if (kv) found.push(kv);
+      else missing.push(ref);
+    }
+    // Fetch missing verses from the full Bible
+    if (missing.length === 0) {
+      // Sort by verse number to ensure correct order
+      found.sort((a, b) => a.verse - b.verse);
+      if (!cancelled) setTargetRangeVerses(found);
+      return;
+    }
+    Promise.all(missing.map(ref => getKJVVerse(ref))).then(entries => {
+      if (cancelled) return;
+      const extra: KJVVerse[] = [];
+      for (const entry of entries) {
+        if (!entry) continue;
+        const m = entry.reference.match(/^(.+) (\d+):(\d+)$/);
+        if (!m) continue;
+        extra.push({
+          reference: entry.reference,
+          book: m[1],
+          chapter: parseInt(m[2], 10),
+          verse: entry.verse,
+          text: entry.text,
+          keywords: extractKeywords(entry.text),
+          difficulty: assessDifficulty(entry.text),
+          theme: 'custom',
+        });
+      }
+      const all = [...found, ...extra].sort((a, b) => a.verse - b.verse);
+      setTargetRangeVerses(all);
+    });
+    return () => { cancelled = true; };
+  }, [targetReference, isRangeReference]);
+
   // Build a map: reference → { timesRecited } from progress data
   const progressMap = useMemo(() => {
     const map = new Map<string, { timesRecited: number }>();
@@ -797,6 +860,11 @@ function Practice() {
 
   const verses = useMemo(() => {
     if (targetReference) {
+      // Multi-verse range (e.g. "Psalms 23:1-6")
+      if (isRangeReference) {
+        return targetRangeVerses;
+      }
+      // Single verse — try exact match in KJV_VERSES first
       const v = KJV_VERSES.find(v => v.reference === targetReference);
       return v ? [v] : KJV_VERSES;
     }
@@ -814,7 +882,7 @@ function Practice() {
       if (aDue !== bDue) return aDue ? -1 : 1;
       return (progressMap.get(a.reference)?.timesRecited ?? 0) - (progressMap.get(b.reference)?.timesRecited ?? 0);
     });
-  }, [targetReference, difficultyFilter, collectionFilter, bookmarkedRefs, extraCollectionVerses, dueReviewData, progressMap]);
+  }, [targetReference, isRangeReference, targetRangeVerses, difficultyFilter, collectionFilter, bookmarkedRefs, extraCollectionVerses, dueReviewData, progressMap]);
 
   const handleComplete = async (score: number, total: number, results: { verse: KJVVerse; correct: boolean; rating: PerformanceRating }[]) => {
     setFinalScore({ score, total });

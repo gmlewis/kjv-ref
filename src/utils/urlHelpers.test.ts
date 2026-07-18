@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { verseAnchorId, buildChapterUrl, parseVerseHash, buildVerseHash, buildChapterUrlRange } from './urlHelpers';
+import { verseAnchorId, buildChapterUrl, parseVerseHash, buildVerseHash, buildChapterUrlRange, parseVerseRef, parseVerseRangeRef } from './urlHelpers';
 
 describe('verseAnchorId', () => {
   it('returns "v16" for verse 16', () => {
@@ -113,5 +113,57 @@ describe('buildChapterUrlRange', () => {
 
   it('encodes book name with spaces', () => {
     expect(buildChapterUrlRange('1 Kings', 1, { start: 1, end: 3 })).toBe('/books/1%20Kings/1#v1-3');
+  });
+});
+
+// ─── parseVerseRangeRef tests ────────────────────────────────────────────────
+
+describe('parseVerseRangeRef', () => {
+  it('parses single verse "John 3:16"', () => {
+    expect(parseVerseRangeRef('John 3:16')).toEqual({
+      book: 'John', chapter: 3, verseStart: 16, verseEnd: 16,
+    });
+  });
+
+  it('parses verse range "Psalms 23:1-6"', () => {
+    expect(parseVerseRangeRef('Psalms 23:1-6')).toEqual({
+      book: 'Psalms', chapter: 23, verseStart: 1, verseEnd: 6,
+    });
+  });
+
+  it('parses multi-word book with range "Song of Solomon 1:1-4"', () => {
+    expect(parseVerseRangeRef('Song of Solomon 1:1-4')).toEqual({
+      book: 'Song of Solomon', chapter: 1, verseStart: 1, verseEnd: 4,
+    });
+  });
+
+  it('parses numbered book with range "1 Corinthians 13:1-13"', () => {
+    expect(parseVerseRangeRef('1 Corinthians 13:1-13')).toEqual({
+      book: '1 Corinthians', chapter: 13, verseStart: 1, verseEnd: 13,
+    });
+  });
+
+  it('parses large verse range "Romans 8:28-39"', () => {
+    expect(parseVerseRangeRef('Romans 8:28-39')).toEqual({
+      book: 'Romans', chapter: 8, verseStart: 28, verseEnd: 39,
+    });
+  });
+
+  it('rejects reversed range "John 3:6-1"', () => {
+    expect(parseVerseRangeRef('John 3:6-1')).toBeNull();
+  });
+
+  it('returns null for invalid string', () => {
+    expect(parseVerseRangeRef('not a reference')).toBeNull();
+  });
+
+  it('returns null for empty string', () => {
+    expect(parseVerseRangeRef('')).toBeNull();
+  });
+
+  it('handles single-verse range (start === end)', () => {
+    expect(parseVerseRangeRef('John 3:16-16')).toEqual({
+      book: 'John', chapter: 3, verseStart: 16, verseEnd: 16,
+    });
   });
 });

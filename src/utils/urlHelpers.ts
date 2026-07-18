@@ -13,6 +13,25 @@ export function parseVerseRef(reference: string): { book: string; chapter: numbe
   return { book: m[1], chapter: parseInt(m[2], 10), verse: parseInt(m[3], 10) };
 }
 
+/**
+ * Parse a reference that may include a verse range, e.g. "Psalms 23:1-6".
+ * Returns { book, chapter, verseStart, verseEnd } or null.
+ * Single-verse references like "John 3:16" return verseStart === verseEnd.
+ */
+export function parseVerseRangeRef(reference: string): {
+  book: string;
+  chapter: number;
+  verseStart: number;
+  verseEnd: number;
+} | null {
+  const m = reference.match(/^(.+) (\d+):(\d+)(?:-(\d+))?$/);
+  if (!m) return null;
+  const start = parseInt(m[3], 10);
+  const end = m[4] ? parseInt(m[4], 10) : start;
+  if (end < start) return null;
+  return { book: m[1], chapter: parseInt(m[2], 10), verseStart: start, verseEnd: end };
+}
+
 // ─── Verse range support ──────────────────────────────────────────────────────
 
 export interface VerseRange {

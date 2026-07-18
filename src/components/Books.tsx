@@ -757,6 +757,13 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
               : 'Favorite this range'
             }
           </button>
+          {bookmarkedRefs.has(`${bookName} ${chapterNum}:${selectedRange.start}-${selectedRange.end}`) && (
+            <Link to={`/practice/${encodeURIComponent(`${bookName} ${chapterNum}:${selectedRange.start}-${selectedRange.end}`)}`}>
+              <button className="btn-secondary text-white px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap flex items-center gap-1.5">
+                <Dumbbell className="w-4 h-4" /> Practice
+              </button>
+            </Link>
+          )}
         </div>
       )}
 
