@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMyBookmarks, useCreateBookmarkMutation, useRemoveBookmarkMutation } from '../hooks';
@@ -8,6 +8,7 @@ import { KJV_VERSES, getVersesByBook } from '../data/kjv-verses';
 import { getKJVChapter, getKJVChapterList, getKJVChapterVerseCount, type KJVVerseEntry, BOOK_ABBR_MAP } from '../data/kjv-bible';
 import { searchKJV, type SearchResult } from '../data/kjv-search';
 import { searchBibleQuery, hasSpecialSyntax, type BibleSearchResult } from '../utils/bibleQueryEval';
+import { searchBibleReferences, type BibleRefMatch } from '../utils/bibleRefSearch';
 import { verseAnchorId, buildChapterUrl } from '../utils/urlHelpers';
 import { getVerseWordData, type StrongsEntry } from '../data/strongs';
 import { getInterlinearChapter, getInterlinearWordBook, type WordEntry } from '../data/interlinear';
@@ -42,6 +43,9 @@ function SearchPanel({ onNavigateAway, initialQuery = '' }: { onNavigateAway: ()
   const [results, setResults] = useState<(SearchResult | BibleSearchResult)[]>([]);
   const [searching, setSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Live Bible reference matches (computed synchronously, no debounce needed)
+  const refMatches = useMemo(() => searchBibleReferences(query, 5), [query]);
 
   // Auto-focus when panel opens
   useEffect(() => {
@@ -145,6 +149,29 @@ function SearchPanel({ onNavigateAway, initialQuery = '' }: { onNavigateAway: ()
           </p>
         )}
       </div>
+
+      {/* Bible reference quick-jump matches (shown before text search results) */}
+      {refMatches.length > 0 && query.trim() && (
+        <div className="space-y-2">
+          <p className="text-sm text-purple-600 font-semibold px-1">Quick Jump</p>
+          {refMatches.map((m) => (
+            <Link
+              key={m.reference}
+              to={buildChapterUrl(m.book, m.chapter, m.verse)}
+            >
+              <div
+                className="glassmorphism rounded-2xl p-4 shadow-md cursor-pointer hover:shadow-lg hover:border-purple-200 border-2 border-transparent transition-all flex items-center gap-3"
+                onClick={() => { _pendingScrollVerse = m.verse; onNavigateAway(); }}
+              >
+                <BookOpen className="w-5 h-5 text-purple-500 flex-shrink-0" />
+                <span className="font-bold text-purple-600 text-lg">{m.reference}</span>
+                <span className="text-sm text-gray-400 ml-auto">Go to verse</span>
+                <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
 
       {/* Results */}
       {debouncedQuery.trim() && !searching && results.length === 0 && (

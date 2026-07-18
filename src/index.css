@@ -602,6 +602,72 @@ html.dark .verse-selected {
   box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
 }
 
+/* ─── Reference match list in search modal ─────────────────────────────────── */
+
+.modal-ref-matches {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.modal-ref-match {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  border: 2px solid transparent;
+  background: rgba(139, 92, 246, 0.06);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+  width: 100%;
+}
+
+.modal-ref-match:hover {
+  background: rgba(139, 92, 246, 0.12);
+}
+
+.modal-ref-match-selected {
+  border-color: rgba(139, 92, 246, 0.4);
+  background: rgba(139, 92, 246, 0.15);
+}
+
+.modal-ref-match-text {
+  flex: 1;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #5b21b6;
+}
+
+.modal-ref-match-hint {
+  font-size: 0.875rem;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+/* Dark mode for ref matches */
+html.dark .modal-ref-match {
+  background: rgba(167, 139, 250, 0.08);
+}
+
+html.dark .modal-ref-match:hover {
+  background: rgba(167, 139, 250, 0.14);
+}
+
+html.dark .modal-ref-match-selected {
+  border-color: rgba(167, 139, 250, 0.5);
+  background: rgba(167, 139, 250, 0.18);
+}
+
+html.dark .modal-ref-match-text {
+  color: #c4b5fd;
+}
+
+html.dark .modal-ref-match-hint {
+  color: #64748b;
+}
+
 /* ─── Dark mode for modals ────────────────────────────────────────────────── */
 
 html.dark .modal-overlay {

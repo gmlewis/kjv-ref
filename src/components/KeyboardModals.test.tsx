@@ -119,7 +119,7 @@ describe('SearchModal', () => {
     renderModal(<SearchModal onClose={() => {}} />);
     const input = document.querySelector('.modal-search-input') as HTMLInputElement;
     expect(input).not.toBeNull();
-    expect(input.placeholder).toContain('24,857 verses');
+    expect(input.placeholder).toContain('jn3:16');
   });
 
   it('auto-focuses the input on mount', () => {

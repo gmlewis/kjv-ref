@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Search, X, Keyboard, ArrowLeft, ArrowRight, ChevronUp, ChevronDown, BookOpen, Moon, Sun, Home, Plus, Minus, CornerDownLeft } from 'lucide-react';
+import { searchBibleReferences, type BibleRefMatch } from '../utils/bibleRefSearch';
 
 // ─── Keyboard Shortcuts Modal (? key) ────────────────────────────────────────
 
@@ -75,14 +76,17 @@ export function ShortcutsModal({ onClose }: { onClose: () => void }) {
 
 export function SearchModal({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState('');
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+
+  // Live Bible reference matches as the user types
+  const refMatches = useMemo(() => searchBibleReferences(query, 5), [query]);
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  // Close on Escape; all other keys are captured so they type into the input
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -94,11 +98,35 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', onKey, true);
   }, [onClose]);
 
+  // Reset selection when matches change
+  useEffect(() => { setSelectedIndex(0); }, [refMatches]);
+
+  const goToRef = (match: BibleRefMatch) => {
+    navigate(`/books/${encodeURIComponent(match.book)}/${match.chapter}#v${match.verse}`);
+    onClose();
+  };
+
   const submitSearch = () => {
     const q = query.trim();
     if (!q) { onClose(); return; }
+    // If there's a reference match selected, navigate to it
+    if (refMatches.length > 0 && selectedIndex < refMatches.length) {
+      goToRef(refMatches[selectedIndex]);
+      return;
+    }
+    // Otherwise, do a full-text search
     navigate(`/books?search=${encodeURIComponent(q)}`);
     onClose();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown' && refMatches.length > 0) {
+      e.preventDefault();
+      setSelectedIndex(i => Math.min(i + 1, refMatches.length - 1));
+    } else if (e.key === 'ArrowUp' && refMatches.length > 0) {
+      e.preventDefault();
+      setSelectedIndex(i => Math.max(i - 1, 0));
+    }
   };
 
   return (
@@ -123,9 +151,29 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
               type="text"
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder='Search all 24,857 verses… try "phrase", lov*, |, -exclude'
+              onKeyDown={handleKeyDown}
+              placeholder='Search verses or jump to a reference (e.g. "jn3:16", "ps23", "1 john")'
               className="modal-search-input"
             />
+
+            {/* Live Bible reference matches */}
+            {refMatches.length > 0 && (
+              <div className="modal-ref-matches">
+                {refMatches.map((m, i) => (
+                  <button
+                    key={m.reference}
+                    type="button"
+                    onClick={() => goToRef(m)}
+                    className={`modal-ref-match ${i === selectedIndex ? 'modal-ref-match-selected' : ''}`}
+                  >
+                    <BookOpen className="w-5 h-5 text-purple-500 flex-shrink-0" />
+                    <span className="modal-ref-match-text">{m.reference}</span>
+                    <span className="modal-ref-match-hint">Go to verse</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             <p className="modal-search-hint">
               Press <span className="kbd-key inline">Enter</span> to search or{' '}
               <span className="kbd-key inline">Esc</span> to cancel
