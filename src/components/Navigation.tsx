@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { BookOpen, Dumbbell, BarChart3, Trophy, Menu, X, LayoutDashboard, Moon, Sun, ArrowUp, Download, Upload } from 'lucide-react';
 import { ShortcutsModal, SearchModal } from './KeyboardModals';
+import Tutorial from './Tutorial';
 import { downloadSettings, importSettings, type ImportResult } from '../utils/settingsTransfer';
 
 function Navigation() {
@@ -16,6 +17,7 @@ function Navigation() {
   const [showTop, setShowTop] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
   const [importToast, setImportToast] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -282,8 +284,9 @@ function Navigation() {
           <ArrowUp className="w-5 h-5" />
         </button>
       )}
-      {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
+      {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} onLaunchTutorial={() => { setShowShortcuts(false); setShowTutorial(true); }} />}
       {showSearch && <SearchModal onClose={() => setShowSearch(false)} />}
+      {showTutorial && <Tutorial onClose={() => setShowTutorial(false)} />}
 
       {/* Hidden file input for settings import */}
       <input

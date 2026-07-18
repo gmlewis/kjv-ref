@@ -6,7 +6,7 @@ import { searchBibleReferences, type BibleRefMatch } from '../utils/bibleRefSear
 
 // ─── Keyboard Shortcuts Modal (? key) ────────────────────────────────────────
 
-export function ShortcutsModal({ onClose }: { onClose: () => void }) {
+export function ShortcutsModal({ onClose, onLaunchTutorial }: { onClose: () => void; onLaunchTutorial?: () => void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       e.preventDefault();
@@ -65,6 +65,15 @@ export function ShortcutsModal({ onClose }: { onClose: () => void }) {
               </div>
             ))}
           </div>
+          {onLaunchTutorial && (
+            <button
+              onClick={onLaunchTutorial}
+              className="modal-tutorial-btn"
+            >
+              <Keyboard className="w-5 h-5" />
+              <span>Take the interactive tour</span>
+            </button>
+          )}
           <p className="modal-footer-hint">Press any key to close</p>
         </div>
       </div>

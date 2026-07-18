@@ -668,6 +668,46 @@ html.dark .modal-ref-match-hint {
   color: #64748b;
 }
 
+/* Tutorial launch button in shortcuts modal */
+.modal-tutorial-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.875rem;
+  margin-top: 1rem;
+  border-radius: 0.875rem;
+  font-weight: 700;
+  font-size: 1.0625rem;
+  color: white;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.modal-tutorial-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+/* Inline code snippets in modals — readable in both light and dark mode */
+.modal-card code {
+  background-color: #f1f5f9;
+  color: #1e293b;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-family: 'SF Mono', 'Monaco', 'Cascadia Code', monospace;
+  font-size: 0.875rem;
+}
+
+html.dark .modal-card code {
+  background-color: rgba(30, 41, 59, 0.8);
+  color: #e2e8f0;
+}
+
 /* ─── Dark mode for modals ────────────────────────────────────────────────── */
 
 html.dark .modal-overlay {

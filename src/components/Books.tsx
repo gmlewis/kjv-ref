@@ -23,6 +23,11 @@ import { BIBLE_BOOKS, getPrevNextChapter, getNextVerse, getPrevVerse } from '../
 // Supports ranges: { start: 1, end: 6 } for multi-verse highlights.
 let _pendingScrollTarget: VerseRange | null = null;
 
+/** Set the pending scroll target for the next ChapterView mount (used by Tutorial). */
+export function setPendingScrollTarget(range: VerseRange) {
+  _pendingScrollTarget = range;
+}
+
 // ─── Highlight helper ────────────────────────────────────────────────────────
 function highlightText(text: string, query: string): React.ReactNode {
   if (!query.trim()) return text;
@@ -310,46 +315,67 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
      return () => { cancelled = true; };
    }, [bookName, chapterNum]);
 
-   // Scroll to and highlight the target verse once data is loaded.
-   // Uses double requestAnimationFrame + retry to ensure the browser has
-   // committed the layout of all verse cards before measuring positions.
-   // This fixes the long-standing bug where scrollTo landed on the wrong verse
-   // because getBoundingClientRect() returned stale positions before layout
-   // was complete (especially on cross-chapter navigation with cached data).
-    useEffect(() => {
-      if (loading || verses.length === 0 || scrollTarget === null) return;
-      setSelectedRange(scrollTarget);
-      setHighlightedVerse(scrollTarget.start);
+    // Scroll to and highlight the target verse once data is loaded.
+    // Uses double requestAnimationFrame + retry to ensure the browser has
+    // committed the layout of all verse cards before measuring positions.
+    // This fixes the long-standing bug where scrollTo landed on the wrong verse
+    // because getBoundingClientRect() returned stale positions before layout
+    // was complete (especially on hard page reloads with fresh data fetch).
+     useEffect(() => {
+       if (loading || verses.length === 0 || scrollTarget === null) return;
+       setSelectedRange(scrollTarget);
+       setHighlightedVerse(scrollTarget.start);
 
-      let raf1: number;
-      let raf2: number;
-      let retryTimer: ReturnType<typeof setTimeout>;
-      let cancelled = false;
+       let raf1: number;
+       let raf2: number;
+       let retryTimer: ReturnType<typeof setTimeout>;
+       let cancelled = false;
+       let attempts = 0;
+       const maxAttempts = 10;
 
-      const doScroll = () => {
-        if (cancelled) return;
-        // Scroll to the first verse in the range
-        const el = document.getElementById(verseAnchorId(scrollTarget.start));
-        if (!el) return;
+       const doScroll = () => {
+         if (cancelled) return;
+         attempts++;
+         // Scroll to the first verse in the range
+         const el = document.getElementById(verseAnchorId(scrollTarget.start));
+         if (!el) return;
 
-        const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
-        const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
+         const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
+         const targetTop = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
 
-        // Sanity check: if top is 0 or negative, the layout isn't ready yet.
-        // Retry after a short delay (up to a few times).
-        if (top <= 0 && el.offsetTop > 0) {
-          retryTimer = setTimeout(doScroll, 50);
-          return;
-        }
+         // Always scroll on the first attempt to override the browser's scroll
+         // restoration (which competes on hard page reloads). Use instant
+         // (non-smooth) scroll because smooth scroll can lose the race.
+         if (attempts === 1) {
+           window.scrollTo({ top: Math.max(0, targetTop) });
+         }
 
-        window.scrollTo({ top, behavior: 'smooth' });
-      };
+         // Verify the scroll actually took effect. The browser may fight us
+         // on hard reloads (scroll restoration), so retry a few times.
+         if (attempts < maxAttempts) {
+           retryTimer = setTimeout(() => {
+             if (cancelled) return;
+             const actualEl = document.getElementById(verseAnchorId(scrollTarget.start));
+             if (!actualEl) return;
+             const actualTop = actualEl.getBoundingClientRect().top;
+             const navHeight2 = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
+             const desiredTop = navHeight2 + 16;
+             // Only retry if the element is far from where we want it AND
+             // the values are non-zero (jsdom returns all zeros, so skip retry there)
+             if (actualTop !== 0 && Math.abs(actualTop - desiredTop) > 20) {
+               const newTarget = actualEl.getBoundingClientRect().top + window.scrollY - navHeight2 - 16;
+               window.scrollTo({ top: Math.max(0, newTarget) });
+               doScroll();
+             }
+           }, 100);
+         }
+       };
 
-      // Double rAF: first rAF fires after the state update is committed,
-      // second rAF fires after the browser has laid out the new content.
-      raf1 = requestAnimationFrame(() => {
-        raf2 = requestAnimationFrame(doScroll);
-      });
+       // Double rAF: first rAF fires after the state update is committed,
+       // second rAF fires after the browser has laid out the new content.
+       raf1 = requestAnimationFrame(() => {
+         raf2 = requestAnimationFrame(doScroll);
+       });
 
       // Clear any previous highlight timer, then set a short fade.
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
