@@ -422,3 +422,83 @@ describe('searchBibleReferences — real-world patterns', () => {
     expect(searchBibleReferences('jnh1:1')[0].book).toBe('Jonah');
   });
 });
+
+// ─── Verse range tests ───────────────────────────────────────────────────────
+
+describe('searchBibleReferences — verse ranges', () => {
+  it('parses "ps23:1-6" (compact with range)', () => {
+    const r = searchBibleReferences('ps23:1-6');
+    expect(r[0]).toMatchObject({ book: 'Psalms', chapter: 23, verse: 1, verseEnd: 6 });
+    expect(r[0].reference).toBe('Psalms 23:1-6');
+  });
+
+  it('parses "Psalms 23:1-6" (spaced with range)', () => {
+    const r = searchBibleReferences('Psalms 23:1-6');
+    expect(r[0]).toMatchObject({ book: 'Psalms', chapter: 23, verse: 1, verseEnd: 6 });
+    expect(r[0].reference).toBe('Psalms 23:1-6');
+  });
+
+  it('parses "ps 23 1-6" (spaced, no colon, with range)', () => {
+    const r = searchBibleReferences('ps 23 1-6');
+    expect(r[0]).toMatchObject({ book: 'Psalms', chapter: 23, verse: 1, verseEnd: 6 });
+  });
+
+  it('parses "John 3:1-3" (small range)', () => {
+    const r = searchBibleReferences('John 3:1-3');
+    expect(r[0]).toMatchObject({ book: 'John', chapter: 3, verse: 1, verseEnd: 3 });
+    expect(r[0].reference).toBe('John 3:1-3');
+  });
+
+  it('parses "jn3:16-17" (compact with range)', () => {
+    const r = searchBibleReferences('jn3:16-17');
+    expect(r[0]).toMatchObject({ book: 'John', chapter: 3, verse: 16, verseEnd: 17 });
+  });
+
+  it('parses "rom8:28-39" (compact with large range)', () => {
+    const r = searchBibleReferences('rom8:28-39');
+    expect(r[0]).toMatchObject({ book: 'Romans', chapter: 8, verse: 28, verseEnd: 39 });
+  });
+
+  it('parses "1cor13:1-13" (numbered book with range)', () => {
+    const r = searchBibleReferences('1cor13:1-13');
+    expect(r[0]).toMatchObject({ book: '1 Corinthians', chapter: 13, verse: 1, verseEnd: 13 });
+    expect(r[0].reference).toBe('1 Corinthians 13:1-13');
+  });
+
+  it('rejects reversed range (end < start)', () => {
+    const r = searchBibleReferences('John 3:6-1');
+    // Should not produce a match with verseEnd < verse
+    expect(r.find(m => m.verseEnd !== undefined && m.verseEnd < m.verse)).toBeUndefined();
+  });
+
+  it('single verse range (start === end) has no verseEnd', () => {
+    const r = searchBibleReferences('John 3:16-16');
+    // verseEnd === verse is treated as single verse (no range suffix)
+    expect(r[0].reference).toBe('John 3:16');
+  });
+
+  it('range match includes verseEnd field', () => {
+    const r = searchBibleReferences('ps23:1-6');
+    expect(r[0].verseEnd).toBe(6);
+  });
+
+  it('single verse match does not include verseEnd', () => {
+    const r = searchBibleReferences('ps23:1');
+    expect(r[0].verseEnd).toBeUndefined();
+  });
+
+  it('range with fuzzy book prefix match works', () => {
+    const r = searchBibleReferences('psal 23:1-6');
+    expect(r.some(m => m.book === 'Psalms' && m.verseEnd === 6)).toBe(true);
+  });
+
+  it('"rev22:1-21" → Revelation 22:1-21 (full last chapter)', () => {
+    const r = searchBibleReferences('rev22:1-21');
+    expect(r[0]).toMatchObject({ book: 'Revelation', chapter: 22, verse: 1, verseEnd: 21 });
+  });
+
+  it('multi-word book with range: "song of solomon 1:1-4"', () => {
+    const r = searchBibleReferences('song of solomon 1:1-4');
+    expect(r[0]).toMatchObject({ book: 'Song of Solomon', chapter: 1, verse: 1, verseEnd: 4 });
+  });
+});

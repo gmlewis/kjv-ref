@@ -9,6 +9,7 @@ export interface BibleRefMatch {
   book: string;
   chapter: number;
   verse: number;
+  verseEnd?: number;
   reference: string;
   score: number;
 }
@@ -107,6 +108,7 @@ interface ParsedRef {
   bookQuery: string;
   chapter: number;
   verse: number;
+  verseEnd?: number;
   source: 'spaced' | 'compact';
 }
 
@@ -116,12 +118,23 @@ function tryParses(input: string): ParsedRef[] {
   const parses: ParsedRef[] = [];
 
   // Spaced format patterns (tried in priority order)
-  let m = s.match(/^(.+?)\s+(\d+):(\d+)$/);
+  // Verse range: "John 3:1-6"
+  let m = s.match(/^(.+?)\s+(\d+):(\d+)-(\d+)$/);
+  if (m) parses.push({ bookQuery: m[1], chapter: +m[2], verse: +m[3], verseEnd: +m[4], source: 'spaced' });
+
+  // Single verse: "John 3:16"
+  m = s.match(/^(.+?)\s+(\d+):(\d+)$/);
   if (m) parses.push({ bookQuery: m[1], chapter: +m[2], verse: +m[3], source: 'spaced' });
 
+  // Verse range with spaces: "John 3 1-6"
+  m = s.match(/^(.+?)\s+(\d+)\s+(\d+)-(\d+)$/);
+  if (m) parses.push({ bookQuery: m[1], chapter: +m[2], verse: +m[3], verseEnd: +m[4], source: 'spaced' });
+
+  // Two numbers: "John 3 16"
   m = s.match(/^(.+?)\s+(\d+)\s+(\d+)$/);
   if (m) parses.push({ bookQuery: m[1], chapter: +m[2], verse: +m[3], source: 'spaced' });
 
+  // Book + chapter: "John 3"
   m = s.match(/^(.+?)\s+(\d+)$/);
   if (m) parses.push({ bookQuery: m[1], chapter: +m[2], verse: 1, source: 'spaced' });
 
@@ -129,30 +142,44 @@ function tryParses(input: string): ParsedRef[] {
   parses.push({ bookQuery: s, chapter: 1, verse: 1, source: 'spaced' });
 
   // Compact format (spaces removed) — always try, even if input had no spaces,
-  // to handle inputs like "jn3:16", "ps23", "1jn2:1"
+  // to handle inputs like "jn3:16", "ps23", "1jn2:1", "ps23:1-6"
   const compact = s.replace(/\s/g, '');
+  // Verse range: "jn3:1-6"
+  m = compact.match(/^(.+?)(\d+):(\d+)-(\d+)$/);
+  if (m) parses.push({ bookQuery: m[1], chapter: +m[2], verse: +m[3], verseEnd: +m[4], source: 'compact' });
+
+  // Single verse with colon: "jn3:16"
   m = compact.match(/^(.+?)(\d+):(\d+)$/);
   if (m) parses.push({ bookQuery: m[1], chapter: +m[2], verse: +m[3], source: 'compact' });
 
+  // Book + chapter: "ps23"
   m = compact.match(/^(.+?)(\d+)$/);
   if (m) parses.push({ bookQuery: m[1], chapter: +m[2], verse: 1, source: 'compact' });
 
   return parses;
 }
 
-function isValidRef(book: string, chapter: number, verse: number): boolean {
+function isValidRef(book: string, chapter: number, verse: number, verseEnd?: number): boolean {
   const maxCh = CHAPTER_COUNTS.get(book);
   if (!maxCh) return false;
   if (chapter < 1 || chapter > maxCh) return false;
   if (verse < 1) return false;
-  // We don't know exact verse counts per chapter without the Bible data,
-  // but we can at least validate chapter range.
+  if (verseEnd !== undefined) {
+    if (verseEnd < verse) return false;
+  }
   return true;
+}
+
+function buildRefString(book: string, chapter: number, verse: number, verseEnd?: number): string {
+  if (verseEnd !== undefined && verseEnd !== verse) {
+    return `${book} ${chapter}:${verse}-${verseEnd}`;
+  }
+  return `${book} ${chapter}:${verse}`;
 }
 
 /**
  * Parse a free-form query and return ranked Bible reference matches.
- * Handles "jn3:16", "John 3:16", "1 jn 2 1", "ps23", "1 john", etc.
+ * Handles "jn3:16", "John 3:16", "1 jn 2 1", "ps23", "1 john", "ps23:1-6", etc.
  */
 export function searchBibleReferences(query: string, maxResults = 5): BibleRefMatch[] {
   const parses = tryParses(query);
@@ -161,19 +188,19 @@ export function searchBibleReferences(query: string, maxResults = 5): BibleRefMa
   const results: BibleRefMatch[] = [];
   const seen = new Set<string>();
 
-  for (const { bookQuery, chapter, verse, source } of parses) {
+  for (const { bookQuery, chapter, verse, verseEnd, source } of parses) {
     const normalized = bookQuery.replace(/\s/g, '');
     if (!normalized) continue;
 
     // Exact match
     if (BOOK_VARIANTS.has(normalized)) {
       const book = BOOK_VARIANTS.get(normalized)!;
-      if (isValidRef(book, chapter, verse)) {
-        const ref = `${book} ${chapter}:${verse}`;
+      if (isValidRef(book, chapter, verse, verseEnd)) {
+        const ref = buildRefString(book, chapter, verse, verseEnd);
         if (!seen.has(ref)) {
           seen.add(ref);
           results.push({
-            book, chapter, verse, reference: ref,
+            book, chapter, verse, verseEnd, reference: ref,
             score: source === 'spaced' ? 100 : 90,
           });
         }
@@ -185,12 +212,12 @@ export function searchBibleReferences(query: string, maxResults = 5): BibleRefMa
       for (const { variant, book } of ALL_VARIANTS) {
         if (variant === normalized) continue;
         if (variant.startsWith(normalized)) {
-          if (isValidRef(book, chapter, verse)) {
-            const ref = `${book} ${chapter}:${verse}`;
+          if (isValidRef(book, chapter, verse, verseEnd)) {
+            const ref = buildRefString(book, chapter, verse, verseEnd);
             if (!seen.has(ref)) {
               seen.add(ref);
               results.push({
-                book, chapter, verse, reference: ref,
+                book, chapter, verse, verseEnd, reference: ref,
                 score: source === 'spaced' ? 70 : 60,
               });
             }

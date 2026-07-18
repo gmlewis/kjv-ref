@@ -102,7 +102,10 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
   useEffect(() => { setSelectedIndex(0); }, [refMatches]);
 
   const goToRef = (match: BibleRefMatch) => {
-    navigate(`/books/${encodeURIComponent(match.book)}/${match.chapter}#v${match.verse}`);
+    const hash = match.verseEnd && match.verseEnd !== match.verse
+      ? `#v${match.verse}-${match.verseEnd}`
+      : `#v${match.verse}`;
+    navigate(`/books/${encodeURIComponent(match.book)}/${match.chapter}${hash}`);
     onClose();
   };
 
