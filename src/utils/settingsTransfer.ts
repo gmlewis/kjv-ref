@@ -3,9 +3,15 @@
 // Export: collects ALL localStorage keys used by the app into a single JSON
 // object and triggers a browser download as "kjv-ref-YYYYMMDD.json".
 //
+// The "kjv-memorize-bookmarks" key is exported as a human-friendly sorted list
+// of reference strings (e.g. ["Genesis 1:1", "John 3:16", ...]) in Bible book
+// order, deduplicated, so the exported file is easy to manually edit and share.
+//
 // Import: reads an imported JSON file and NON-DESTRUCTIVELY merges bookmarks
 // (favorites) into the browser's localStorage. Existing bookmarks are preserved;
 // imported bookmarks that are not already present are added.
+
+import { BIBLE_BOOKS } from './bibleBooks';
 
 // ─── All localStorage keys used by the app ───────────────────────────────────
 
@@ -22,6 +28,40 @@ export const ALL_KJV_STORAGE_KEYS = [
   'kjv-memorize-review-schedule',
 ] as const;
 
+// ─── Bible book order map for sorting references ─────────────────────────────
+
+const BOOK_ORDER: Record<string, number> = {};
+for (let i = 0; i < BIBLE_BOOKS.length; i++) {
+  BOOK_ORDER[BIBLE_BOOKS[i].name] = i;
+}
+
+/**
+ * Parse a reference like "1 John 3:16" into { book, chapter, verse }.
+ * Handles multi-word book names (e.g. "Song of Solomon", "1 Corinthians").
+ */
+function parseRef(ref: string): { book: string; chapter: number; verse: number } | null {
+  const m = ref.match(/^(.+?) (\d+):(\d+)$/);
+  if (!m) return null;
+  return { book: m[1], chapter: parseInt(m[2], 10), verse: parseInt(m[3], 10) };
+}
+
+/**
+ * Sort references in Bible book order, then chapter, then verse.
+ * Books not in BIBLE_BOOKS sort to the end alphabetically.
+ */
+function sortReferences(refs: string[]): string[] {
+  return [...refs].sort((a, b) => {
+    const pa = parseRef(a);
+    const pb = parseRef(b);
+    if (!pa || !pb) return a.localeCompare(b);
+    const oa = BOOK_ORDER[pa.book] ?? 999;
+    const ob = BOOK_ORDER[pb.book] ?? 999;
+    if (oa !== ob) return oa - ob;
+    if (pa.chapter !== pb.chapter) return pa.chapter - pb.chapter;
+    return pa.verse - pb.verse;
+  });
+}
+
 // ─── Export ───────────────────────────────────────────────────────────────────
 
 export interface ExportedSettings {
@@ -32,13 +72,25 @@ export interface ExportedSettings {
 
 /**
  * Collect all KJV-Ref localStorage data into a single JSON object.
- * Returns the JSON string ready for download.
+ * Bookmarks are converted to a deduplicated, Bible-order-sorted array of
+ * reference strings for human readability.
  */
 export function collectSettings(): ExportedSettings {
   const keys: Record<string, string> = {};
   for (const key of ALL_KJV_STORAGE_KEYS) {
     const value = localStorage.getItem(key);
-    if (value !== null) {
+    if (value === null) continue;
+
+    if (key === 'kjv-memorize-bookmarks') {
+      // Convert bookmark objects to a sorted, deduplicated list of reference strings
+      let bookmarks: Array<{ reference: string }> = [];
+      try { bookmarks = JSON.parse(value); } catch { bookmarks = []; }
+      const refs = Array.isArray(bookmarks)
+        ? bookmarks.map(b => b.reference).filter(Boolean)
+        : [];
+      const unique = [...new Set(refs)];
+      keys[key] = JSON.stringify(sortReferences(unique));
+    } else {
       keys[key] = value;
     }
   }
@@ -89,6 +141,10 @@ export interface ImportResult {
  * existing bookmarks are preserved, and only new (non-duplicate) bookmarks
  * from the file are added.
  *
+ * The imported bookmarks field is expected to be a JSON array of reference
+ * strings (e.g. ["John 3:16", "Psalms 23:1"]). The stored bookmark objects
+ * are generated with id/timestamps matching the app's internal format.
+ *
  * Returns the count of added and skipped bookmarks.
  */
 export function importSettings(jsonString: string): ImportResult {
@@ -102,36 +158,47 @@ export function importSettings(jsonString: string): ImportResult {
     return { addedBookmarks: 0, skippedDuplicates: 0 };
   }
 
-  const importedBookmarks = JSON.parse(importedBookmarksRaw) as Array<{ reference: string; addedAt?: string }>;
-  if (!Array.isArray(importedBookmarks)) {
+  const importedRefs = JSON.parse(importedBookmarksRaw) as string[];
+  if (!Array.isArray(importedRefs)) {
     return { addedBookmarks: 0, skippedDuplicates: 0 };
   }
 
   // Read existing bookmarks
   const existingRaw = localStorage.getItem('kjv-memorize-bookmarks');
-  const existing: Array<{ reference: string; addedAt?: string }> = existingRaw
+  const existing: Array<{ id: string; user: { id: string }; reference: string; addedAt: string; createdAt: string; updatedAt: string }> = existingRaw
     ? JSON.parse(existingRaw)
     : [];
   const existingRefs = new Set(existing.map(b => b.reference));
 
   let added = 0;
   let skipped = 0;
-  for (const bm of importedBookmarks) {
-    if (!bm.reference) { skipped++; continue; }
-    if (existingRefs.has(bm.reference)) {
+  for (const ref of importedRefs) {
+    if (!ref || typeof ref !== 'string') { skipped++; continue; }
+    if (existingRefs.has(ref)) {
       skipped++;
     } else {
-      existing.push(bm);
-      existingRefs.add(bm.reference);
+      const now = new Date().toISOString();
+      existing.push({
+        id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+        user: { id: 'anonymous' },
+        reference: ref,
+        addedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+      existingRefs.add(ref);
       added++;
     }
   }
 
   if (added > 0) {
     localStorage.setItem('kjv-memorize-bookmarks', JSON.stringify(existing));
-    // Dispatch storage change event so hooks refresh
     window.dispatchEvent(new CustomEvent('kjv-storage-change', { detail: { key: 'kjv-memorize-bookmarks' } }));
   }
 
   return { addedBookmarks: added, skippedDuplicates: skipped };
 }
+
+// ─── Exported for testing ────────────────────────────────────────────────────
+
+export { sortReferences, parseRef };
