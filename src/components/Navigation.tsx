@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { BookOpen, Dumbbell, BarChart3, Trophy, Menu, X, LayoutDashboard, Moon, Sun, ArrowUp } from 'lucide-react';
+import { BookOpen, Dumbbell, BarChart3, Trophy, Menu, X, LayoutDashboard, Moon, Sun, ArrowUp, Download, Upload } from 'lucide-react';
 import { ShortcutsModal, SearchModal } from './KeyboardModals';
+import { downloadSettings, importSettings, type ImportResult } from '../utils/settingsTransfer';
 
 function Navigation() {
   const [isOpen, setIsOpen] = useState(false);
@@ -15,6 +16,37 @@ function Navigation() {
   const [showTop, setShowTop] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [importToast, setImportToast] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleDownload = useCallback(() => {
+    downloadSettings();
+  }, []);
+
+  const handleImportClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleImportFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const result = importSettings(String(reader.result));
+        setImportToast(
+          result.addedBookmarks > 0
+            ? `Imported ${result.addedBookmarks} favorite${result.addedBookmarks !== 1 ? 's' : ''} (${result.skippedDuplicates} already present)`
+            : `No new favorites to import (${result.skippedDuplicates} already present)`,
+        );
+      } catch (err) {
+        setImportToast(`Import failed: ${(err as Error).message}`);
+      }
+      setTimeout(() => setImportToast(null), 4000);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }, []);
 
   const toggleDark = useCallback(() => {
     setIsDark(prev => {
@@ -146,17 +178,33 @@ function Navigation() {
                 : <Moon className="w-5 h-5 text-purple-500" />
               }
             </button>
-            <a
-              href="https://github.com/gmlewis/kjv-ref"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="View source on GitHub"
+            {/* Download settings */}
+            <button
+              onClick={handleDownload}
+              title="Download KJV-ref settings"
               className="p-2.5 rounded-xl hover:bg-purple-100 transition-colors"
             >
-              <svg className="w-5 h-5 text-purple-500" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
-              </svg>
-            </a>
+              <Download className="w-5 h-5 text-purple-500" />
+            </button>
+            {/* Import settings */}
+            <button
+              onClick={handleImportClick}
+              title="Import KJV-ref settings"
+              className="p-2.5 rounded-xl hover:bg-purple-100 transition-colors"
+            >
+              <Upload className="w-5 h-5 text-purple-500" />
+            </button>
+            <a
+               href="https://github.com/gmlewis/kjv-ref"
+               target="_blank"
+               rel="noopener noreferrer"
+               title="View source on GitHub"
+               className="p-2.5 rounded-xl hover:bg-purple-100 transition-colors"
+             >
+               <svg className="w-5 h-5 text-purple-500" viewBox="0 0 24 24" fill="currentColor">
+                 <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+               </svg>
+             </a>
           </div>
 
           <div className="md:hidden flex items-center gap-2">
@@ -169,14 +217,30 @@ function Navigation() {
                 ? <Sun className="w-5 h-5 text-yellow-400" />
                 : <Moon className="w-5 h-5 text-purple-500" />
               }
-            </button>
-            <a
-              href="https://github.com/gmlewis/kjv-ref"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="View source on GitHub"
-              className="p-2 rounded-xl hover:bg-purple-100 transition-colors"
-            >
+             </button>
+             {/* Download settings (mobile) */}
+             <button
+               onClick={handleDownload}
+               title="Download KJV-ref settings"
+               className="p-2 rounded-xl hover:bg-purple-100 transition-colors"
+             >
+               <Download className="w-5 h-5 text-purple-500" />
+             </button>
+             {/* Import settings (mobile) */}
+             <button
+               onClick={handleImportClick}
+               title="Import KJV-ref settings"
+               className="p-2 rounded-xl hover:bg-purple-100 transition-colors"
+             >
+               <Upload className="w-5 h-5 text-purple-500" />
+             </button>
+             <a
+               href="https://github.com/gmlewis/kjv-ref"
+               target="_blank"
+               rel="noopener noreferrer"
+               title="View source on GitHub"
+               className="p-2 rounded-xl hover:bg-purple-100 transition-colors"
+             >
               <svg className="w-5 h-5 text-purple-500" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
               </svg>
@@ -220,6 +284,22 @@ function Navigation() {
       )}
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
       {showSearch && <SearchModal onClose={() => setShowSearch(false)} />}
+
+      {/* Hidden file input for settings import */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/json,.json"
+        onChange={handleImportFile}
+        style={{ display: 'none' }}
+      />
+
+      {/* Import toast notification */}
+      {importToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg font-semibold text-sm animate-fade-in">
+          {importToast}
+        </div>
+      )}
     </nav>
   );
 }
