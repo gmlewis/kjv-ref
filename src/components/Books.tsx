@@ -323,25 +323,56 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
      return () => { cancelled = true; };
    }, [bookName, chapterNum]);
 
-   // Scroll to and highlight the target verse once data is loaded
+   // Scroll to and highlight the target verse once data is loaded.
+   // Uses double requestAnimationFrame + retry to ensure the browser has
+   // committed the layout of all verse cards before measuring positions.
+   // This fixes the long-standing bug where scrollTo landed on the wrong verse
+   // because getBoundingClientRect() returned stale positions before layout
+   // was complete (especially on cross-chapter navigation with cached data).
    useEffect(() => {
      if (loading || verses.length === 0 || scrollTarget === null) return;
      setSelectedVerse(scrollTarget);
      setHighlightedVerse(scrollTarget);
-     // Wait for the highlight re-render to commit before measuring positions.
-     let timer: ReturnType<typeof setTimeout>;
-     timer = setTimeout(() => {
+
+     let raf1: number;
+     let raf2: number;
+     let retryTimer: ReturnType<typeof setTimeout>;
+     let cancelled = false;
+
+     const doScroll = () => {
+       if (cancelled) return;
        const el = document.getElementById(verseAnchorId(scrollTarget));
-       if (el) {
-         const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
-         const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
-         window.scrollTo({ top, behavior: 'smooth' });
+       if (!el) return;
+
+       const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
+       const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
+
+       // Sanity check: if top is 0 or negative, the layout isn't ready yet.
+       // Retry after a short delay (up to a few times).
+       if (top <= 0 && el.offsetTop > 0) {
+         retryTimer = setTimeout(doScroll, 50);
+         return;
        }
-     }, 0);
+
+       window.scrollTo({ top, behavior: 'smooth' });
+     };
+
+     // Double rAF: first rAF fires after the state update is committed,
+     // second rAF fires after the browser has laid out the new content.
+     raf1 = requestAnimationFrame(() => {
+       raf2 = requestAnimationFrame(doScroll);
+     });
+
      // Clear any previous highlight timer, then set a short fade.
      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
      highlightTimerRef.current = setTimeout(() => setHighlightedVerse(null), 600);
-     return () => { clearTimeout(timer); };
+
+     return () => {
+       cancelled = true;
+       cancelAnimationFrame(raf1);
+       cancelAnimationFrame(raf2);
+       clearTimeout(retryTimer);
+     };
    }, [loading, verses, scrollTarget]);
 
   const navigate = useNavigate();
@@ -353,12 +384,16 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
     if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     setHighlightedVerse(verseNum);
     setSelectedVerse(verseNum);
-    const el = document.getElementById(verseAnchorId(verseNum));
-    if (el) {
-      const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
-      const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
-      window.scrollTo({ top });
-    }
+    // Use rAF to wait for the highlight state to be committed + laid out
+    // before measuring the element's position (the highlight ring changes layout).
+    requestAnimationFrame(() => {
+      const el = document.getElementById(verseAnchorId(verseNum));
+      if (el) {
+        const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
+        const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
+        window.scrollTo({ top });
+      }
+    });
     highlightTimerRef.current = setTimeout(() => setHighlightedVerse(null), 600);
   }, []);
 
@@ -726,18 +761,8 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
               <div className="flex items-start gap-3">
                 <span
                   onClick={() => {
-                    const hash = `#v${v.verse}`;
-                    history.replaceState(null, '', hash);
-                    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
-                    setSelectedVerse(v.verse);
-                    setHighlightedVerse(v.verse);
-                    const el = document.getElementById(verseAnchorId(v.verse));
-                    if (el) {
-                      const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
-                      const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
-                      window.scrollTo({ top, behavior: 'smooth' });
-                    }
-                    highlightTimerRef.current = setTimeout(() => setHighlightedVerse(null), 600);
+                    history.replaceState(null, '', `#v${v.verse}`);
+                    scrollToVerse(v.verse);
                   }}
                   className="font-bold text-purple-500 text-sm min-w-[2.5rem] pt-0.5 cursor-pointer hover:text-purple-700 transition-colors"
                 >{v.verse}</span>
