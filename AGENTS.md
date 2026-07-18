@@ -14,6 +14,7 @@ bunx playwright install chromium   # one-time, for e2e
 
 ```bash
 bun run dev          # Vite dev server at http://localhost:3000
+./run.sh             # dev server + auto-opens Chrome tab
 ```
 
 ## Build
@@ -26,7 +27,7 @@ bun run preview      # serve ./dist at http://localhost:4173/kjv-ref/
 ## Unit tests
 
 ```bash
-bun run test:run     # single run (192 tests, ~2s)
+bun run test:run     # single run (791 tests, ~12s)
 bun run test         # watch mode
 ```
 
@@ -35,7 +36,7 @@ All unit tests must pass before pushing.
 ## E2e tests
 
 ```bash
-bun run e2e          # auto-builds + serves ./dist, then runs Playwright
+bun run e2e          # auto-builds + serves ./dist, then runs Playwright (93 tests)
 bun run e2e:headed   # same, with visible browser
 ```
 
@@ -44,7 +45,7 @@ port 4173 with the `/kjv-ref/` base path. No auth setup is needed.
 
 ## Pre-deploy confidence check
 
-Run before pushing to `main` (pushing triggers the live GitHub Pages deploy):
+Run before pushing to `master` (pushing triggers the live GitHub Pages deploy):
 
 ```bash
 bun install && bun run test:run && bun run build && bun run e2e
@@ -62,9 +63,18 @@ There is no separate lint command. TypeScript type-checking runs as part of
 provided by Vitest's type augmentation and is valid at build time. `bun run
 build` succeeds regardless. Do not "fix" this by removing the `test` field.
 
+## CI
+
+GitHub Actions CI runs on push to `master` and on PRs (`.github/workflows/ci.yml`):
+- `build-and-test` job: `bun install` + `bun run build` + `bun run test:run`
+- `e2e` job (push only): `bun install` + `bun run build` + `bun run e2e`
+
+Note: e2e tests only run on push to `master`, not on PRs. Fix e2e test issues
+before pushing to `master`.
+
 ## Deployment
 
-Automatic on push to `main` via `.github/workflows/deploy.yml` (runs
+Automatic on push to `master` via `.github/workflows/deploy.yml` (runs
 `bun install` + `bun run build`, publishes `./dist` to GitHub Pages at
 `https://gmlewis.github.io/kjv-ref/`). No manual deploy step.
 
