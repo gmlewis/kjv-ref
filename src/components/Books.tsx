@@ -360,41 +360,45 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
        let attempts = 0;
        const maxAttempts = 10;
 
-       const doScroll = () => {
-         if (cancelled) return;
-         attempts++;
-         // Scroll to the first verse in the range
-         const el = document.getElementById(verseAnchorId(scrollTarget.start));
-         if (!el) return;
+        const doScroll = () => {
+          if (cancelled) return;
+          attempts++;
+          // Scroll to the first verse in the range
+          const el = document.getElementById(verseAnchorId(scrollTarget.start));
+          if (!el) return;
 
-         const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
-         const targetTop = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
+          // The nav bar is sticky and overlaps content. Measure its actual
+          // height and add padding so the verse sits clearly below it.
+          const navEl = document.querySelector('nav');
+          const navHeight = Math.ceil(navEl?.getBoundingClientRect().height ?? 80);
+          const offset = navHeight + 20;
+          const targetTop = el.getBoundingClientRect().top + window.scrollY - offset;
 
-         // Always scroll on the first attempt to override the browser's scroll
-         // restoration (which competes on hard page reloads). Use instant
-         // (non-smooth) scroll because smooth scroll can lose the race.
-         if (attempts === 1) {
-           window.scrollTo({ top: Math.max(0, targetTop) });
-         }
+          // Always scroll on the first attempt to override the browser's scroll
+          // restoration (which competes on hard page reloads). Use instant
+          // (non-smooth) scroll because smooth scroll can lose the race.
+          if (attempts === 1) {
+            window.scrollTo({ top: Math.max(0, targetTop) });
+          }
 
-         // Verify the scroll actually took effect. The browser may fight us
-         // on hard reloads (scroll restoration), so retry a few times.
-         if (attempts < maxAttempts) {
-           retryTimer = setTimeout(() => {
-             if (cancelled) return;
-             const actualEl = document.getElementById(verseAnchorId(scrollTarget.start));
-             if (!actualEl) return;
-             const actualTop = actualEl.getBoundingClientRect().top;
-             const navHeight2 = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
-             const desiredTop = navHeight2 + 16;
-             // Only retry if the element is far from where we want it AND
-             // the values are non-zero (jsdom returns all zeros, so skip retry there)
-             if (actualTop !== 0 && Math.abs(actualTop - desiredTop) > 20) {
-               const newTarget = actualEl.getBoundingClientRect().top + window.scrollY - navHeight2 - 16;
-               window.scrollTo({ top: Math.max(0, newTarget) });
-               doScroll();
-             }
-           }, 100);
+          // Verify the scroll actually took effect. The browser may fight us
+          // on hard reloads (scroll restoration), so retry a few times.
+          if (attempts < maxAttempts) {
+            retryTimer = setTimeout(() => {
+              if (cancelled) return;
+              const actualEl = document.getElementById(verseAnchorId(scrollTarget.start));
+              if (!actualEl) return;
+              const actualTop = actualEl.getBoundingClientRect().top;
+              const navHeight2 = Math.ceil(document.querySelector('nav')?.getBoundingClientRect().height ?? 80);
+              const desiredTop = navHeight2 + 20;
+              // Only retry if the element is far from where we want it AND
+              // the values are non-zero (jsdom returns all zeros, so skip retry there)
+              if (actualTop !== 0 && Math.abs(actualTop - desiredTop) > 20) {
+                const newTarget = actualEl.getBoundingClientRect().top + window.scrollY - navHeight2 - 20;
+                window.scrollTo({ top: Math.max(0, newTarget) });
+                doScroll();
+              }
+            }, 100);
          }
        };
 
@@ -430,9 +434,9 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
     requestAnimationFrame(() => {
       const el = document.getElementById(verseAnchorId(verseNum));
       if (el) {
-        const navHeight = document.querySelector('nav')?.getBoundingClientRect().height ?? 80;
-        const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
-        window.scrollTo({ top });
+        const navHeight = Math.ceil(document.querySelector('nav')?.getBoundingClientRect().height ?? 80);
+        const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 20;
+        window.scrollTo({ top: Math.max(0, top) });
       }
     });
     highlightTimerRef.current = setTimeout(() => setHighlightedVerse(null), 600);
