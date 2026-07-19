@@ -43,15 +43,20 @@ function highlightText(text: string, query: string): React.ReactNode {
 
 // ─── Search Panel ────────────────────────────────────────────────────────────
 function SearchPanel({ onNavigateAway, initialQuery = '' }: { onNavigateAway: () => void; initialQuery?: string }) {
+  const navigate = useNavigate();
   const [query, setQuery] = useState(initialQuery);
   const [debouncedQuery, setDebouncedQuery] = useState(initialQuery);
   const [testament, setTestament] = useState<'all' | 'old' | 'new'>('all');
   const [results, setResults] = useState<(SearchResult | BibleSearchResult)[]>([]);
   const [searching, setSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [selectedRefIndex, setSelectedRefIndex] = useState(0);
 
   // Live Bible reference matches (computed synchronously, no debounce needed)
   const refMatches = useMemo(() => searchBibleReferences(query, 5), [query]);
+
+  // Reset selection when reference matches change
+  useEffect(() => { setSelectedRefIndex(0); }, [refMatches]);
 
   // Auto-focus when panel opens
   useEffect(() => {
@@ -109,7 +114,27 @@ function SearchPanel({ onNavigateAway, initialQuery = '' }: { onNavigateAway: ()
             placeholder="Search verses… use &quot;phrase&quot;, lov*, l?ve, |, -exclude"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Escape') { setQuery(''); (e.target as HTMLInputElement).focus(); } }}
+            onKeyDown={e => {
+              if (e.key === 'Escape') {
+                setQuery('');
+                (e.target as HTMLInputElement).focus();
+              } else if (e.key === 'ArrowDown' && refMatches.length > 0) {
+                e.preventDefault();
+                setSelectedRefIndex(i => Math.min(i + 1, refMatches.length - 1));
+              } else if (e.key === 'ArrowUp' && refMatches.length > 0) {
+                e.preventDefault();
+                setSelectedRefIndex(i => Math.max(i - 1, 0));
+              } else if (e.key === 'Enter' && refMatches.length > 0) {
+                // If there's a reference match selected, navigate to it
+                const m = refMatches[selectedRefIndex];
+                if (m) {
+                  e.preventDefault();
+                  _pendingScrollTarget = { start: m.verse, end: m.verse };
+                  navigate(buildChapterUrl(m.book, m.chapter, m.verse));
+                  onNavigateAway();
+                }
+              }
+            }}
             className="w-full pl-12 pr-12 py-3 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:outline-none bg-white/70 text-base"
           />
           {searching && (
@@ -160,13 +185,15 @@ function SearchPanel({ onNavigateAway, initialQuery = '' }: { onNavigateAway: ()
       {refMatches.length > 0 && query.trim() && (
         <div className="space-y-2">
           <p className="text-sm text-purple-600 font-semibold px-1">Quick Jump</p>
-          {refMatches.map((m) => (
+          {refMatches.map((m, i) => (
             <Link
               key={m.reference}
               to={buildChapterUrl(m.book, m.chapter, m.verse)}
             >
               <div
-                className="glassmorphism rounded-2xl p-4 shadow-md cursor-pointer hover:shadow-lg hover:border-purple-200 border-2 border-transparent transition-all flex items-center gap-3"
+                className={`glassmorphism rounded-2xl p-4 shadow-md cursor-pointer hover:shadow-lg border-2 transition-all flex items-center gap-3 ${
+                  i === selectedRefIndex ? 'border-purple-400 bg-purple-50' : 'border-transparent hover:border-purple-200'
+                }`}
                 onClick={() => { _pendingScrollTarget = { start: m.verse, end: m.verse }; onNavigateAway(); }}
               >
                 <BookOpen className="w-5 h-5 text-purple-500 flex-shrink-0" />
