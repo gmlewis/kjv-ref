@@ -796,31 +796,33 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
               {selectedRange.end - selectedRange.start + 1} verses selected
             </span>
           </div>
-          <button
-            onClick={() => {
-              const groupRef = `${bookName} ${chapterNum}:${selectedRange.start}-${selectedRange.end}`;
-              handleBookmarkToggle(groupRef);
-            }}
-            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-1.5 ${
-              bookmarkedRefs.has(`${bookName} ${chapterNum}:${selectedRange.start}-${selectedRange.end}`)
-                ? 'bg-yellow-100 text-yellow-700 border-2 border-yellow-300'
-                : 'btn-primary text-white'
-            }`}
-            title={bookmarkedRefs.has(`${bookName} ${chapterNum}:${selectedRange.start}-${selectedRange.end}`) ? 'Remove group from favorites' : 'Add this verse range to favorites'}
-          >
-            <Star className="w-4 h-4" />
-            {bookmarkedRefs.has(`${bookName} ${chapterNum}:${selectedRange.start}-${selectedRange.end}`)
-              ? 'Favorited'
-              : 'Favorite this range'
-            }
-          </button>
-          {bookmarkedRefs.has(`${bookName} ${chapterNum}:${selectedRange.start}-${selectedRange.end}`) && (
-            <Link to={`/practice/${encodeURIComponent(`${bookName} ${chapterNum}:${selectedRange.start}-${selectedRange.end}`)}`}>
-              <button className="btn-secondary text-white px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap flex items-center gap-1.5">
-                <Dumbbell className="w-4 h-4" /> Practice
-              </button>
-            </Link>
-          )}
+          {(() => {
+            const groupRef = `${bookName} ${chapterNum}:${selectedRange.start}-${selectedRange.end}`;
+            const isFavorited = bookmarkedRefs.has(groupRef);
+            return (
+              <>
+                <button
+                  onClick={() => handleBookmarkToggle(groupRef)}
+                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    isFavorited
+                      ? 'bg-yellow-400 text-yellow-900 hover:bg-yellow-500 shadow-md'
+                      : 'btn-primary text-white'
+                  }`}
+                  title={isFavorited ? 'Click to remove this range from favorites' : 'Click to favorite this verse range'}
+                >
+                  <Star className={`w-4 h-4 ${isFavorited ? 'fill-yellow-900' : ''}`} />
+                  {isFavorited ? 'Unfavorite' : 'Favorite this range'}
+                </button>
+                {isFavorited && (
+                  <Link to={`/practice/${encodeURIComponent(groupRef)}`}>
+                    <button className="btn-secondary text-white px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap flex items-center gap-1.5">
+                      <Dumbbell className="w-4 h-4" /> Practice
+                    </button>
+                  </Link>
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
 
@@ -846,11 +848,33 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
             >
               <div className="flex items-start gap-3">
                 <span
-                  onClick={() => {
-                    history.replaceState(null, '', `#v${v.verse}`);
-                    scrollToVerse(v.verse);
+                  onClick={(e) => {
+                    if (e.shiftKey && selectedRange) {
+                      // Extend selection from the current range start to this verse
+                      const start = Math.min(selectedRange.start, v.verse);
+                      const end = Math.max(selectedRange.end, v.verse);
+                      const hash = start === end ? `#v${start}` : `#v${start}-${end}`;
+                      history.replaceState(null, '', hash);
+                      setSelectedRange({ start, end });
+                      setHighlightedVerse(v.verse);
+                      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+                      highlightTimerRef.current = setTimeout(() => setHighlightedVerse(null), 600);
+                      // Scroll to the first verse in the range
+                      requestAnimationFrame(() => {
+                        const el = document.getElementById(verseAnchorId(start));
+                        if (el) {
+                          const navHeight = Math.ceil(document.querySelector('nav')?.getBoundingClientRect().height ?? 80);
+                          const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 20;
+                          window.scrollTo({ top: Math.max(0, top) });
+                        }
+                      });
+                    } else {
+                      history.replaceState(null, '', `#v${v.verse}`);
+                      scrollToVerse(v.verse);
+                    }
                   }}
-                  className="font-bold text-purple-500 text-sm min-w-[2.5rem] pt-0.5 cursor-pointer hover:text-purple-700 transition-colors"
+                  className="font-bold text-purple-500 text-sm min-w-[2.5rem] pt-0.5 cursor-pointer hover:text-purple-700 transition-colors select-none"
+                  title={selectedRange ? `Click to select verse ${v.verse} · Shift+click to extend selection` : `Click to select verse ${v.verse}`}
                 >{v.verse}</span>
                 <div className="flex-1 min-w-0">
                   {strongsEnabled ? (
@@ -969,9 +993,37 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
                   )}
                 </div>
                 <button
-                  onClick={() => handleBookmarkToggle(v.reference)}
+                  onClick={(e) => {
+                    if (e.shiftKey && selectedRange) {
+                      // Shift+click: extend selection to this verse, then favorite the range
+                      const start = Math.min(selectedRange.start, v.verse);
+                      const end = Math.max(selectedRange.end, v.verse);
+                      const hash = start === end ? `#v${start}` : `#v${start}-${end}`;
+                      history.replaceState(null, '', hash);
+                      setSelectedRange({ start, end });
+                      setHighlightedVerse(v.verse);
+                      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+                      highlightTimerRef.current = setTimeout(() => setHighlightedVerse(null), 600);
+                      // Scroll to the first verse in the range
+                      requestAnimationFrame(() => {
+                        const el = document.getElementById(verseAnchorId(start));
+                        if (el) {
+                          const navHeight = Math.ceil(document.querySelector('nav')?.getBoundingClientRect().height ?? 80);
+                          const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 20;
+                          window.scrollTo({ top: Math.max(0, top) });
+                        }
+                      });
+                      // Toggle favorite on the range (add or remove)
+                      const groupRef = `${bookName} ${chapterNum}:${start}-${end}`;
+                      handleBookmarkToggle(groupRef);
+                    } else {
+                      handleBookmarkToggle(v.reference);
+                    }
+                  }}
                   className="p-1.5 rounded-lg hover:bg-purple-50 transition-colors flex-shrink-0"
-                  title={bookmarkedRefs.has(v.reference) ? 'Remove from favorites' : 'Add to favorites'}
+                  title={bookmarkedRefs.has(v.reference)
+                    ? `Click to unfavorite verse ${v.verse} · Shift+click to favorite a verse range`
+                    : `Click to favorite verse ${v.verse} · Shift+click to favorite a verse range`}
                 >
                   {bookmarkedRefs.has(v.reference)
                     ? <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />

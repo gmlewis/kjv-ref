@@ -7,8 +7,8 @@ import { join } from 'path';
 // Mock the hooks so we don't need localStorage / IndexedDB
 vi.mock('../hooks', () => ({
   useMyBookmarks: () => [[], false, null],
-  useCreateBookmarkMutation: () => ({ mutate: () => {} }),
-  useRemoveBookmarkMutation: () => ({ mutate: () => {} }),
+  useCreateBookmarkMutation: () => ({ mutate: () => Promise.resolve() }),
+  useRemoveBookmarkMutation: () => ({ mutate: () => Promise.resolve() }),
 }));
 
 // Mock strongs + interlinear data loaders (not needed for verse nav tests)
@@ -544,6 +544,126 @@ describe('Books ChapterView keyboard shortcuts', () => {
     await flush(300);
 
     expect(screen.getByText('Genesis Chapter 1')).toBeDefined();
+    unmount();
+  });
+
+  // ─── Shift+click verse selection ──────────────────────────────────────────
+
+  it('shift+click on star extends selection to a range', async () => {
+    const { unmount } = renderBooksAt('/books/John/3', '#v1');
+    await flush();
+    expect(window.location.hash).toBe('#v1');
+
+    // Shift+click the star button on verse 5
+    const starButtons = document.querySelectorAll('button[title*="favorite"]');
+    expect(starButtons.length).toBeGreaterThan(4);
+    act(() => {
+      starButtons[4].dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+    });
+    await flush();
+
+    // URL should now be #v1-5
+    expect(window.location.hash).toBe('#v1-5');
+    unmount();
+  });
+
+  it('shift+click on star when no verse is selected just favorites that verse', async () => {
+    const { unmount } = renderBooksAt('/books/John/3');
+    await flush();
+    expect(window.location.hash).toBe('');
+
+    // Shift+click the star button on verse 5 (no prior selection)
+    const starButtons = document.querySelectorAll('button[title*="favorite"]');
+    act(() => {
+      starButtons[4].dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+    });
+    await flush();
+
+    // Should NOT create a range — just favorites the single verse
+    expect(window.location.hash).not.toContain('-');
+    unmount();
+  });
+
+  it('click on star without shift toggles single verse bookmark', async () => {
+    const { unmount } = renderBooksAt('/books/John/3', '#v1');
+    await flush();
+
+    const starButtons = document.querySelectorAll('button[title*="favorite"]');
+    // Click verse 5's star without shift
+    act(() => {
+      starButtons[4].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flush();
+
+    // Should NOT create a range
+    expect(window.location.hash).toBe('#v1');
+    unmount();
+  });
+
+  it('shift+click on verse number extends selection to a range', async () => {
+    const { unmount } = renderBooksAt('/books/John/3', '#v1');
+    await flush();
+
+    // Find verse number spans (they have cursor-pointer and text-purple-500 classes)
+    const verseSpans = document.querySelectorAll('span[title*="verse"]');
+    expect(verseSpans.length).toBeGreaterThan(4);
+    // Shift+click verse 5's number
+    act(() => {
+      verseSpans[4].dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+    });
+    await flush();
+
+    expect(window.location.hash).toBe('#v1-5');
+    unmount();
+  });
+
+  it('click on verse number without shift selects single verse', async () => {
+    const { unmount } = renderBooksAt('/books/John/3', '#v1');
+    await flush();
+
+    const verseSpans = document.querySelectorAll('span[title*="verse"]');
+    act(() => {
+      verseSpans[4].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flush();
+
+    expect(window.location.hash).toBe('#v5');
+    unmount();
+  });
+
+  it('verse range selection highlights all verses in the range', async () => {
+    const { unmount } = renderBooksAt('/books/John/3', '#v1');
+    await flush();
+
+    // Shift+click verse 5's number to create range #v1-5
+    const verseSpans = document.querySelectorAll('span[title*="verse"]');
+    act(() => {
+      verseSpans[4].dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+    });
+    await flush();
+
+    // Verify multiple verse cards have the verse-selected class
+    const selectedCards = document.querySelectorAll('.verse-selected');
+    expect(selectedCards.length).toBe(5); // verses 1-5
+    unmount();
+  });
+
+  it('group favorite button appears when range is selected', async () => {
+    const { unmount } = renderBooksAt('/books/John/3', '#v1-5');
+    await flush();
+
+    // The "Favorite this range" button should be visible
+    expect(screen.getByText(/Favorite this range|Favorited/)).toBeDefined();
+    unmount();
+  });
+
+  it('group favorite button does NOT appear for single verse', async () => {
+    const { unmount } = renderBooksAt('/books/John/3', '#v5');
+    await flush();
+
+    // Should NOT have a "Favorite this range" button
+    expect(screen.queryByText(/Favorite this range/)).toBeNull();
+    expect(screen.queryByText(/Favorited/)).toBeNull();
     unmount();
   });
 });
