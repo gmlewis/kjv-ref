@@ -580,7 +580,7 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
       // we need to clean up both localStorage and the optimistic set.
       setOptimisticBookmarks(prev => { const next = new Set(prev); next.delete(reference); return next; });
       if (existingId) {
-        doRemoveBookmark({ bookmark: existingId }).catch(() => {});
+        doRemoveBookmark({ bookmark: { id: existingId } }).catch(() => {});
       } else {
         // Optimistic add that hasn't been persisted yet (or bookmarkData
         // hasn't refreshed). Remove directly from localStorage.
