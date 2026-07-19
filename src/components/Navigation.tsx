@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { BookOpen, Dumbbell, BarChart3, Trophy, Menu, X, LayoutDashboard, Moon, Sun, ArrowUp, Download, Upload } from 'lucide-react';
@@ -275,15 +276,6 @@ function Navigation() {
           </div>
         )}
       </div>
-      {showTop && (
-        <button
-          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          className="fixed bottom-6 right-6 z-50 p-3 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg hover:shadow-xl transition-all hover:scale-110"
-          title="Scroll to top"
-        >
-          <ArrowUp className="w-5 h-5" />
-        </button>
-      )}
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} onLaunchTutorial={() => { setShowShortcuts(false); setShowTutorial(true); }} />}
       {showSearch && <SearchModal onClose={() => setShowSearch(false)} />}
       {showTutorial && <Tutorial onClose={() => setShowTutorial(false)} />}
@@ -302,6 +294,18 @@ function Navigation() {
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg font-semibold text-sm animate-fade-in">
           {importToast}
         </div>
+      )}
+
+      {/* Scroll-to-top button — rendered via portal to escape nav's backdrop-filter containing block */}
+      {showTop && createPortal(
+        <button
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          className="fixed bottom-6 right-6 z-50 p-3 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg hover:shadow-xl transition-all hover:scale-110"
+          title="Scroll to top"
+        >
+          <ArrowUp className="w-5 h-5" />
+        </button>,
+        document.body,
       )}
     </nav>
   );

@@ -401,6 +401,16 @@ html.dark .glassmorphism [class*="bg-gradient"] {
   background-image: none;
 }
 
+/* ─── Interlinear word text (visible in both light and dark mode) ──────────── */
+
+.interlinear-word-text {
+  color: #1e293b;
+}
+
+html.dark .interlinear-word-text {
+  color: #ffffff;
+}
+
 /* ─── Selected verse glow ─────────────────────────────────────────────────── */
 
 .verse-selected {
@@ -521,6 +531,22 @@ html.dark .verse-selected {
   gap: 0.25rem;
   min-width: 130px;
   flex-shrink: 0;
+}
+
+.shortcut-key-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.kbd-plus {
+  color: #94a3b8;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+html.dark .kbd-plus {
+  color: #64748b;
 }
 
 .kbd-key {

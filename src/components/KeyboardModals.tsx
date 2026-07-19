@@ -52,9 +52,9 @@ export function ShortcutsModal({ onClose, onLaunchTutorial }: { onClose: () => v
               <div key={i} className="shortcut-row">
                 <div className="shortcut-keys">
                   {s.keys.map((k, j) => (
-                    <span key={j} className={j > 0 ? 'kbd-key kbd-plus' : 'kbd-key'}>
-                      {j > 0 && <span className="text-gray-400 mx-0.5">+</span>}
-                      {k}
+                    <span key={j} className="shortcut-key-group">
+                      {j > 0 && <span className="kbd-plus">+</span>}
+                      <span className="kbd-key">{k}</span>
                     </span>
                   ))}
                 </div>

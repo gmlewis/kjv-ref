@@ -876,7 +876,7 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
                                 key={wi}
                                 className={`cursor-pointer rounded px-0.5 transition-colors hover:bg-emerald-700/30 ${
                                   activeWordPopover?.entry === wordEntry ? 'bg-emerald-700/30' : ''
-                                } text-white`}
+                                } interlinear-word-text`}
                                 style={{ display: 'inline' }}
                                 title="Click for word details"
                                 onClick={e => {
@@ -906,7 +906,7 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
                         ) : interlinearCache.get(v.verse) ? (
                           // Fallback: plain text from WLC/TR if word data not available
                           <span
-                            className="text-white leading-loose"
+                            className="interlinear-word-text leading-loose"
                             style={{ fontFamily: 'serif', fontSize: '3.5rem', lineHeight: '1.3', letterSpacing: '0.02em' }}
                           >
                             {interlinearCache.get(v.verse)}
