@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { useMyBookmarks, useCreateBookmarkMutation, useRemoveBookmarkMutation } from '../hooks';
+import { useMyBookmarks, useCreateBookmarkMutation, useRemoveBookmarkMutation, notifyStorageChange } from '../hooks';
+import { getBookmarks, setBookmarks } from '../storage';
 import { ChevronRight, BookOpen, Search, Star, ArrowLeft, ArrowRight, Dumbbell, Hash, Loader2, X, ExternalLink, LinkIcon } from 'lucide-react';
 
 import { KJV_VERSES, getVersesByBook } from '../data/kjv-verses';
@@ -571,23 +572,29 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
 
   function handleBookmarkToggle(reference: string) {
     const existingId = bookmarkRefToId.get(reference);
-    if (bookmarkedRefs.has(reference) && !optimisticBookmarks.has(reference)) {
-      // Remove bookmark
+    const isBookmarked = bookmarkedRefs.has(reference);
+    const isOptimistic = optimisticBookmarks.has(reference);
+
+    if (isBookmarked) {
+      // Remove bookmark — whether it's a real bookmark or an optimistic one,
+      // we need to clean up both localStorage and the optimistic set.
       setOptimisticBookmarks(prev => { const next = new Set(prev); next.delete(reference); return next; });
       if (existingId) {
-        doRemoveBookmark({ bookmark: existingId }).catch(() => {
-          // revert on error
-        });
+        doRemoveBookmark({ bookmark: existingId }).catch(() => {});
+      } else {
+        // Optimistic add that hasn't been persisted yet (or bookmarkData
+        // hasn't refreshed). Remove directly from localStorage.
+        const current = getBookmarks();
+        const filtered = current.filter((b: any) => b.reference !== reference);
+        setBookmarks(filtered);
+        notifyStorageChange('kjv-memorize-bookmarks');
       }
-    } else if (!bookmarkedRefs.has(reference)) {
+    } else {
       // Add bookmark optimistically
       setOptimisticBookmarks(prev => new Set([...prev, reference]));
       doCreateBookmark({ reference }).catch(() => {
         setOptimisticBookmarks(prev => { const next = new Set(prev); next.delete(reference); return next; });
       });
-    } else {
-      // was optimistic add, toggle off
-      setOptimisticBookmarks(prev => { const next = new Set(prev); next.delete(reference); return next; });
     }
   }
 
@@ -1025,10 +1032,25 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
                     ? `Click to unfavorite verse ${v.verse} · Shift+click to favorite a verse range`
                     : `Click to favorite verse ${v.verse} · Shift+click to favorite a verse range`}
                 >
-                  {bookmarkedRefs.has(v.reference)
-                    ? <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                    : <Star className="w-4 h-4 text-gray-400 hover:text-yellow-400" />
-                  }
+                  {(() => {
+                    // Show filled star if this verse is bookmarked individually OR
+                    // if it's part of a favorited range
+                    if (bookmarkedRefs.has(v.reference)) {
+                      return <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />;
+                    }
+                    // Check if any bookmarked range includes this verse
+                    for (const ref of bookmarkedRefs) {
+                      const m = ref.match(/^(.+?) (\d+):(\d+)-(\d+)$/);
+                      if (m && m[1] === bookName && parseInt(m[2]) === chapterNum) {
+                        const start = parseInt(m[3], 10);
+                        const end = parseInt(m[4], 10);
+                        if (v.verse >= start && v.verse <= end) {
+                          return <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />;
+                        }
+                      }
+                    }
+                    return <Star className="w-4 h-4 text-gray-400 hover:text-yellow-400" />;
+                  })()}
                 </button>
                 <button
                   onClick={() => {
