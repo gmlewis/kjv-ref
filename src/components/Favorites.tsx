@@ -5,7 +5,7 @@ import { getBookmarks, setBookmarks } from '../storage';
 import { Star, BookOpen, ArrowLeft, ArrowRight, Dumbbell, Loader2, ChevronRight } from 'lucide-react';
 import { BIBLE_BOOKS } from '../utils/bibleBooks';
 import { getKJVVerse, type KJVVerseEntry } from '../data/kjv-bible';
-import { verseAnchorId, buildChapterUrl, parseVerseRangeRef } from '../utils/urlHelpers';
+import { verseAnchorId, buildChapterUrl, buildChapterUrlRange, parseVerseRangeRef } from '../utils/urlHelpers';
 
 // ─── Sort references in Bible book order ──────────────────────────────────────
 
@@ -289,7 +289,7 @@ function Favorites() {
               >
                 <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
               </button>
-              <Link to={buildChapterUrl(entry.book, entry.chapter, entry.verseStart)}>
+              <Link to={buildChapterUrlRange(entry.book, entry.chapter, { start: entry.verseStart, end: entry.verseEnd })}>
                 <button
                   className="p-1.5 rounded-lg hover:bg-purple-50 transition-colors flex-shrink-0"
                   title="Read in context"
@@ -297,16 +297,14 @@ function Favorites() {
                   <BookOpen className="w-4 h-4 text-purple-500" />
                 </button>
               </Link>
-              {entry.isRange && (
-                <Link to={`/practice/${encodeURIComponent(entry.reference)}`}>
-                  <button
-                    className="btn-secondary text-white py-1.5 px-3 rounded-lg text-xs font-bold whitespace-nowrap flex items-center gap-1 flex-shrink-0"
-                    title="Practice this range"
-                  >
-                    <Dumbbell className="w-3 h-3" /> Practice
-                  </button>
-                </Link>
-              )}
+              <Link to={`/practice/${encodeURIComponent(entry.reference)}`}>
+                <button
+                  className="btn-secondary text-white py-1.5 px-3 rounded-lg text-xs font-bold whitespace-nowrap flex items-center gap-1 flex-shrink-0"
+                  title={entry.isRange ? 'Practice this range' : 'Practice this verse'}
+                >
+                  <Dumbbell className="w-3 h-3" /> Practice
+                </button>
+              </Link>
             </div>
           </div>
         ))}
