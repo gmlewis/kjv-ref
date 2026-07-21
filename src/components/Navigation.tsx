@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { BookOpen, Dumbbell, BarChart3, Trophy, Menu, X, LayoutDashboard, Moon, Sun, ArrowUp, Download, Upload } from 'lucide-react';
+import { BookOpen, Dumbbell, BarChart3, Trophy, Menu, X, LayoutDashboard, Moon, Sun, ArrowUp, Download, Upload, Star } from 'lucide-react';
 import { ShortcutsModal, SearchModal } from './KeyboardModals';
 import Tutorial from './Tutorial';
 import { downloadSettings, importSettings, type ImportResult } from '../utils/settingsTransfer';
@@ -131,6 +131,7 @@ function Navigation() {
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/practice', icon: Dumbbell, label: 'Practice' },
     { path: '/books', icon: BookOpen, label: 'Books' },
+    { path: '/favorites', icon: Star, label: 'Favorites' },
     { path: '/statistics', icon: BarChart3, label: 'Stats' },
     { path: '/achievements', icon: Trophy, label: 'Awards' },
   ];
