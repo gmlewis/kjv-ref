@@ -191,3 +191,63 @@ test.describe('Favorites page', () => {
     await expect(frame.getByText('Your Favorites')).toBeVisible({ timeout: 10_000 });
   });
 });
+
+// ─── Regression: single-verse practice from Favorites must show 4 choices ───
+// Bug: practising a single favourited verse produced a 1-verse session, so the
+// multiple-choice / reference-match distractor set was empty and only the
+// correct answer was shown. Distractors should fall back to the full
+// KJV_VERSES pool when the session has fewer than 4 verses.
+
+test.describe('Favorites → Practice single verse shows 4 options', () => {
+  // Locator for the A/B/C/D labelled option buttons used by both modes.
+  function optionButtons(frame: import('@playwright/test').Page) {
+    return frame.locator('button').filter({ has: frame.locator('span:text-matches("^[ABCD]$")') });
+  }
+
+  test('Multiple Choice shows 4 options for a single favourited verse', async ({ page }) => {
+    await setupBookmarks(page, ['John 3:16']);
+    const frame = await openApp(page);
+    await navigateTo(frame, 'Favorites', 'Your Favorites');
+    await expect(frame.getByText('John 3:16')).toBeVisible({ timeout: 15_000 });
+
+    // Click the Practice button on the single favourite
+    await frame.locator('button:has-text("Practice")').first().click();
+    // Mode selector should appear
+    await frame.locator('text=Multiple Choice').first().waitFor({ state: 'visible', timeout: 15_000 });
+    await frame.locator('text=Multiple Choice').first().click();
+    await frame.locator('text=Verse 1 of').first().waitFor({ state: 'visible', timeout: 15_000 });
+
+    // Regression assertion: must show exactly 4 options, not 1.
+    await expect(optionButtons(frame)).toHaveCount(4);
+    // All four option labels must be distinct (no duplicate of the answer).
+    const texts: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      texts.push((await optionButtons(frame).nth(i).textContent()) ?? '');
+    }
+    expect(new Set(texts).size).toBe(4);
+  });
+
+  test('Reference Match shows 4 options for a single favourited verse', async ({ page }) => {
+    await setupBookmarks(page, ['John 3:16']);
+    const frame = await openApp(page);
+    await navigateTo(frame, 'Favorites', 'Your Favorites');
+    await expect(frame.getByText('John 3:16')).toBeVisible({ timeout: 15_000 });
+
+    await frame.locator('button:has-text("Practice")').first().click();
+    await frame.locator('text=Reference Match').first().waitFor({ state: 'visible', timeout: 15_000 });
+    await frame.locator('text=Reference Match').first().click();
+    await frame.locator('text=Identify this verse:').first().waitFor({ state: 'visible', timeout: 15_000 });
+
+    // Regression assertion: must show exactly 4 reference options, not 1.
+    await expect(optionButtons(frame)).toHaveCount(4);
+    const refs: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      refs.push((await optionButtons(frame).nth(i).textContent()) ?? '');
+    }
+    expect(new Set(refs).size).toBe(4);
+    // Each option should look like a Bible reference (e.g. "John 3:16").
+    for (const r of refs) {
+      expect(r).toMatch(/\d+:\d+/);
+    }
+  });
+});

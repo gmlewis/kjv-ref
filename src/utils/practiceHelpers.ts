@@ -109,3 +109,127 @@ export function getVanishingClozeAnswers(text: string, level: 0 | 1 | 2 | 3 | 4,
 
   return words.filter((_, i) => indices.has(i));
 }
+
+// ── Word-by-word diff (for Vanishing Cloze / Recall feedback) ────────────────
+
+export type DiffToken =
+  | { type: 'correct'; word: string }
+  | { type: 'wrong'; word: string; expected: string }
+  | { type: 'missing'; expected: string }
+  | { type: 'extra'; word: string };
+
+/**
+ * Tokenise text into words (stripping punctuation for comparison only).
+ * Returns the original surface form for display.
+ */
+function tokenise(text: string): string[] {
+  return text.split(/\s+/).filter(w => w.length > 0);
+}
+
+/**
+ * Compare the user's typed words against the target verse using LCS-based
+ * word alignment. Produces a DiffToken[] in TARGET verse order:
+ *   - correct: user word matches target word
+ *   - wrong:   a user word was aligned to this target slot but doesn't match
+ *   - missing: no user word aligned to this target slot (user skipped it)
+ *   - extra:   user word with no target counterpart (appended at the end)
+ *
+ * Matching is case-insensitive and ignores punctuation, but the original
+ * surface forms are kept in the returned tokens for display. Using LCS means
+ * a single skipped word shows as one "missing" token instead of cascading a
+ * wave of "wrong" tokens through the rest of the verse.
+ */
+export function diffWords(userText: string, targetText: string): DiffToken[] {
+  const userWords = tokenise(userText);
+  const targetWords = tokenise(targetText);
+  const norm = (w: string) => w.toLowerCase().replace(/[^a-z]/g, '');
+
+  const m = targetWords.length;
+  const n = userWords.length;
+
+  // LCS length table: dp[i][j] = LCS of targetWords[0..i) and userWords[0..j)
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (norm(targetWords[i - 1]) === norm(userWords[j - 1])) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+
+  // Backtrack to build the alignment. For each target word, decide whether
+  // it aligned with a user word (correct/wrong) or was skipped (missing).
+  // Walk target from the end; consume user words greedily.
+  const aligned: { targetIdx: number; userIdx: number | null }[] = [];
+  let i = m, j = n;
+  while (i > 0 && j > 0) {
+    if (norm(targetWords[i - 1]) === norm(userWords[j - 1])) {
+      aligned.push({ targetIdx: i - 1, userIdx: j - 1 });
+      i--; j--;
+    } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+      // target word was skipped (no user word aligned to it)
+      aligned.push({ targetIdx: i - 1, userIdx: null });
+      i--;
+    } else {
+      // user word has no target counterpart — leave it for "extra"
+      j--;
+    }
+  }
+  while (i > 0) {
+    aligned.push({ targetIdx: i - 1, userIdx: null });
+    i--;
+  }
+
+  aligned.reverse();
+
+  // Build the raw token list in target order: correct (aligned) or missing.
+  const result: DiffToken[] = [];
+  for (const a of aligned) {
+    if (a.userIdx !== null) {
+      result.push({ type: 'correct', word: userWords[a.userIdx] });
+    } else {
+      result.push({ type: 'missing', expected: targetWords[a.targetIdx] });
+    }
+  }
+  // Append extras (user words with no target counterpart) at the end.
+  const alignedUserIdx = new Set(aligned.filter(a => a.userIdx !== null).map(a => a.userIdx!));
+  const extras: string[] = [];
+  for (let k = 0; k < n; k++) if (!alignedUserIdx.has(k)) extras.push(userWords[k]);
+  for (const w of extras) result.push({ type: 'extra', word: w });
+
+  // Pair up missing+extra tokens into "wrong" substitutions: a missing target
+  // word paired with an extra user word means the user typed a wrong word
+  // there. We greedily match each missing to the nearest unused extra (by
+  // order of appearance) so a single substitution shows as one "wrong" token
+  // instead of one "missing" + one "extra".
+  const extraUsed = new Array(extras.length).fill(false);
+  for (let k = 0; k < result.length; k++) {
+    if (result[k].type !== 'missing') continue;
+    // Find the nearest unused extra (first come, first served)
+    for (let e = 0; e < extras.length; e++) {
+      if (extraUsed[e]) continue;
+      const missing = result[k] as Extract<DiffToken, { type: 'missing' }>;
+      result[k] = { type: 'wrong', word: extras[e], expected: missing.expected };
+      extraUsed[e] = true;
+      break;
+    }
+  }
+
+  // Drop extras that were paired into "wrong" tokens.
+  return result.filter(t => {
+    if (t.type !== 'extra') return true;
+    const idx = extras.indexOf(t.word);
+    // Keep only if its slot wasn't consumed
+    // (if any unused extra matches this word, keep one copy)
+    return !extraUsed[idx];
+  });
+}
+
+/** Count correct vs total target words for scoring. */
+export function diffScore(diff: DiffToken[]): { correct: number; total: number } {
+  const total = diff.filter(d => d.type !== 'extra').length;
+  const correct = diff.filter(d => d.type === 'correct').length;
+  return { correct, total };
+}

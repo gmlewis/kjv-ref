@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { useMyProgress, useDueReviews, useMyBookmarks, useCreateSessionMutation, useAwardAchievementMutation, useUpdateProgressMutation, useUpsertReviewScheduleMutation, useUpdateDailyGoalMutation } from '../hooks';
+import { useMyProgress, useDueReviews, useMyBookmarks, useCreateSessionMutation, useAwardAchievementMutation, useUpdateProgressMutation, useUpsertReviewScheduleMutation, useUpdateDailyGoalMutation, useSetClozeLevelMutation } from '../hooks';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   CheckCircle, XCircle, RotateCcw, Sparkles, Zap, Target,
@@ -19,6 +19,7 @@ import {
   buildWordBank, checkWordBankAnswer,
   toFirstLetters,
   getVanishingClozeLevel, applyVanishingCloze, getVanishingClozeAnswers,
+  diffWords, type DiffToken,
 } from '../utils/practiceHelpers';
 
 type PracticeMode = 'word-bank' | 'first-letters' | 'vanishing-cloze' | 'multiple-choice' | 'reference' | 'recall';
@@ -33,11 +34,35 @@ const MODE_INFO: Record<PracticeMode, { label: string; description: string; icon
   'recall':          { label: 'Full Recall',      description: 'Type the complete verse from memory',                  icon: Target,    badge: 'Advanced' },
 };
 
-// Seeded shuffle — stable per verse index
-function seededShuffle<T>(arr: T[], seed: number): T[] {
+// Fisher–Yates shuffle using JavaScript's built-in Math.random().
+// Used for multiple-choice / reference options where we want a genuinely
+// random order (not a stable per-seed order) — the correct answer should land
+// in a different slot each verse and each session.
+function shuffleWithMathRandom<T>(arr: T[]): T[] {
   const result = [...arr];
   for (let i = result.length - 1; i > 0; i--) {
-    const j = Math.floor(((seed * (i + 1) * 2654435761) >>> 0) % (i + 1));
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+// Seeded shuffle — stable per seed. Used for Word Bank / Vanishing Cloze,
+// which need a deterministic order that stays the same while the user is
+// interacting with a given verse.
+function seededShuffle<T>(arr: T[], seed: number): T[] {
+  // Mix the seed so adjacent seeds land in different PRNG states
+  let s = (seed ^ 0x9e3779b9) >>> 0;
+  const rand = () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const result = [...arr];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
     [result[i], result[j]] = [result[j], result[i]];
   }
   return result;
@@ -292,33 +317,116 @@ function FirstLettersMode({ verse, onResult }: { verse: KJVVerse; onResult: (cor
 }
 
 // ─── Vanishing Cloze Mode ─────────────────────────────────────────────────────
+const CLOZE_LEVEL_LABELS = ['Study Mode', '25% hidden', '50% hidden', '75% hidden', 'Full Recall'] as const;
+// Each entry: [light-text, dark-text, light-bg, dark-bg] for high contrast in both modes.
+const CLOZE_LEVEL_COLORS = [
+  'text-blue-600 dark:text-blue-300',
+  'text-green-600 dark:text-green-300',
+  'text-yellow-600 dark:text-yellow-300',
+  'text-orange-600 dark:text-orange-300',
+  'text-red-600 dark:text-red-300',
+];
+const CLOZE_LEVEL_BG = [
+  'bg-blue-100 dark:bg-blue-900/50',
+  'bg-green-100 dark:bg-green-900/50',
+  'bg-yellow-100 dark:bg-yellow-900/50',
+  'bg-orange-100 dark:bg-orange-900/50',
+  'bg-red-100 dark:bg-red-900/50',
+];
+
 function VanishingClozeMode({
-  verse, timesRecited, seed, onResult,
-}: { verse: KJVVerse; timesRecited: number; seed: number; onResult: (correct: boolean) => void }) {
-  const level = getVanishingClozeLevel(timesRecited) as 0 | 1 | 2 | 3 | 4;
+  verse, timesRecited, customClozeLevel, seed, onResult, onLevelChange,
+}: {
+  verse: KJVVerse;
+  timesRecited: number;
+  customClozeLevel: 0 | 1 | 2 | 3 | 4 | null | undefined;
+  seed: number;
+  onResult: (correct: boolean) => void;
+  onLevelChange: (level: 0 | 1 | 2 | 3 | 4 | null) => void;
+}) {
+  const autoLevel = getVanishingClozeLevel(timesRecited) as 0 | 1 | 2 | 3 | 4;
+  // User override takes precedence; falls back to the auto-computed level.
+  const level = (customClozeLevel ?? autoLevel) as 0 | 1 | 2 | 3 | 4;
+  const isOverride = customClozeLevel != null && customClozeLevel !== autoLevel;
   const blankedText = useMemo(() => applyVanishingCloze(verse.text, level, seed), [verse, level, seed]);
   const missingWords = useMemo(() => getVanishingClozeAnswers(verse.text, level, seed), [verse, level, seed]);
 
   const [userInput, setUserInput] = useState('');
   const [checked, setChecked] = useState(false);
   const [recallScore, setRecallScore] = useState<number | null>(null);
+  const [diff, setDiff] = useState<DiffToken[]>([]);
 
-  const levelLabels = ['Study Mode', '25% hidden', '50% hidden', '75% hidden', 'Full Recall'];
-  const levelColors = ['text-blue-600', 'text-green-600', 'text-yellow-600', 'text-orange-600', 'text-red-600'];
-  const levelBg = ['bg-blue-100', 'bg-green-100', 'bg-yellow-100', 'bg-orange-100', 'bg-red-100'];
+  const handleCheck = useCallback(() => {
+    const pct = scoreRecall(userInput, verse.text);
+    setRecallScore(pct);
+    setDiff(diffWords(userInput, verse.text));
+    setChecked(true);
+    onResult(pct >= 70);
+  }, [userInput, verse, onResult]);
+
+  // Cmd/Ctrl+Enter submits; also works for the Level 0 "Got it" button.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        if (!checked && (level !== 0 ? userInput.trim() : true)) {
+          handleCheck();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [checked, level, userInput, handleCheck]);
+
+  // Level selector (0–4) shown for every level so the user can override.
+  const LevelSelector = (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs font-semibold text-slate-500 dark:text-slate-200 flex items-center gap-1">
+        <Hash className="w-3 h-3" /> Level:
+      </span>
+      {([0, 1, 2, 3, 4] as const).map((lvl) => {
+        const active = lvl === level;
+        const isAuto = lvl === autoLevel;
+        return (
+          <button
+            key={lvl}
+            onClick={() => onLevelChange(lvl)}
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all border ${
+              active
+                ? `${CLOZE_LEVEL_BG[lvl]} ${CLOZE_LEVEL_COLORS[lvl]} border-current shadow-sm`
+                : 'bg-white text-gray-500 dark:bg-slate-800 dark:text-slate-300 border-gray-200 dark:border-slate-600 hover:border-gray-300 dark:hover:border-slate-400'
+            }`}
+            title={isAuto ? `Level ${lvl} — ${CLOZE_LEVEL_LABELS[lvl]} (auto)` : `Level ${lvl} — ${CLOZE_LEVEL_LABELS[lvl]}`}
+          >
+            {lvl}{isAuto && !isOverride ? '·auto' : ''}
+          </button>
+        );
+      })}
+      {isOverride && (
+        <button
+          onClick={() => onLevelChange(null)}
+          className="px-2 py-1 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-300 hover:text-purple-600 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/40 transition-colors"
+          title="Reset to the auto-computed level based on practice count"
+        >
+          Reset to auto
+        </button>
+      )}
+    </div>
+  );
 
   // Level 0: study card — just read and tap "Got it"
   if (level === 0) {
     return (
       <div className="space-y-4">
-        <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-bold ${levelBg[0]} ${levelColors[0]}`}>
-          <Hash className="w-3 h-3" /> Level 0 — {levelLabels[0]}
+        <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-bold ${CLOZE_LEVEL_BG[0]} ${CLOZE_LEVEL_COLORS[0]}`}>
+          <Hash className="w-3 h-3" /> Level 0 — {CLOZE_LEVEL_LABELS[0]}
         </div>
+        {LevelSelector}
         <div className="verse-card rounded-xl p-6 bg-gradient-to-br from-blue-50 to-indigo-50">
-          <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">Read this verse:</p>
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-300 mb-3 uppercase tracking-wide">Read this verse:</p>
           <p className="verse-text text-xl text-gray-800 leading-relaxed italic">"{verse.text}"</p>
         </div>
-        <p className="text-sm text-gray-500">Study this verse carefully. As you practice more, words will be hidden progressively.</p>
+        <p className="text-sm text-slate-500 dark:text-slate-300">Study this verse carefully. As you practice more, words will be hidden progressively.</p>
         <button
           onClick={() => { setChecked(true); onResult(true); }}
           className="w-full btn-primary text-white py-4 rounded-xl font-bold text-lg shadow-lg"
@@ -330,25 +438,19 @@ function VanishingClozeMode({
     );
   }
 
-  const handleCheck = () => {
-    const pct = scoreRecall(userInput, verse.text);
-    setRecallScore(pct);
-    setChecked(true);
-    onResult(pct >= 70);
-  };
-
   return (
     <div className="space-y-4">
-      <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-bold ${levelBg[level]} ${levelColors[level]}`}>
-        <Hash className="w-3 h-3" /> Level {level} — {levelLabels[level]}
+      <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-bold ${CLOZE_LEVEL_BG[level]} ${CLOZE_LEVEL_COLORS[level]}`}>
+        <Hash className="w-3 h-3" /> Level {level} — {CLOZE_LEVEL_LABELS[level]}{isOverride ? ' (override)' : ''}
       </div>
+      {LevelSelector}
 
       {/* Blanked verse */}
       <div className="verse-card rounded-xl p-5 bg-gradient-to-br from-purple-50 to-indigo-50">
-        <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">Fill in the blanks:</p>
+        <p className="text-xs font-semibold text-slate-500 dark:text-slate-300 mb-3 uppercase tracking-wide">Fill in the blanks:</p>
         <p className="verse-text text-xl text-gray-800 leading-relaxed">{blankedText}</p>
         {!checked && missingWords.length > 0 && (
-          <p className="text-xs text-purple-600 font-semibold mt-3">{missingWords.length} word{missingWords.length !== 1 ? 's' : ''} hidden</p>
+          <p className="text-xs text-purple-600 dark:text-purple-300 font-semibold mt-3">{missingWords.length} word{missingWords.length !== 1 ? 's' : ''} hidden</p>
         )}
       </div>
 
@@ -366,29 +468,49 @@ function VanishingClozeMode({
             disabled={!userInput.trim()}
             className="w-full btn-primary text-white py-4 rounded-xl font-bold text-lg shadow-lg disabled:opacity-50"
           >
-            Check Answer
+            Check Answer <span className="text-xs font-normal opacity-80 ml-2">⌘/Ctrl+Enter</span>
           </button>
         </>
       ) : (
         <>
-          <div className="p-4 rounded-xl bg-green-50 border border-green-200">
-            <p className="text-xs font-semibold text-gray-500 mb-2">Hidden words were:</p>
-            <div className="flex flex-wrap gap-2">
-              {missingWords.map((w, i) => (
-                <span key={i} className="px-3 py-1 bg-green-200 text-green-800 rounded-lg font-bold text-sm">{w}</span>
-              ))}
+          {/* Word-by-word diff: green = correct, red = wrong, dashed = missing, gray = extra */}
+          <div className="p-4 rounded-xl bg-white border border-gray-200 dark:bg-slate-800 dark:border-slate-700">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-200 mb-3 uppercase tracking-wide">Your answer vs. correct verse:</p>
+            <div className="flex flex-wrap gap-1.5 leading-loose">
+              {diff.map((tok, i) => {
+                if (tok.type === 'correct') {
+                  return <span key={i} className="px-2 py-0.5 bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-200 rounded font-semibold text-sm">{tok.word}</span>;
+                }
+                if (tok.type === 'wrong') {
+                  return (
+                    <span key={i} className="px-2 py-0.5 bg-red-100 text-red-800 dark:bg-red-900/60 dark:text-red-200 rounded font-semibold text-sm" title={`Expected: ${tok.expected}`}>
+                      <span className="line-through opacity-70">{tok.word}</span>{' '}→{' '}{tok.expected}
+                    </span>
+                  );
+                }
+                if (tok.type === 'missing') {
+                  return <span key={i} className="px-2 py-0.5 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/60 dark:text-yellow-100 rounded font-semibold text-sm border border-dashed border-yellow-400 dark:border-yellow-500/70">{tok.expected}</span>;
+                }
+                return <span key={i} className="px-2 py-0.5 bg-gray-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300 rounded text-sm line-through" title="Extra word not in the verse">{tok.word}</span>;
+              })}
+            </div>
+            <div className="flex gap-4 mt-3 text-xs text-slate-500 dark:text-slate-200">
+              <span><span className="inline-block w-3 h-3 bg-green-100 dark:bg-green-900/60 rounded mr-1 align-middle" />correct</span>
+              <span><span className="inline-block w-3 h-3 bg-red-100 dark:bg-red-900/60 rounded mr-1 align-middle" />wrong</span>
+              <span><span className="inline-block w-3 h-3 bg-yellow-100 dark:bg-yellow-900/60 rounded border border-dashed border-yellow-400 dark:border-yellow-500/70 mr-1 align-middle" />missing</span>
+              <span><span className="inline-block w-3 h-3 bg-gray-100 dark:bg-slate-700 rounded mr-1 align-middle" />extra</span>
             </div>
           </div>
           {recallScore !== null && (
             <div className={`p-4 rounded-xl flex items-center gap-3 ${
-              recallScore >= 70 ? 'bg-green-50 border border-green-200' :
-              recallScore >= 50 ? 'bg-yellow-50 border border-yellow-200' :
-              'bg-red-50 border border-red-200'
+              recallScore >= 70 ? 'bg-green-50 border border-green-200 dark:bg-green-900/40 dark:border-green-700' :
+              recallScore >= 50 ? 'bg-yellow-50 border border-yellow-200 dark:bg-yellow-900/40 dark:border-yellow-700' :
+              'bg-red-50 border border-red-200 dark:bg-red-900/40 dark:border-red-700'
             }`}>
-              {recallScore >= 70 ? <CheckCircle className="w-7 h-7 text-green-500" /> :
-               recallScore >= 50 ? <Minus className="w-7 h-7 text-yellow-500" /> :
-               <XCircle className="w-7 h-7 text-red-500" />}
-              <p className="font-bold">{recallScore >= 70 ? 'Well done!' : 'Keep going!'} ({recallScore}% match)</p>
+              {recallScore >= 70 ? <CheckCircle className="w-7 h-7 text-green-500 dark:text-green-400" /> :
+               recallScore >= 50 ? <Minus className="w-7 h-7 text-yellow-500 dark:text-yellow-400" /> :
+               <XCircle className="w-7 h-7 text-red-500 dark:text-red-400" />}
+              <p className="font-bold text-gray-800 dark:text-slate-100">{recallScore >= 70 ? 'Well done!' : 'Keep going!'} ({recallScore}% match)</p>
             </div>
           )}
         </>
@@ -399,12 +521,13 @@ function VanishingClozeMode({
 
 // ─── Practice Session ─────────────────────────────────────────────────────────
 function PracticeSession({
-  verses, mode, progressMap, onComplete,
+  verses, mode, progressMap, onComplete, onSetClozeLevel,
 }: {
   verses: KJVVerse[];
   mode: PracticeMode;
-  progressMap: Map<string, { timesRecited: number }>;
+  progressMap: Map<string, { timesRecited: number; customClozeLevel?: 0 | 1 | 2 | 3 | 4 | null }>;
   onComplete: (score: number, total: number, results: { verse: KJVVerse; correct: boolean; rating: PerformanceRating }[]) => void;
+  onSetClozeLevel: (reference: string, level: 0 | 1 | 2 | 3 | 4 | null) => void;
 }) {
   const [idx, setIdx] = useState(0);
   const [userInput, setUserInput] = useState('');
@@ -416,13 +539,43 @@ function PracticeSession({
   const [results, setResults] = useState<{ verse: KJVVerse; correct: boolean; rating: PerformanceRating }[]>([]);
 
   const verse = verses[idx];
+  // Per-verse random seed used by Word Bank / Vanishing Cloze (which need a
+  // stable shuffle while the user is interacting with the same verse).
   const seed = idx * 31 + 7;
 
-  // MC options
-  const others = useMemo(() => verses.filter((_, i) => i !== idx), [verses, idx]);
-  const shuffledOthers = useMemo(() => seededShuffle(others, seed), [others, seed]);
-  const textOptions = useMemo(() => seededShuffle([verse.text, ...shuffledOthers.slice(0, 3).map(v => v.text)], idx * 17 + 3), [verse, shuffledOthers, idx]);
-  const refOptions = useMemo(() => seededShuffle([verse.reference, ...shuffledOthers.slice(0, 3).map(v => v.reference)], idx * 13 + 5), [verse, shuffledOthers, idx]);
+  // Pool of distractor verses for multiple-choice / reference modes.
+  // When the session itself has fewer than 4 verses (e.g. practicing a single
+  // favourited verse), there aren't enough "other" verses to draw distractors
+  // from, so the correct answer would be the only option shown. Fall back to
+  // the full curated KJV_VERSES pool to fill out the choices.
+  const distractorPool = useMemo(() => {
+    if (verses.length >= 4) return verses;
+    const sessionRefs = new Set(verses.map(v => v.reference));
+    return [...verses, ...KJV_VERSES.filter(v => !sessionRefs.has(v.reference))];
+  }, [verses]);
+
+  // MC options — truly randomized with Math.random(), stored in state so the
+  // order is stable while the user views a given verse but differs across
+  // verses and across sessions. (The previous seeded-by-idx approach pinned
+  // the answer to the same slot in every session.)
+  const [textOptions, setTextOptions] = useState<string[]>(() => {
+    const others = distractorPool.filter(v => v.reference !== verse.reference);
+    const picks = shuffleWithMathRandom(others).slice(0, 3).map(v => v.text);
+    return shuffleWithMathRandom([verse.text, ...picks]);
+  });
+  const [refOptions, setRefOptions] = useState<string[]>(() => {
+    const others = distractorPool.filter(v => v.reference !== verse.reference);
+    const picks = shuffleWithMathRandom(others).slice(0, 3).map(v => v.reference);
+    return shuffleWithMathRandom([verse.reference, ...picks]);
+  });
+  // Re-randomize options whenever the verse changes (advance / skip / restart)
+  useEffect(() => {
+    const others = distractorPool.filter(v => v.reference !== verse.reference);
+    const textPicks = shuffleWithMathRandom(others).slice(0, 3).map(v => v.text);
+    setTextOptions(shuffleWithMathRandom([verse.text, ...textPicks]));
+    const refPicks = shuffleWithMathRandom(others).slice(0, 3).map(v => v.reference);
+    setRefOptions(shuffleWithMathRandom([verse.reference, ...refPicks]));
+  }, [idx, verse.reference, distractorPool]);
 
   const progress = ((idx) / verses.length) * 100;
 
@@ -473,12 +626,27 @@ function PracticeSession({
     return () => window.removeEventListener('keydown', onKey);
   }, [mode, revealed, textOptions, refOptions, verse, advance]);
 
-  const handleRecallCheck = () => {
+  const handleRecallCheck = useCallback(() => {
     const pct = scoreRecall(userInput, verse.text);
     setRecallScore(pct);
     const correct = pct >= 80;
     recordResult(correct);
-  };
+  }, [userInput, verse, recordResult]);
+
+  // Cmd/Ctrl+Enter submits the Recall "Check Answer" button.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (mode !== 'recall') return;
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        if (!revealed && userInput.trim()) {
+          e.preventDefault();
+          handleRecallCheck();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mode, revealed, userInput, handleRecallCheck]);
 
   const handleChoiceSelect = (option: string, isCorrect: boolean) => {
     setSelectedOption(option);
@@ -526,7 +694,15 @@ function PracticeSession({
 
         {/* ── VANISHING CLOZE ── */}
         {mode === 'vanishing-cloze' && (
-          <VanishingClozeMode key={idx} verse={verse} timesRecited={timesRecited} seed={seed} onResult={(correct) => { setRevealed(true); setTotal(t => t + 1); if (correct) setScore(s => s + 1); setResults(r => [...r, { verse, correct, rating: correct ? 'excellent' : 'poor' }]); }} />
+          <VanishingClozeMode
+            key={idx}
+            verse={verse}
+            timesRecited={timesRecited}
+            customClozeLevel={progressMap.get(verse.reference)?.customClozeLevel ?? null}
+            seed={seed}
+            onLevelChange={(lvl) => onSetClozeLevel(verse.reference, lvl)}
+            onResult={(correct) => { setRevealed(true); setTotal(t => t + 1); if (correct) setScore(s => s + 1); setResults(r => [...r, { verse, correct, rating: correct ? 'excellent' : 'poor' }]); }}
+          />
         )}
 
         {/* ── RECALL ── */}
@@ -543,7 +719,7 @@ function PracticeSession({
                   rows={5}
                 />
                 <button onClick={handleRecallCheck} disabled={!userInput.trim()} className="w-full btn-primary text-white py-4 rounded-xl font-bold text-lg shadow-lg disabled:opacity-50">
-                  Check Answer
+                  Check Answer <span className="text-xs font-normal opacity-80 ml-2">⌘/Ctrl+Enter</span>
                 </button>
               </>
             ) : (
@@ -721,6 +897,7 @@ function Practice() {
   const { mutate: doUpdateProgress } = useUpdateProgressMutation();
   const { mutate: doUpsertReviewSchedule } = useUpsertReviewScheduleMutation();
   const { mutate: doUpdateDailyGoal } = useUpdateDailyGoalMutation();
+  const { mutate: doSetClozeLevel } = useSetClozeLevelMutation();
 
   const targetReference = params.reference ? decodeURIComponent(params.reference) : null;
 
@@ -846,11 +1023,14 @@ function Practice() {
     return () => { cancelled = true; };
   }, [targetReference, isRangeReference]);
 
-  // Build a map: reference → { timesRecited } from progress data
+  // Build a map: reference → { timesRecited, customClozeLevel } from progress data
   const progressMap = useMemo(() => {
-    const map = new Map<string, { timesRecited: number }>();
+    const map = new Map<string, { timesRecited: number; customClozeLevel?: 0 | 1 | 2 | 3 | 4 | null }>();
     for (const p of progressData ?? []) {
-      if (p?.verse?.reference) map.set(p.verse.reference, { timesRecited: p.timesRecited ?? 0 });
+      if (p?.verse?.reference) map.set(p.verse.reference, {
+        timesRecited: p.timesRecited ?? 0,
+        customClozeLevel: p.customClozeLevel ?? null,
+      });
     }
     return map;
   }, [progressData]);
@@ -1082,6 +1262,7 @@ function Practice() {
           mode={mode}
           progressMap={progressMap}
           onComplete={handleComplete}
+          onSetClozeLevel={(reference, level) => doSetClozeLevel({ reference, level })}
         />
       )}
     </div>

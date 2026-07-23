@@ -435,6 +435,43 @@ export function useUpdateProgressMutation() {
   });
 }
 
+// Persist a user-chosen Vanishing Cloze level override for a verse.
+// Pass `null` to clear the override and revert to the auto-computed level
+// (based on timesRecited).
+export function useSetClozeLevelMutation() {
+  return useMutation(async (args: { reference: string; level: 0 | 1 | 2 | 3 | 4 | null }) => {
+    const { reference, level } = args;
+    const progress = getProgress();
+    const existing = progress.find((p: any) => p?.verse?.reference === reference);
+    if (existing) {
+      if (level === null) {
+        delete existing.customClozeLevel;
+      } else {
+        existing.customClozeLevel = level;
+      }
+      existing.updatedAt = new Date().toISOString();
+    } else {
+      progress.push({
+        id: Date.now().toString(),
+        user: { id: 'anonymous' },
+        verse: { reference },
+        status: 'learning',
+        timesRecited: 0,
+        lastPracticed: null,
+        nextReview: null,
+        accuracy: 0,
+        streak: 0,
+        ...(level === null ? {} : { customClozeLevel: level }),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    setProgress(progress);
+    notifyStorageChange('kjv-memorize-progress');
+    return reference;
+  });
+}
+
 // Review schedule mutation hook
 export function useUpsertReviewScheduleMutation() {
   return useMutation(async (args: {
