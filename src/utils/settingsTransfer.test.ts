@@ -16,13 +16,13 @@ function setLocalStorage(key: string, value: string) {
   localStorage.setItem(key, value);
 }
 
-/** Build an export JSON string with the new format (array of reference strings) */
+/** Build an export JSON string with native JSON types (not stringified) */
 function makeExportedSettings(bookmarks: string[]): string {
   const data: ExportedSettings = {
     version: 1,
     exportedAt: '2026-07-18T12:00:00.000Z',
     keys: {
-      'kjv-memorize-bookmarks': JSON.stringify(bookmarks),
+      'kjv-memorize-bookmarks': bookmarks,
     },
   };
   return JSON.stringify(data, null, 2);
@@ -191,15 +191,18 @@ describe('collectSettings', () => {
     expect(() => new Date(data.exportedAt).toISOString()).not.toThrow();
   });
 
-  it('collects non-bookmark keys as-is', () => {
+  it('collects non-bookmark keys as native JSON types', () => {
     setLocalStorage('kjv-theme', 'dark');
     setLocalStorage('kjv-verse-font-size', '1.5');
     setLocalStorage('kjv-strongs-enabled', '1');
 
     const data = collectSettings();
+    // 'dark' is not valid JSON, so it stays as a string
     expect(data.keys['kjv-theme']).toBe('dark');
-    expect(data.keys['kjv-verse-font-size']).toBe('1.5');
-    expect(data.keys['kjv-strongs-enabled']).toBe('1');
+    // 1.5 parses as a number
+    expect(data.keys['kjv-verse-font-size']).toBe(1.5);
+    // '1' parses as a number
+    expect(data.keys['kjv-strongs-enabled']).toBe(1);
   });
 
   it('converts bookmark objects to a sorted array of reference strings', () => {
@@ -210,7 +213,7 @@ describe('collectSettings', () => {
     ]));
 
     const data = collectSettings();
-    const refs = JSON.parse(data.keys['kjv-memorize-bookmarks']);
+    const refs = data.keys['kjv-memorize-bookmarks'] as string[];
     expect(refs).toEqual(['Genesis 1:1', 'Psalms 23:1', 'John 3:16']);
   });
 
@@ -223,7 +226,7 @@ describe('collectSettings', () => {
     ]));
 
     const data = collectSettings();
-    const refs = JSON.parse(data.keys['kjv-memorize-bookmarks']);
+    const refs = data.keys['kjv-memorize-bookmarks'] as string[];
     expect(refs).toEqual(['Isaiah 26:3', 'Isaiah 26:4']);
   });
 
@@ -250,7 +253,7 @@ describe('collectSettings', () => {
   it('exports empty bookmarks as "[]"', () => {
     setLocalStorage('kjv-memorize-bookmarks', '[]');
     const data = collectSettings();
-    expect(data.keys['kjv-memorize-bookmarks']).toBe('[]');
+    expect(data.keys['kjv-memorize-bookmarks']).toEqual([]);
   });
 
   it('handles bookmarks with extra fields (id, user, timestamps)', () => {
@@ -266,7 +269,7 @@ describe('collectSettings', () => {
     ]));
 
     const data = collectSettings();
-    const refs = JSON.parse(data.keys['kjv-memorize-bookmarks']);
+    const refs = data.keys['kjv-memorize-bookmarks'] as string[];
     expect(refs).toEqual(['John 3:16']);
   });
 
@@ -278,7 +281,7 @@ describe('collectSettings', () => {
 
     const data = collectSettings();
     // The value should be a JSON array of strings, not objects
-    const parsed = JSON.parse(data.keys['kjv-memorize-bookmarks']);
+    const parsed = data.keys['kjv-memorize-bookmarks'] as string[];
     expect(parsed.every((s: unknown) => typeof s === 'string')).toBe(true);
   });
 });
@@ -487,7 +490,7 @@ describe('importSettings', () => {
       version: 1,
       exportedAt: '2026-07-18T00:00:00.000Z',
       keys: {
-        'kjv-memorize-bookmarks': JSON.stringify(['John 3:16', 123, null, '', 'Psalms 23:1']),
+        'kjv-memorize-bookmarks': ['John 3:16', 123, null, '', 'Psalms 23:1'] as unknown as string[],
       },
     };
     const result = importSettings(JSON.stringify(data));
@@ -510,8 +513,8 @@ describe('importSettings', () => {
       exportedAt: '2026-07-18T12:00:00.000Z',
       keys: {
         'kjv-theme': 'dark',
-        'kjv-memorize-progress': JSON.stringify([{ reference: 'John 3:16', status: 'mastered' }]),
-        'kjv-memorize-bookmarks': JSON.stringify(['John 3:16']),
+        'kjv-memorize-progress': [{ reference: 'John 3:16', status: 'mastered' }],
+        'kjv-memorize-bookmarks': ['John 3:16'],
       },
     };
     const result = importSettings(JSON.stringify(data));
@@ -570,7 +573,7 @@ describe('Export → Import round-trip', () => {
     const json = JSON.stringify(exported);
 
     // Verify the exported bookmarks are reference strings, not objects
-    const exportedRefs = JSON.parse(exported.keys['kjv-memorize-bookmarks']);
+    const exportedRefs = exported.keys['kjv-memorize-bookmarks'] as string[];
     expect(exportedRefs).toEqual(['Psalms 23:1', 'John 3:16']);
     expect(exportedRefs.every((s: unknown) => typeof s === 'string')).toBe(true);
 
@@ -626,7 +629,7 @@ describe('Export → Import round-trip', () => {
 
     // Export should deduplicate
     const exported = collectSettings();
-    const exportedRefs = JSON.parse(exported.keys['kjv-memorize-bookmarks']);
+    const exportedRefs = exported.keys['kjv-memorize-bookmarks'] as string[];
     expect(exportedRefs).toEqual(['Isaiah 26:3', 'Isaiah 26:4']);
 
     // Import into fresh browser
@@ -652,7 +655,7 @@ describe('Group bookmarks (verse ranges)', () => {
     ]));
 
     const data = collectSettings();
-    const refs = JSON.parse(data.keys['kjv-memorize-bookmarks']);
+    const refs = data.keys['kjv-memorize-bookmarks'] as string[];
     expect(refs).toContain('Psalms 23:1-6');
     expect(refs).toContain('John 3:16');
   });
@@ -665,7 +668,7 @@ describe('Group bookmarks (verse ranges)', () => {
     ]));
 
     const data = collectSettings();
-    const refs = JSON.parse(data.keys['kjv-memorize-bookmarks']);
+    const refs = data.keys['kjv-memorize-bookmarks'] as string[];
     expect(refs).toEqual(['Genesis 1:1', 'Psalms 23:1-6', 'John 3:16']);
   });
 
@@ -676,7 +679,7 @@ describe('Group bookmarks (verse ranges)', () => {
     ]));
 
     const data = collectSettings();
-    const refs = JSON.parse(data.keys['kjv-memorize-bookmarks']);
+    const refs = data.keys['kjv-memorize-bookmarks'] as string[];
     expect(refs).toEqual(['Psalms 23:1-6']);
   });
 
@@ -710,7 +713,7 @@ describe('Group bookmarks (verse ranges)', () => {
     ]));
 
     const data = collectSettings();
-    const refs = JSON.parse(data.keys['kjv-memorize-bookmarks']);
+    const refs = data.keys['kjv-memorize-bookmarks'] as string[];
     expect(refs).toContain('Psalms 23:1');
     expect(refs).toContain('Psalms 23:1-6');
     expect(refs).toHaveLength(2);
@@ -744,7 +747,7 @@ describe('Group bookmarks (verse ranges)', () => {
     ]));
 
     const data = collectSettings();
-    const refs = JSON.parse(data.keys['kjv-memorize-bookmarks']);
+    const refs = data.keys['kjv-memorize-bookmarks'] as string[];
     expect(refs).toEqual([
       'Genesis 1:1-3',
       'Psalms 23:1-6',

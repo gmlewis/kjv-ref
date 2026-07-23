@@ -67,16 +67,20 @@ function sortReferences(refs: string[]): string[] {
 export interface ExportedSettings {
   version: 1;
   exportedAt: string;
-  keys: Record<string, string>;
+  keys: Record<string, unknown>;
 }
 
 /**
  * Collect all KJV-Ref localStorage data into a single JSON object.
+ * All values are parsed from their localStorage string form into native JSON
+ * types (arrays, objects, strings, numbers) so the exported file contains
+ * real JSON, not stringified JSON.
+ *
  * Bookmarks are converted to a deduplicated, Bible-order-sorted array of
  * reference strings for human readability.
  */
 export function collectSettings(): ExportedSettings {
-  const keys: Record<string, string> = {};
+  const keys: Record<string, unknown> = {};
   for (const key of ALL_KJV_STORAGE_KEYS) {
     const value = localStorage.getItem(key);
     if (value === null) continue;
@@ -89,9 +93,15 @@ export function collectSettings(): ExportedSettings {
         ? bookmarks.map(b => b.reference).filter(Boolean)
         : [];
       const unique = [...new Set(refs)];
-      keys[key] = JSON.stringify(sortReferences(unique));
+      keys[key] = sortReferences(unique);
     } else {
-      keys[key] = value;
+      // Parse all other values from their localStorage string form into native JSON types
+      try {
+        keys[key] = JSON.parse(value);
+      } catch {
+        // If it's not valid JSON (e.g. "dark", "1"), store as a plain string
+        keys[key] = value;
+      }
     }
   }
   return {
@@ -153,12 +163,13 @@ export function importSettings(jsonString: string): ImportResult {
     throw new Error('Invalid settings file: missing "keys" field');
   }
 
-  const importedBookmarksRaw = data.keys['kjv-memorize-bookmarks'];
-  if (!importedBookmarksRaw) {
+  const importedBookmarks = data.keys['kjv-memorize-bookmarks'];
+  if (!importedBookmarks) {
     return { addedBookmarks: 0, skippedDuplicates: 0 };
   }
 
-  const importedRefs = JSON.parse(importedBookmarksRaw) as string[];
+  // With the new format, bookmarks is a native JSON array of strings
+  const importedRefs = importedBookmarks as string[];
   if (!Array.isArray(importedRefs)) {
     return { addedBookmarks: 0, skippedDuplicates: 0 };
   }
