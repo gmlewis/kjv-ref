@@ -1065,7 +1065,7 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
                 >
                   <LinkIcon className={`w-4 h-4 ${copiedVerse === v.verse ? 'text-green-500' : 'text-gray-400 hover:text-purple-400'}`} />
                 </button>
-                {isFeatured && (
+                {(isFeatured || bookmarkedRefs.has(v.reference)) && (
                   <Link to={`/practice/${encodeURIComponent(v.reference)}`}>
                     <button className="btn-primary text-white py-1.5 px-3 rounded-lg text-xs font-bold whitespace-nowrap flex-shrink-0 flex items-center gap-1">
                       <Dumbbell className="w-3 h-3" /> Practice

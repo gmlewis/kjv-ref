@@ -211,4 +211,74 @@ test.describe('Books — chapter view', () => {
     await frame.locator('button:has-text("All Chapters")').click();
     await expect(frame.locator('text=Browse Chapters').first()).toBeVisible({ timeout: 5_000 });
   });
+
+  // ─── Practice button on favorited verses ──────────────────────────────────────
+
+  test('Practice button appears for a favorited single verse', async ({ page }) => {
+    // Set up a bookmark before loading
+    await page.addInitScript(() => {
+      const bookmarks = [{
+        id: 'test-1', user: { id: 'anonymous' }, reference: 'John 3:16',
+        addedAt: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      }];
+      localStorage.setItem('kjv-memorize-bookmarks', JSON.stringify(bookmarks));
+      if (!localStorage.getItem('kjv-memorize-progress')) localStorage.setItem('kjv-memorize-progress', '[]');
+      if (!localStorage.getItem('kjv-memorize-sessions')) localStorage.setItem('kjv-memorize-sessions', '[]');
+      if (!localStorage.getItem('kjv-memorize-achievements')) localStorage.setItem('kjv-memorize-achievements', '[]');
+      if (!localStorage.getItem('kjv-memorize-review-schedule')) localStorage.setItem('kjv-memorize-review-schedule', '[]');
+    });
+
+    const frame = await openApp(page);
+    await navigateTo(frame, 'Books', 'Browse Bible Books');
+    await frame.locator('text=John').nth(0).click();
+    await expect(frame.locator('text=Browse Chapters').first()).toBeVisible({ timeout: 10_000 });
+    await frame.locator('[class*="glassmorphism"] button:has-text("3")').first().click();
+    await frame.locator('[class*="animate-spin"]').waitFor({ state: 'hidden', timeout: 15_000 }).catch(() => {});
+    await expect(frame.locator('text=For God so loved').first()).toBeVisible({ timeout: 15_000 });
+
+    // Should have a Practice button on the favorited verse (John 3:16)
+    const practiceBtn = frame.locator('button:has-text("Practice")').first();
+    await expect(practiceBtn).toBeVisible({ timeout: 5_000 });
+  });
+
+  test('Practice button does NOT appear for unfavorited non-featured verse', async ({ page }) => {
+    // No bookmarks set up — go to a chapter with no featured verses
+    const frame = await openApp(page);
+    await navigateTo(frame, 'Books', 'Browse Bible Books');
+    await frame.locator('text=Genesis').first().click();
+    await expect(frame.locator('text=Browse Chapters').first()).toBeVisible({ timeout: 10_000 });
+    // Go to chapter 10 (unlikely to have featured verses)
+    await frame.locator('[class*="glassmorphism"] button:has-text("10")').first().click();
+    await frame.locator('[class*="animate-spin"]').waitFor({ state: 'hidden', timeout: 15_000 }).catch(() => {});
+    await expect(frame.locator('text=Genesis Chapter 10').first()).toBeVisible({ timeout: 5_000 });
+
+    // No Practice buttons should appear since no verses are featured or favorited
+    const practiceBtns = frame.locator('button:has-text("Practice")');
+    const count = await practiceBtns.count();
+    expect(count).toBe(0);
+  });
+
+  test('Practice button appears for a favorited verse range', async ({ page }) => {
+    await page.addInitScript(() => {
+      const bookmarks = [{
+        id: 'test-range-1', user: { id: 'anonymous' }, reference: 'John 3:1-3',
+        addedAt: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      }];
+      localStorage.setItem('kjv-memorize-bookmarks', JSON.stringify(bookmarks));
+      if (!localStorage.getItem('kjv-memorize-progress')) localStorage.setItem('kjv-memorize-progress', '[]');
+      if (!localStorage.getItem('kjv-memorize-sessions')) localStorage.setItem('kjv-memorize-sessions', '[]');
+      if (!localStorage.getItem('kjv-memorize-achievements')) localStorage.setItem('kjv-memorize-achievements', '[]');
+      if (!localStorage.getItem('kjv-memorize-review-schedule')) localStorage.setItem('kjv-memorize-review-schedule', '[]');
+    });
+
+    const frame = await openApp(page);
+    // Navigate directly to the range
+    await openApp(page, '/kjv-ref/books/John/3#v1-3');
+    await frame.locator('[class*="animate-spin"]').waitFor({ state: 'hidden', timeout: 15_000 }).catch(() => {});
+    await expect(frame.locator('text=John Chapter 3').first()).toBeVisible({ timeout: 10_000 });
+
+    // The group favorite bar should show with a Practice button
+    const practiceBtn = frame.locator('button:has-text("Practice")');
+    await expect(practiceBtn.first()).toBeVisible({ timeout: 5_000 });
+  });
 });
