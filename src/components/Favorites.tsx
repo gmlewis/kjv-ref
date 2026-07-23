@@ -166,14 +166,22 @@ function Favorites() {
         const tag = target.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
       }
-      if (e.key === 'ArrowRight') {
+      if (e.key === 'ArrowRight' && !e.shiftKey) {
         e.preventDefault();
         const next = (selectedVerse ?? -1) + 1;
         if (next < entries.length) scrollToEntry(next);
-      } else if (e.key === 'ArrowLeft') {
+      } else if (e.key === 'ArrowLeft' && !e.shiftKey) {
         e.preventDefault();
         const prev = (selectedVerse ?? 1) - 1;
         if (prev >= 0) scrollToEntry(prev);
+      } else if (e.key === 'ArrowRight' && e.shiftKey) {
+        e.preventDefault();
+        // Jump to last favorite
+        if (entries.length > 0) scrollToEntry(entries.length - 1);
+      } else if (e.key === 'ArrowLeft' && e.shiftKey) {
+        e.preventDefault();
+        // Jump to first favorite
+        if (entries.length > 0) scrollToEntry(0);
       }
     };
     window.addEventListener('keydown', onKey);

@@ -6,6 +6,7 @@ import {
   importSettings,
   sortReferences,
   parseRef,
+  correctMisspelling,
   ALL_KJV_STORAGE_KEYS,
   type ExportedSettings,
 } from './settingsTransfer';
@@ -319,8 +320,118 @@ describe('downloadSettings', () => {
       ...URL,
       createObjectURL: vi.fn().mockReturnValue('blob:mock-url'),
       revokeObjectURL: vi.fn(),
-    });
   });
+});
+
+// ─── Misspelling correction tests ────────────────────────────────────────────
+
+describe('correctMisspelling', () => {
+  it('corrects "Galations" to "Galatians"', () => {
+    expect(correctMisspelling('Galations 2:20')).toBe('Galatians 2:20');
+  });
+
+  it('corrects "Psalm" to "Psalms"', () => {
+    expect(correctMisspelling('Psalm 51:7')).toBe('Psalms 51:7');
+  });
+
+  it('corrects "Psalm" with verse range', () => {
+    expect(correctMisspelling('Psalm 107:2')).toBe('Psalms 107:2');
+  });
+
+  it('corrects "Galations" with verse range', () => {
+    expect(correctMisspelling('Galations 3:1-5')).toBe('Galatians 3:1-5');
+  });
+
+  it('does not change correctly spelled "Galatians"', () => {
+    expect(correctMisspelling('Galatians 2:20')).toBe('Galatians 2:20');
+  });
+
+  it('does not change correctly spelled "Psalms"', () => {
+    expect(correctMisspelling('Psalms 23:1')).toBe('Psalms 23:1');
+  });
+
+  it('does not change other book names', () => {
+    expect(correctMisspelling('John 3:16')).toBe('John 3:16');
+    expect(correctMisspelling('Genesis 1:1')).toBe('Genesis 1:1');
+    expect(correctMisspelling('1 Corinthians 13:1-13')).toBe('1 Corinthians 13:1-13');
+  });
+
+  it('handles case-insensitive misspelling', () => {
+    expect(correctMisspelling('galations 2:20')).toBe('Galatians 2:20');
+    expect(correctMisspelling('PSALM 51:7')).toBe('Psalms 51:7');
+  });
+
+  it('returns unchanged for non-reference strings', () => {
+    expect(correctMisspelling('not a reference')).toBe('not a reference');
+    expect(correctMisspelling('')).toBe('');
+  });
+});
+
+describe('importSettings with misspelling corrections', () => {
+  beforeEach(() => { localStorage.clear(); });
+
+  it('imports "Galations 2:20" as "Galatians 2:20"', () => {
+    const json = makeExportedSettings(['Galations 2:20']);
+    const result = importSettings(json);
+    expect(result.addedBookmarks).toBe(1);
+    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
+    expect(stored[0].reference).toBe('Galatians 2:20');
+  });
+
+  it('imports "Psalm 51:7" as "Psalms 51:7"', () => {
+    const json = makeExportedSettings(['Psalm 51:7']);
+    const result = importSettings(json);
+    expect(result.addedBookmarks).toBe(1);
+    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
+    expect(stored[0].reference).toBe('Psalms 51:7');
+  });
+
+  it('imports multiple misspelled references with corrections', () => {
+    const json = makeExportedSettings([
+      'Galations 2:20',
+      'Galations 3:1-5',
+      'Psalm 51:7',
+      'Psalm 107:2',
+    ]);
+    const result = importSettings(json);
+    expect(result.addedBookmarks).toBe(4);
+    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
+    expect(stored.map((b: any) => b.reference).sort()).toEqual([
+      'Galatians 2:20',
+      'Galatians 3:1-5',
+      'Psalms 107:2',
+      'Psalms 51:7',
+    ]);
+  });
+
+  it('deduplicates after misspelling correction', () => {
+    // If both "Galations 2:20" and "Galatians 2:20" are in the file,
+    // they should be deduplicated after correction
+    const json = makeExportedSettings(['Galations 2:20', 'Galatians 2:20']);
+    const result = importSettings(json);
+    expect(result.addedBookmarks).toBe(1);
+    expect(result.skippedDuplicates).toBe(1);
+  });
+
+  it('corrected misspelling matches existing bookmark', () => {
+    // If "Galatians 2:20" already exists, importing "Galations 2:20" should skip it
+    setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([
+      { reference: 'Galatians 2:20' },
+    ]));
+    const json = makeExportedSettings(['Galations 2:20']);
+    const result = importSettings(json);
+    expect(result.addedBookmarks).toBe(0);
+    expect(result.skippedDuplicates).toBe(1);
+  });
+
+  it('imports correctly spelled references unchanged', () => {
+    const json = makeExportedSettings(['Galatians 2:20', 'Psalms 51:7']);
+    const result = importSettings(json);
+    expect(result.addedBookmarks).toBe(2);
+    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
+    expect(stored.map((b: any) => b.reference).sort()).toEqual(['Galatians 2:20', 'Psalms 51:7']);
+  });
+});
 
   afterEach(() => {
     vi.restoreAllMocks();

@@ -138,6 +138,28 @@ export function downloadSettings(): void {
   URL.revokeObjectURL(url);
 }
 
+// ─── Common misspelling corrections ──────────────────────────────────────────
+
+/** Map of common book name misspellings to their correct spelling. */
+const MISSPELLINGS: Record<string, string> = {
+  'galations': 'Galatians',
+  'psalm': 'Psalms',
+};
+
+/**
+ * Correct common book name misspellings in a reference string.
+ * e.g. "Galations 2:20" → "Galatians 2:20", "Psalm 51:7" → "Psalms 51:7"
+ */
+function correctMisspelling(ref: string): string {
+  const m = ref.match(/^(.+?) (\d+:\d+(?:-\d+)?)$/);
+  if (!m) return ref;
+  const bookLower = m[1].toLowerCase();
+  if (MISSPELLINGS[bookLower]) {
+    return `${MISSPELLINGS[bookLower]} ${m[2]}`;
+  }
+  return ref;
+}
+
 // ─── Import ──────────────────────────────────────────────────────────────────
 
 export interface ImportResult {
@@ -185,19 +207,21 @@ export function importSettings(jsonString: string): ImportResult {
   let skipped = 0;
   for (const ref of importedRefs) {
     if (!ref || typeof ref !== 'string') { skipped++; continue; }
-    if (existingRefs.has(ref)) {
+    // Correct common misspellings (e.g. "Galations" → "Galatians", "Psalm" → "Psalms")
+    const corrected = correctMisspelling(ref);
+    if (existingRefs.has(corrected)) {
       skipped++;
     } else {
       const now = new Date().toISOString();
       existing.push({
         id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
         user: { id: 'anonymous' },
-        reference: ref,
+        reference: corrected,
         addedAt: now,
         createdAt: now,
         updatedAt: now,
       });
-      existingRefs.add(ref);
+      existingRefs.add(corrected);
       added++;
     }
   }
@@ -212,4 +236,4 @@ export function importSettings(jsonString: string): ImportResult {
 
 // ─── Exported for testing ────────────────────────────────────────────────────
 
-export { sortReferences, parseRef };
+export { sortReferences, parseRef, correctMisspelling };
