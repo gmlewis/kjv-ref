@@ -674,7 +674,9 @@ function PracticeSession({
       <div className="glassmorphism rounded-3xl p-8 shadow-2xl">
         <div className="flex items-center gap-2 mb-5">
           <BookOpen className="w-5 h-5 text-purple-500" />
-          <span className="font-bold text-purple-600 text-xl">{verse.reference}</span>
+          <span className="font-bold text-purple-600 text-xl">
+            {mode === 'reference' && !revealed ? '???' : verse.reference}
+          </span>
           <span className={`ml-auto text-xs px-2 py-1 rounded-full font-semibold ${
             verse.difficulty === 'easy' ? 'bg-green-100 text-green-700' :
             verse.difficulty === 'medium' ? 'bg-yellow-100 text-yellow-700' :
@@ -964,6 +966,8 @@ function Practice() {
   // KJV_VERSES only has ~41 curated verses, so most verses in a range need
   // to be fetched from the full Bible data via getKJVVerse.
   const [targetRangeVerses, setTargetRangeVerses] = useState<KJVVerse[]>([]);
+  // Single non-curated verse fetched from the full Bible (e.g. "Exodus 34:5").
+  const [targetSingleVerse, setTargetSingleVerse] = useState<KJVVerse | null>(null);
   const isRangeReference = useMemo(() => {
     if (!targetReference) return false;
     const parsed = parseVerseRangeRef(targetReference);
@@ -1023,6 +1027,34 @@ function Practice() {
     return () => { cancelled = true; };
   }, [targetReference, isRangeReference]);
 
+  // Fetch a single target verse that is not in the curated KJV_VERSES list
+  // (e.g. navigating from Favorites to /practice/Exodus%2034:5).
+  useEffect(() => {
+    if (!targetReference || isRangeReference) {
+      setTargetSingleVerse(null);
+      return;
+    }
+    const v = KJV_VERSES.find(x => x.reference === targetReference);
+    if (v) { setTargetSingleVerse(null); return; }
+    let cancelled = false;
+    getKJVVerse(targetReference).then(entry => {
+      if (cancelled || !entry) { setTargetSingleVerse(null); return; }
+      const m = entry.reference.match(/^(.+) (\d+):(\d+)$/);
+      if (!m) { setTargetSingleVerse(null); return; }
+      setTargetSingleVerse({
+        reference: entry.reference,
+        book: m[1],
+        chapter: parseInt(m[2], 10),
+        verse: entry.verse,
+        text: entry.text,
+        keywords: extractKeywords(entry.text),
+        difficulty: assessDifficulty(entry.text),
+        theme: 'custom',
+      });
+    });
+    return () => { cancelled = true; };
+  }, [targetReference, isRangeReference]);
+
   // Build a map: reference → { timesRecited, customClozeLevel } from progress data
   const progressMap = useMemo(() => {
     const map = new Map<string, { timesRecited: number; customClozeLevel?: 0 | 1 | 2 | 3 | 4 | null }>();
@@ -1044,9 +1076,11 @@ function Practice() {
       if (isRangeReference) {
         return targetRangeVerses;
       }
-      // Single verse — try exact match in KJV_VERSES first
+      // Single verse — try exact match in KJV_VERSES first, then fall back to
+      // a verse fetched from the full Bible (e.g. a favourited non-curated verse).
       const v = KJV_VERSES.find(v => v.reference === targetReference);
-      return v ? [v] : KJV_VERSES;
+      if (v) return [v];
+      return targetSingleVerse ? [targetSingleVerse] : [];
     }
     let pool: KJVVerse[];
     if (collectionFilter) {
@@ -1062,7 +1096,7 @@ function Practice() {
       if (aDue !== bDue) return aDue ? -1 : 1;
       return (progressMap.get(a.reference)?.timesRecited ?? 0) - (progressMap.get(b.reference)?.timesRecited ?? 0);
     });
-  }, [targetReference, isRangeReference, targetRangeVerses, difficultyFilter, collectionFilter, bookmarkedRefs, extraCollectionVerses, dueReviewData, progressMap]);
+  }, [targetReference, isRangeReference, targetRangeVerses, targetSingleVerse, difficultyFilter, collectionFilter, bookmarkedRefs, extraCollectionVerses, dueReviewData, progressMap]);
 
   const handleComplete = async (score: number, total: number, results: { verse: KJVVerse; correct: boolean; rating: PerformanceRating }[]) => {
     setFinalScore({ score, total });
@@ -1141,7 +1175,9 @@ function Practice() {
               </div>
               <div>
                 <h1 className="text-3xl font-bold gradient-text">
-                  {targetReference ? `Practice: ${targetReference}` : 'Practice Mode'}
+                  {mode === 'reference' && targetReference
+                    ? 'Practice: Reference Match'
+                    : targetReference ? `Practice: ${targetReference}` : 'Practice Mode'}
                 </h1>
                 <p className="text-gray-500">{mode ? MODE_INFO[mode].description : 'Choose your practice style'}</p>
               </div>
