@@ -1,4 +1,4 @@
-name: CI
+name: on-push-or-pr
 
 on:
   push:
@@ -17,7 +17,32 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Setup Bun
+      - name: Setup Bun (attempt 1)
+        id: setup-bun-1
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+        continue-on-error: true
+
+      - name: Wait before retry (10s)
+        if: steps.setup-bun-1.outcome == 'failure'
+        run: sleep 10
+
+      - name: Setup Bun (attempt 2)
+        id: setup-bun-2
+        if: steps.setup-bun-1.outcome == 'failure'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+        continue-on-error: true
+
+      - name: Wait before retry (20s)
+        if: steps.setup-bun-2.outcome == 'failure'
+        run: sleep 20
+
+      - name: Setup Bun (attempt 3)
+        id: setup-bun-3
+        if: steps.setup-bun-2.outcome == 'failure'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -39,7 +64,32 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Setup Bun
+      - name: Setup Bun (attempt 1)
+        id: setup-bun-1
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+        continue-on-error: true
+
+      - name: Wait before retry (10s)
+        if: steps.setup-bun-1.outcome == 'failure'
+        run: sleep 10
+
+      - name: Setup Bun (attempt 2)
+        id: setup-bun-2
+        if: steps.setup-bun-1.outcome == 'failure'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+        continue-on-error: true
+
+      - name: Wait before retry (20s)
+        if: steps.setup-bun-2.outcome == 'failure'
+        run: sleep 20
+
+      - name: Setup Bun (attempt 3)
+        id: setup-bun-3
+        if: steps.setup-bun-2.outcome == 'failure'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest

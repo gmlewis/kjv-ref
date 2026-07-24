@@ -321,7 +321,7 @@ kjv-ref/
 │   └── stats-achievements.spec.ts
 ├── scripts/                # Data-build scripts (interlinear, strongs index)
 ├── .github/workflows/
-│   ├── ci.yml              # CI: build + test + e2e
+│   ├── ci.yml              # on-push-or-pr: build + test + e2e
 │   └── deploy.yml          # GitHub Pages deploy
 ├── run.sh                  # Dev server + auto-open Chrome
 ├── vite.config.ts

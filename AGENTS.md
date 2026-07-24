@@ -65,9 +65,13 @@ build` succeeds regardless. Do not "fix" this by removing the `test` field.
 
 ## CI
 
-GitHub Actions CI runs on push to `master` and on PRs (`.github/workflows/ci.yml`):
+The `on-push-or-pr` workflow (`.github/workflows/ci.yml`) runs on push to
+`master` and on PRs:
 - `build-and-test` job: `bun install` + `bun run build` + `bun run test:run`
 - `e2e` job (push only): `bun install` + `bun run build` + `bun run e2e`
+
+Both `Setup Bun` steps retry up to 3 times with exponential backoff (10s,
+then 20s waits) to absorb transient GitHub release-asset CDN outages (504s).
 
 Note: e2e tests only run on push to `master`, not on PRs. Fix e2e test issues
 before pushing to `master`.
