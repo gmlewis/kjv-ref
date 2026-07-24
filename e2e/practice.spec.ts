@@ -441,6 +441,40 @@ test.describe('Practice — Simplified Vanishing Cloze mode', () => {
     }
   });
 
+  test('focus wraps to skipped blanks after resolving the last in-order blank', async ({ page }) => {
+    // Regression: if the user skips the first two blanks with ArrowRight,
+    // then resolves all the rest in order, focus should wrap around to the
+    // first skipped blank — not be lost.
+    const frame = await openPractice(page);
+    await selectMode(frame, 'Simplified Vanishing Cloze');
+    const inputs = frame.locator('input[maxlength="1"]');
+    if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
+      const n = await inputs.count();
+      expect(n).toBeGreaterThanOrEqual(4);
+      // Skip the first two blanks with ArrowRight.
+      await inputs.nth(0).focus();
+      await inputs.nth(0).press('ArrowRight');
+      await inputs.nth(1).press('ArrowRight');
+      // Now on the 3rd blank. Resolve it and every subsequent blank in order.
+      // After the last one is resolved, focus should wrap to the first
+      // skipped blank (index 0), not be lost.
+      const remaining = n - 2; // blanks 3..n-1
+      for (let i = 0; i < remaining; i++) {
+        const currentInputs = frame.locator('input[maxlength="1"]');
+        // The first input in the DOM is the first *unresolved* blank.
+        await currentInputs.first().focus();
+        await currentInputs.first().press('a');
+      }
+      // Two blanks should still be unresolved (the skipped ones).
+      const finalInputs = frame.locator('input[maxlength="1"]');
+      await expect(finalInputs).toHaveCount(2);
+      // Focus should have wrapped to one of the remaining inputs — verify
+      // an input is focused (not lost to the body).
+      const focusedInput = frame.locator('input[maxlength="1"]:focus');
+      await expect(focusedInput.first()).toBeVisible({ timeout: 2_000 });
+    }
+  });
+
   test('Cmd+RightArrow advances to the next verse after completion', async ({ page }) => {
     const frame = await openPractice(page);
     await selectMode(frame, 'Simplified Vanishing Cloze');

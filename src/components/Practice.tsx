@@ -404,9 +404,17 @@ function SimplifiedVanishingClozeMode({
     setEntries(prev => ({ ...prev, [idx]: ch }));
     setResults(prev => ({ ...prev, [idx]: res }));
 
-    // Advance focus to the next unresolved blank.
+    // Advance focus to the next unresolved blank, wrapping around.
+    // We build the "resolved" set from the closure's `results` plus the
+    // current idx (since setResults above hasn't flushed into the closure yet).
+    const nowResolved = new Set(Object.keys(results).map(Number));
+    nowResolved.add(idx);
     const pos = blankIndices.indexOf(idx);
-    const nextIdx = blankIndices.find((bi, biPos) => biPos > pos && !(bi in results) && bi !== idx);
+    // Search forward from the next position, then wrap around.
+    let nextIdx = blankIndices.find((bi, biPos) => biPos > pos && !nowResolved.has(bi));
+    if (nextIdx == null) {
+      nextIdx = blankIndices.find((bi, biPos) => biPos < pos && !nowResolved.has(bi));
+    }
     if (nextIdx != null) {
       inputRefs.current[nextIdx]?.focus();
     }
