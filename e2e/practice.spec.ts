@@ -239,35 +239,39 @@ test.describe('Practice — Simplified Vanishing Cloze mode', () => {
     }
   });
 
-  test('typing a first letter fills the input', async ({ page }) => {
+  test('no Check Answer button exists in this mode', async ({ page }) => {
     const frame = await openPractice(page);
     await selectMode(frame, 'Simplified Vanishing Cloze');
-    const input = frame.locator('input[maxlength="1"]').first();
-    if (await input.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await input.focus();
-      await input.press('a');
-      await expect(input).toHaveValue(/.+/);
+    // This mode auto-completes when the last blank is resolved — there is
+    // never a "Check Answer" button.
+    await expect(frame.locator('button:has-text("Check Answer")')).toHaveCount(0);
+  });
+
+  test('typing a first letter immediately replaces the input with a word pill', async ({ page }) => {
+    const frame = await openPractice(page);
+    await selectMode(frame, 'Simplified Vanishing Cloze');
+    const inputs = frame.locator('input[maxlength="1"]');
+    if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
+      const initialCount = await inputs.count();
+      await inputs.first().focus();
+      await inputs.first().press('a');
+      // The first input should have been replaced by a colored word pill,
+      // so the number of remaining inputs should have decreased by 1.
+      await expect(frame.locator('input[maxlength="1"]')).toHaveCount(initialCount - 1);
     }
   });
 
-  test('Check Answer button is disabled until all blanks are filled', async ({ page }) => {
+  test('pressing "?" in an input immediately reveals the word (orange pill, no "revealed" text)', async ({ page }) => {
     const frame = await openPractice(page);
     await selectMode(frame, 'Simplified Vanishing Cloze');
-    const checkBtn = frame.locator('button:has-text("Check Answer")');
-    if (await checkBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await expect(checkBtn).toBeDisabled();
-    }
-  });
-
-  test('pressing "?" in an input reveals that word and is marked incorrect', async ({ page }) => {
-    const frame = await openPractice(page);
-    await selectMode(frame, 'Simplified Vanishing Cloze');
-    const input = frame.locator('input[maxlength="1"]').first();
-    if (await input.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await input.focus();
-      await input.press('?');
-      // The '?' reveal hint line should be visible, and the input should
-      // show '?' (or be marked revealed). Then we can fill the rest + check.
+    const inputs = frame.locator('input[maxlength="1"]');
+    if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await inputs.first().focus();
+      await inputs.first().press('?');
+      // The input should be replaced by an orange pill showing just the word
+      // (no "revealed" label text).
+      await expect(frame.locator('input[maxlength="1"]').first()).not.toBeVisible({ timeout: 2_000 });
+      // The hint line with "reveal" should still be visible (instructions).
       await expect(frame.locator('text=/reveal/i').first()).toBeVisible();
     }
   });
@@ -282,61 +286,56 @@ test.describe('Practice — Simplified Vanishing Cloze mode', () => {
     }
   });
 
-  test('submitting all correct first letters shows success feedback', async ({ page }) => {
+  test('resolving the last blank auto-completes and shows feedback + Next Verse', async ({ page }) => {
     const frame = await openPractice(page);
     await selectMode(frame, 'Simplified Vanishing Cloze');
     const inputs = frame.locator('input[maxlength="1"]');
     if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
-      // Fill every blank input with the correct first letter by reading the
-      // placeholder after check is not possible pre-check; instead just fill
-      // with 'a' for each — at minimum the Check button should become enabled
-      // and produce feedback.
-      const n = await inputs.count();
-      for (let i = 0; i < n; i++) {
-        await inputs.nth(i).focus();
-        await inputs.nth(i).press('a');
+      // Resolve every blank by typing a letter. Each keystroke replaces the
+      // input with a pill. When the last one is resolved, the mode
+      // auto-completes (no Check Answer button needed).
+      let n = await inputs.count();
+      while (n > 0) {
+        await frame.locator('input[maxlength="1"]').first().focus();
+        await frame.locator('input[maxlength="1"]').first().press('a');
+        n = await frame.locator('input[maxlength="1"]').count();
       }
-      const checkBtn = frame.locator('button:has-text("Check Answer")');
-      await expect(checkBtn).toBeEnabled();
-      await checkBtn.click();
-      // Feedback line appears after checking
+      // All inputs replaced by pills → feedback line should appear.
       await expect(frame.getByText(/All first letters correct|wrong or revealed/i).first()).toBeVisible({ timeout: 5_000 });
+      // Next Verse / Finish Session button should appear (the verse is done).
+      await expect(frame.locator('button:has-text("Next Verse"), button:has-text("Finish Session")').first()).toBeVisible({ timeout: 5_000 });
     }
   });
 
-  test('typing a global-shortcut letter (t/g/?) into a focused input still types it (regression)', async ({ page }) => {
+  test('typing a global-shortcut letter (t/g) into a focused input still types it (regression)', async ({ page }) => {
     const frame = await openPractice(page);
     await selectMode(frame, 'Simplified Vanishing Cloze');
     const inputs = frame.locator('input[maxlength="1"]');
     if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
       const n = await inputs.count();
       expect(n).toBeGreaterThanOrEqual(3);
-      // Fill the first two inputs normally.
+      // Fill the first two inputs normally (each replaces with a pill).
       await inputs.nth(0).focus();
       await inputs.nth(0).press('a');
       await inputs.nth(1).focus();
       await inputs.nth(1).press('b');
-      // Now type 't' (which is a global "toggle theme" shortcut key) into the
-      // third focused input. Before the fix, the capture-phase handler
-      // unconditionally called preventDefault/stopPropagation on 't' even
-      // inside our inputs, so nothing got typed.
-      await inputs.nth(2).focus();
+      // Now type 't' (global "toggle theme" shortcut) into the third input.
+      // Before the fix, the capture-phase handler called preventDefault on
+      // 't' even inside our inputs, so nothing got typed.
+      await frame.locator('input[maxlength="1"]').first().focus();
       await page.keyboard.press('t');
-      await expect(inputs.nth(2)).toHaveValue('t');
-      // Same for 'g' (global "go to books" shortcut).
-      if (n >= 4) {
-        await inputs.nth(3).focus();
-        await page.keyboard.press('g');
-        await expect(inputs.nth(3)).toHaveValue('g');
-      }
-      // The global shortcuts must NOT have fired either.
+      // The third input should have been replaced by a pill (the keystroke
+      // was accepted). The number of remaining inputs should have decreased.
+      const remaining = await frame.locator('input[maxlength="1"]').count();
+      expect(remaining).toBeLessThan(n - 1); // at least 3 resolved now
+      // The global shortcuts must NOT have fired.
       await expect(frame.locator('text=Keyboard Shortcuts')).not.toBeVisible({ timeout: 500 });
       const urlAfter = page.url();
       expect(urlAfter).toMatch(/\/practice/);
     }
   });
 
-  test('pressing "?" in a focused input reveals the word even after filling earlier blanks', async ({ page }) => {
+  test('pressing "?" in a focused input reveals the word even after resolving earlier blanks', async ({ page }) => {
     // Regression: the capture-phase handler used to call stopPropagation on
     // '?' unconditionally, which blocked the React onKeyDown reveal handler
     // from firing once focus had moved to the 3rd input.
@@ -350,33 +349,12 @@ test.describe('Practice — Simplified Vanishing Cloze mode', () => {
       await inputs.nth(0).press('a');
       await inputs.nth(1).focus();
       await inputs.nth(1).press('b');
-      // Move to the third input and press '?'. The global shortcuts modal
-      // must NOT open, and the word must be revealed (marked incorrect).
-      await inputs.nth(2).focus();
+      // Move to the next unresolved input and press '?'.
+      await frame.locator('input[maxlength="1"]').first().focus();
       await page.keyboard.press('?');
       await expect(frame.locator('text=Keyboard Shortcuts')).not.toBeVisible({ timeout: 500 });
       // The reveal hint line should be visible.
       await expect(frame.locator('text=/reveal/i').first()).toBeVisible();
-    }
-  });
-
-  test('check reveals word pills (green for correct, red for wrong showing correct word)', async ({ page }) => {
-    const frame = await openPractice(page);
-    await selectMode(frame, 'Simplified Vanishing Cloze');
-    const inputs = frame.locator('input[maxlength="1"]');
-    if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
-      const n = await inputs.count();
-      for (let i = 0; i < n; i++) {
-        await inputs.nth(i).focus();
-        await inputs.nth(i).press('a');
-      }
-      await frame.locator('button:has-text("Check Answer")').click();
-      // After check, the single-letter inputs are replaced by colored word
-      // pills. At least one green pill should appear for correct guesses, and
-      // red pills (with "→ word" text) for wrong ones.
-      await expect(frame.locator('text=All first letters correct').or(frame.locator('text=wrong or revealed')).first()).toBeVisible({ timeout: 5_000 });
-      // No more single-letter inputs should remain after checking.
-      await expect(frame.locator('input[maxlength="1"]')).toHaveCount(0);
     }
   });
 
@@ -385,12 +363,8 @@ test.describe('Practice — Simplified Vanishing Cloze mode', () => {
     await selectMode(frame, 'Simplified Vanishing Cloze');
     const inputs = frame.locator('input[maxlength="1"]');
     if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
-      // Press the global shortcut keys defined in Navigation.tsx /
-      // KeyboardModals.tsx. None of them should fire while this mode is
-      // active: no shortcuts modal, no search modal, no theme toggle, no nav.
-      // We click the card background first to ensure focus isn't in an input —
-      // this is the exact scenario that triggered the original bug (pressing
-      // '?' opened the shortcuts modal).
+      // Click the card background to defocus the input, then press global
+      // shortcut keys. None should fire.
       await frame.locator('text=Type the first letter of each blanked word:').click();
       await page.keyboard.press('?');
       await expect(frame.locator('text=Keyboard Shortcuts')).not.toBeVisible({ timeout: 1_000 });
@@ -402,27 +376,24 @@ test.describe('Practice — Simplified Vanishing Cloze mode', () => {
       await page.keyboard.press('t');
       expect(page.url()).toBe(urlBeforeG);
       await page.keyboard.press('Control+Enter');
-      // Check button should remain enabled (the global ⌘/Ctrl+Enter handler
-      // in the Vanishing Cloze / Recall modes does NOT run here).
-      const checkBtn = frame.locator('button:has-text("Check Answer")');
-      await expect(checkBtn).toBeEnabled();
+      // No check button to worry about — just verify no nav happened.
+      expect(page.url()).toBe(urlBeforeG);
     }
   });
 
-  test('typing a letter while focus is outside an input refocuses the first empty blank', async ({ page }) => {
+  test('typing a letter while focus is outside an input refocuses the first unresolved blank', async ({ page }) => {
     const frame = await openPractice(page);
     await selectMode(frame, 'Simplified Vanishing Cloze');
     const inputs = frame.locator('input[maxlength="1"]');
     if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
+      const initialCount = await inputs.count();
       // Click the prompt text (focus leaves the input), then type a letter
       // via page.keyboard. The capture-phase handler should refocus the
-      // first blank and route the keystroke there.
+      // first unresolved blank and route the keystroke there.
       await frame.locator('text=Type the first letter of each blanked word:').click();
       await page.keyboard.press('a');
-      // The first input should now contain the typed letter (or at least be
-      // focused and non-empty).
-      const firstInput = inputs.first();
-      await expect(firstInput).toHaveValue(/.+/);
+      // One blank should have been resolved (input count decreased by 1).
+      await expect(frame.locator('input[maxlength="1"]')).toHaveCount(initialCount - 1);
     }
   });
 });

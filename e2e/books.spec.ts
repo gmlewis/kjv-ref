@@ -281,4 +281,58 @@ test.describe('Books — chapter view', () => {
     const practiceBtn = frame.locator('button:has-text("Practice")');
     await expect(practiceBtn.first()).toBeVisible({ timeout: 5_000 });
   });
+
+  test('per-verse Practice button targets the whole highlighted range', async ({ page }) => {
+    // No bookmarks needed — the range is highlighted via the URL hash, so
+    // every verse in the range gets a "Practice range" button that links
+    // to the range reference (not the single verse).
+    const frame = await openApp(page, '/kjv-ref/books/John/3#v1-3');
+    await frame.locator('[class*="animate-spin"]').waitFor({ state: 'hidden', timeout: 15_000 }).catch(() => {});
+    await expect(frame.locator('text=John Chapter 3').first()).toBeVisible({ timeout: 10_000 });
+
+    // The per-verse Practice button on verse 1 should say "Practice range"
+    // and link to the range ref "John 3:1-3".
+    const rangePracticeLink = frame.locator('a[href*="John%203%3A1-3"]').first();
+    await expect(rangePracticeLink).toBeVisible({ timeout: 5_000 });
+    await expect(rangePracticeLink.locator('button:has-text("Practice range")')).toBeVisible();
+  });
+
+  test('clicking per-verse Practice on a highlighted range opens a multi-verse session', async ({ page }) => {
+    // Navigate to a verse range and click the per-verse "Practice range"
+    // button. The practice session should include ALL verses in the range
+    // (not just the one whose button was clicked).
+    const frame = await openApp(page, '/kjv-ref/books/John/3#v1-3');
+    await frame.locator('[class*="animate-spin"]').waitFor({ state: 'hidden', timeout: 15_000 }).catch(() => {});
+    await expect(frame.locator('text=John Chapter 3').first()).toBeVisible({ timeout: 10_000 });
+
+    // Click the first "Practice range" button (on verse 1).
+    await frame.locator('a[href*="John%203%3A1-3"]').first().click();
+
+    // Wait for the practice mode selector to appear.
+    await expect(frame.locator('text=Word Bank').first()).toBeVisible({ timeout: 10_000 });
+
+    // Pick any mode and verify the session covers all 3 verses.
+    await frame.locator('text=Multiple Choice').first().click();
+    await expect(frame.locator('text=Verse 1 of 3').first()).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('per-verse Practice button on a single-verse selection still targets just that verse', async ({ page }) => {
+    // When the URL hash selects a single verse (start === end), the
+    // per-verse Practice button should NOT say "range" and should link
+    // to the single verse ref.
+    const frame = await openApp(page, '/kjv-ref/books/John/3#v16');
+    await frame.locator('[class*="animate-spin"]').waitFor({ state: 'hidden', timeout: 15_000 }).catch(() => {});
+    await expect(frame.locator('text=John Chapter 3').first()).toBeVisible({ timeout: 10_000 });
+
+    // John 3:16 is a featured verse, so it has a Practice button — but it
+    // should say "Practice" (not "Practice range") and link to just v16.
+    const singleLink = frame.locator('a[href*="John%203%3A16"]').first();
+    // The href should end with "John%203%3A16" (not "John%203%3A16-...").
+    const href = await singleLink.getAttribute('href');
+    expect(href).toBeTruthy();
+    expect(href).toMatch(/John%203%3A16$/);
+    await expect(singleLink.locator('button:has-text("Practice")')).toBeVisible();
+    // No "Practice range" button should be present.
+    await expect(frame.locator('button:has-text("Practice range")')).toHaveCount(0);
+  });
 });

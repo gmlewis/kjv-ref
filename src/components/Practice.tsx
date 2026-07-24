@@ -319,9 +319,14 @@ function FirstLettersMode({ verse, onResult }: { verse: KJVVerse; onResult: (cor
 
 // ─── Simplified Vanishing Cloze Mode ─────────────────────────────────────────
 // Same progressive-blanking scheme as Vanishing Cloze, but the user only types
-// the FIRST LETTER of each blanked word into a small inline input. Pressing
-// '?' in any input reveals that word and marks it incorrect. Keyboard
-// shortcuts (⌘/Ctrl+Enter) are intentionally disabled in this mode.
+// the FIRST LETTER of each blanked word into a small inline input. The moment
+// a key is pressed, the input is replaced by a colored word pill:
+//   green  = correct first letter (shows the word)
+//   red    = wrong first letter (shows wrong letter → correct word)
+//   orange = revealed via '?' (shows just the word, marked incorrect)
+// There is NO "Check Answer" button — the result is recorded automatically
+// the instant the last blank is resolved. Keyboard shortcuts (⌘/Ctrl+Enter)
+// are intentionally disabled in this mode.
 function SimplifiedVanishingClozeMode({
   verse, timesRecited, customClozeLevel, seed, onResult, onLevelChange,
 }: {
@@ -340,26 +345,23 @@ function SimplifiedVanishingClozeMode({
   const mask = useMemo(() => getVanishingClozeMask(verse.text, level, seed), [verse, level, seed]);
   const blankIndices = useMemo(() => mask.map((b, i) => b ? i : -1).filter(i => i >= 0), [mask]);
 
-  // One-letter entry per blank. '' = empty, '?' = revealed (auto-incorrect).
+  // Per-blank state. A blank is "resolved" once the user has typed a letter
+  // or pressed '?'. Each entry stores the typed character (or '?').
+  // `results` is set immediately per-blank (no batch check).
   const [entries, setEntries] = useState<Record<number, string>>({});
-  const [checked, setChecked] = useState(false);
-  // Per-blank result after check: 'correct' | 'wrong' | 'revealed'
   const [results, setResults] = useState<Record<number, 'correct' | 'wrong' | 'revealed'>>({});
+  // True once onResult has been called (so we don't double-fire).
+  const [done, setDone] = useState(false);
 
-  // Refs for auto-advancing focus between inputs.
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Reset state when verse / level changes.
   useEffect(() => {
     setEntries({});
-    setChecked(false);
     setResults({});
+    setDone(false);
     inputRefs.current = [];
-    // Auto-focus the first blank input so keystrokes go to the input (not
-    // the window, where global shortcuts like '?' / '/' / 'g' / 't' would
-    // fire). Re-run when the verse/level changes so a fresh verse grabs
-    // focus immediately.
     const t = setTimeout(() => {
       const firstIdx = blankIndices[0];
       if (firstIdx != null) inputRefs.current[firstIdx]?.focus();
@@ -367,20 +369,10 @@ function SimplifiedVanishingClozeMode({
     return () => clearTimeout(t);
   }, [verse.reference, level, seed, blankIndices]);
 
-  // Disable global keyboard shortcuts while this mode is mounted.
-  // The user interacts purely via the inline single-letter inputs, but
-  // focus can drift to the card body (e.g. after clicking the prompt text),
-  // at which point global shortcut keys (?, /, g, t, Home, End, ⌘/Ctrl+Enter)
-  // defined in Navigation.tsx / KeyboardModals.tsx would fire on `window`.
-  // We intercept in the CAPTURE phase — before those bubble-phase handlers —
-  // and:
-  //   • If focus is inside one of our inputs: do nothing. The Navigation
-  //     handler already early-returns when the event target is an INPUT, so
-  //     there's nothing to suppress. (Calling preventDefault() here would
-  //     block legitimate typing — e.g. 't' and 'g' are real first letters.)
-  //   • If focus is NOT inside one of our inputs: swallow the keystroke so
-  //     no global shortcut fires, and refocus the first empty blank so the
-  //     keystroke isn't lost (single-char keys are forwarded to that input).
+  // Disable global keyboard shortcuts while this mode is mounted (capture
+  // phase). When focus is inside one of our inputs, the Navigation handler
+  // already early-returns on INPUT targets, so we do nothing. When focus is
+  // outside, we swallow the keystroke and refocus the first unresolved blank.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -388,10 +380,6 @@ function SimplifiedVanishingClozeMode({
         (target as HTMLElement).closest('[data-svc-mode]') != null;
       if (inOurInput) return;
 
-      // Focus is outside our inputs — swallow everything so global shortcuts
-      // (and ordinary typing) don't trigger nav / modals. For printable
-      // single-char keys + Backspace, refocus the first empty blank so the
-      // keystroke is forwarded into the input flow.
       const isPotentialShortcut =
         e.key === '?' || e.key === '/' ||
         e.key === 'g' || e.key === 't' ||
@@ -401,79 +389,71 @@ function SimplifiedVanishingClozeMode({
         e.preventDefault();
         e.stopPropagation();
         if (e.key.length === 1 || e.key === 'Backspace') {
-          const firstEmpty = blankIndices.find(i => !(entries[i] ?? '') && results[i] !== 'revealed');
-          const focusIdx = firstEmpty ?? blankIndices[0];
+          const firstUnresolved = blankIndices.find(i => !(i in results));
+          const focusIdx = firstUnresolved ?? blankIndices[0];
           if (focusIdx != null) inputRefs.current[focusIdx]?.focus();
         }
       }
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [blankIndices, entries, results]);
+  }, [blankIndices, results]);
 
-  const allFilled = blankIndices.every(i => (entries[i] ?? '').length > 0);
-
-  const handleEntry = (idx: number, raw: string) => {
-    if (checked) return;
-    // Take only the first character typed.
-    const ch = raw.length > 0 ? raw[raw.length - 1] : '';
+  // Resolve a single blank: record the entry + result, advance focus.
+  const resolveBlank = useCallback((idx: number, ch: string) => {
+    let res: 'correct' | 'wrong' | 'revealed';
+    if (ch === '?') {
+      res = 'revealed';
+    } else {
+      const expected = firstLetterOf(words[idx]).toLowerCase();
+      res = ch.toLowerCase() === expected ? 'correct' : 'wrong';
+    }
     setEntries(prev => ({ ...prev, [idx]: ch }));
-    // Auto-advance to next blank input.
+    setResults(prev => ({ ...prev, [idx]: res }));
+
+    // Advance focus to the next unresolved blank.
     const pos = blankIndices.indexOf(idx);
-    if (ch && pos >= 0 && pos < blankIndices.length - 1) {
-      const nextIdx = blankIndices[pos + 1];
+    const nextIdx = blankIndices.find((bi, biPos) => biPos > pos && !(bi in results) && bi !== idx);
+    if (nextIdx != null) {
       inputRefs.current[nextIdx]?.focus();
     }
+  }, [words, blankIndices, results]);
+
+  // Auto-complete: when the last blank is resolved, call onResult.
+  useEffect(() => {
+    if (done) return;
+    const resolvedCount = blankIndices.filter(i => i in results).length;
+    if (resolvedCount === blankIndices.length && blankIndices.length > 0) {
+      const allCorrect = blankIndices.every(i => results[i] === 'correct');
+      setDone(true);
+      onResult(allCorrect);
+    }
+  }, [results, blankIndices, done, onResult]);
+
+  const handleEntry = (idx: number, raw: string) => {
+    if (done || (idx in results)) return;
+    const ch = raw.length > 0 ? raw[raw.length - 1] : '';
+    if (!ch) return;
+    resolveBlank(idx, ch);
   };
 
   const handleKey = (idx: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (checked) return;
-    // '?' reveals the word for this blank and marks it incorrect.
+    if (done || (idx in results)) return;
     if (e.key === '?') {
       e.preventDefault();
-      setEntries(prev => ({ ...prev, [idx]: '?' }));
-      setResults(prev => ({ ...prev, [idx]: 'revealed' }));
-      const pos = blankIndices.indexOf(idx);
-      if (pos >= 0 && pos < blankIndices.length - 1) {
-        const nextIdx = blankIndices[pos + 1];
-        inputRefs.current[nextIdx]?.focus();
-      }
+      resolveBlank(idx, '?');
       return;
     }
-    // Backspace on empty input moves focus back to the previous blank.
-    if (e.key === 'Backspace' && (entries[idx] ?? '') === '') {
+    // Backspace on an already-resolved blank moves to the previous unresolved.
+    if (e.key === 'Backspace') {
       const pos = blankIndices.indexOf(idx);
-      if (pos > 0) {
+      const prevUnresolved = [...blankIndices].reverse().find(bi => blankIndices.indexOf(bi) < pos && !(bi in results));
+      if (prevUnresolved != null) {
         e.preventDefault();
-        const prevIdx = blankIndices[pos - 1];
-        inputRefs.current[prevIdx]?.focus();
+        inputRefs.current[prevUnresolved]?.focus();
       }
     }
   };
-
-  const handleCheck = useCallback(() => {
-    const nextResults: Record<number, 'correct' | 'wrong' | 'revealed'> = {};
-    let allCorrect = true;
-    for (const idx of blankIndices) {
-      const entry = entries[idx] ?? '';
-      if (entry === '?') {
-        nextResults[idx] = 'revealed';
-        allCorrect = false;
-        continue;
-      }
-      const expected = firstLetterOf(words[idx]).toLowerCase();
-      const got = entry.toLowerCase();
-      if (got && got === expected) {
-        nextResults[idx] = 'correct';
-      } else {
-        nextResults[idx] = 'wrong';
-        allCorrect = false;
-      }
-    }
-    setResults(nextResults);
-    setChecked(true);
-    onResult(allCorrect);
-  }, [entries, words, blankIndices, onResult]);
 
   // Level selector (shared UI with Vanishing Cloze).
   const LevelSelector = (
@@ -525,9 +505,9 @@ function SimplifiedVanishingClozeMode({
         </div>
         <p className="text-sm text-slate-500 dark:text-slate-300">Study this verse carefully. As you practice more, words will be hidden progressively.</p>
         <button
-          onClick={() => { setChecked(true); onResult(true); }}
+          onClick={() => { setDone(true); onResult(true); }}
           className="w-full btn-primary text-white py-4 rounded-xl font-bold text-lg shadow-lg"
-          disabled={checked}
+          disabled={done}
         >
           Got it! <CheckCircle className="inline w-5 h-5 ml-2" />
         </button>
@@ -542,7 +522,7 @@ function SimplifiedVanishingClozeMode({
       </div>
       {LevelSelector}
 
-      {/* Blanked verse with inline single-letter inputs */}
+      {/* Blanked verse with inline single-letter inputs / word pills */}
       <div className="verse-card rounded-xl p-5 bg-gradient-to-br from-teal-50 to-emerald-50">
         <p className="text-xs font-semibold text-slate-500 dark:text-slate-300 mb-3 uppercase tracking-wide">
           Type the first letter of each blanked word:
@@ -555,10 +535,8 @@ function SimplifiedVanishingClozeMode({
             const entry = entries[i] ?? '';
             const res = results[i];
 
-            // After Check, replace the single-letter input with a colored
-            // word pill: green = correct, red = wrong (shows the correct word
-            // and the wrong typed letter), orange = revealed.
-            if (checked) {
+            // Resolved blank → colored word pill.
+            if (i in results) {
               let pillClass = 'border-2 ';
               let content: React.ReactNode = word;
               let title = '';
@@ -574,14 +552,10 @@ function SimplifiedVanishingClozeMode({
                     <span className="line-through opacity-70">{entry || '—'}</span>{' '}→{' '}{word}
                   </span>
                 );
-              } else if (res === 'revealed') {
+              } else {
+                // revealed — just show the word, no "revealed" label.
                 pillClass += 'border-orange-400 bg-orange-100 text-orange-800 dark:bg-orange-900/60 dark:text-orange-200';
                 title = 'Revealed (marked incorrect)';
-                content = (
-                  <span>
-                    <span className="italic opacity-80">revealed</span>{' '}{word}
-                  </span>
-                );
               }
               return (
                 <span
@@ -594,7 +568,7 @@ function SimplifiedVanishingClozeMode({
               );
             }
 
-            // Pre-check: a single-letter input box.
+            // Unresolved blank → single-letter input box.
             const inputClass = 'border-2 border-teal-300 bg-teal-50 text-teal-700 focus:border-teal-600 focus:outline-none';
             return (
               <span key={i} className="inline-flex flex-col items-center">
@@ -612,38 +586,28 @@ function SimplifiedVanishingClozeMode({
             );
           })}
         </div>
-        {!checked && blankIndices.length > 0 && (
+        {!done && (
           <p className="text-xs text-teal-600 dark:text-teal-300 font-semibold mt-3">
             {blankIndices.length} word{blankIndices.length !== 1 ? 's' : ''} hidden · press <kbd className="kbd-key inline">?</kbd> to reveal a word (marked incorrect)
           </p>
         )}
       </div>
 
-      {!checked ? (
-        <button
-          onClick={handleCheck}
-          disabled={!allFilled}
-          className="w-full btn-primary text-white py-4 rounded-xl font-bold text-lg shadow-lg disabled:opacity-50"
-        >
-          Check Answer
-        </button>
-      ) : (
-        <>
-          <div className={`p-4 rounded-xl flex items-center gap-3 ${
-            blankIndices.every(i => results[i] === 'correct')
-              ? 'bg-green-50 border border-green-200 dark:bg-green-900/40 dark:border-green-700'
-              : 'bg-red-50 border border-red-200 dark:bg-red-900/40 dark:border-red-700'
-          }`}>
+      {done && (
+        <div className={`p-4 rounded-xl flex items-center gap-3 ${
+          blankIndices.every(i => results[i] === 'correct')
+            ? 'bg-green-50 border border-green-200 dark:bg-green-900/40 dark:border-green-700'
+            : 'bg-red-50 border border-red-200 dark:bg-red-900/40 dark:border-red-700'
+        }`}>
+          {blankIndices.every(i => results[i] === 'correct')
+            ? <CheckCircle className="w-7 h-7 text-green-500 dark:text-green-400" />
+            : <XCircle className="w-7 h-7 text-red-500 dark:text-red-400" />}
+          <p className="font-bold text-gray-800 dark:text-slate-100">
             {blankIndices.every(i => results[i] === 'correct')
-              ? <CheckCircle className="w-7 h-7 text-green-500 dark:text-green-400" />
-              : <XCircle className="w-7 h-7 text-red-500 dark:text-red-400" />}
-            <p className="font-bold text-gray-800 dark:text-slate-100">
-              {blankIndices.every(i => results[i] === 'correct')
-                ? 'Well done! All first letters correct.'
-                : 'Some letters were wrong or revealed — keep practicing!'}
-            </p>
-          </div>
-        </>
+              ? 'Well done! All first letters correct.'
+              : 'Some letters were wrong or revealed — keep practicing!'}
+          </p>
+        </div>
       )}
     </div>
   );
