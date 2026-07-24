@@ -18,7 +18,7 @@ import { extractKeywords, assessDifficulty } from '../utils/spacedRepetition';
 import {
   buildWordBank, checkWordBankAnswer,
   toFirstLetters,
-  getVanishingClozeLevel, applyVanishingCloze, getVanishingClozeAnswers, getVanishingClozeMask, firstLetterOf,
+  getVanishingClozeLevel, getVanishingClozeMask, firstLetterOf,
   diffWords, type DiffToken,
 } from '../utils/practiceHelpers';
 
@@ -43,27 +43,6 @@ function shuffleWithMathRandom<T>(arr: T[]): T[] {
   const result = [...arr];
   for (let i = result.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [result[i], result[j]] = [result[j], result[i]];
-  }
-  return result;
-}
-
-// Seeded shuffle — stable per seed. Used for Word Bank / Vanishing Cloze,
-// which need a deterministic order that stays the same while the user is
-// interacting with a given verse.
-function seededShuffle<T>(arr: T[], seed: number): T[] {
-  // Mix the seed so adjacent seeds land in different PRNG states
-  let s = (seed ^ 0x9e3779b9) >>> 0;
-  const rand = () => {
-    s = (s + 0x6d2b79f5) >>> 0;
-    let t = s;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-  const result = [...arr];
-  for (let i = result.length - 1; i > 0; i--) {
-    const j = Math.floor(rand() * (i + 1));
     [result[i], result[j]] = [result[j], result[i]];
   }
   return result;
@@ -114,8 +93,8 @@ function SessionSummary({
 }
 
 // ─── Word Bank Mode ───────────────────────────────────────────────────────────
-function WordBankMode({ verse, seed, onResult }: { verse: KJVVerse; seed: number; onResult: (correct: boolean) => void }) {
-  const bank = useMemo(() => buildWordBank(verse.text, seed), [verse, seed]);
+function WordBankMode({ verse, onResult }: { verse: KJVVerse; onResult: (correct: boolean) => void }) {
+  const bank = useMemo(() => buildWordBank(verse.text), [verse]);
   const [placed, setPlaced] = useState<string[]>([]);
   const [available, setAvailable] = useState<string[]>(bank);
   const [checked, setChecked] = useState(false);
@@ -328,12 +307,11 @@ function FirstLettersMode({ verse, onResult }: { verse: KJVVerse; onResult: (cor
 // the instant the last blank is resolved. Keyboard shortcuts (⌘/Ctrl+Enter)
 // are intentionally disabled in this mode.
 function SimplifiedVanishingClozeMode({
-  verse, timesRecited, customClozeLevel, seed, onResult, onLevelChange, onAdvance,
+  verse, timesRecited, customClozeLevel, onResult, onLevelChange, onAdvance,
 }: {
   verse: KJVVerse;
   timesRecited: number;
   customClozeLevel: 0 | 1 | 2 | 3 | 4 | null | undefined;
-  seed: number;
   onResult: (correct: boolean) => void;
   onLevelChange: (level: 0 | 1 | 2 | 3 | 4 | null) => void;
   onAdvance: () => void;
@@ -343,7 +321,7 @@ function SimplifiedVanishingClozeMode({
   const isOverride = customClozeLevel != null && customClozeLevel !== autoLevel;
 
   const words = useMemo(() => verse.text.split(' '), [verse]);
-  const mask = useMemo(() => getVanishingClozeMask(verse.text, level, seed), [verse, level, seed]);
+  const mask = useMemo(() => getVanishingClozeMask(verse.text, level), [verse, level]);
   const blankIndices = useMemo(() => mask.map((b, i) => b ? i : -1).filter(i => i >= 0), [mask]);
 
   // Per-blank state. A blank is "resolved" once the user has typed a letter
@@ -368,7 +346,7 @@ function SimplifiedVanishingClozeMode({
       if (firstIdx != null) inputRefs.current[firstIdx]?.focus();
     }, 0);
     return () => clearTimeout(t);
-  }, [verse.reference, level, seed, blankIndices]);
+  }, [verse.reference, level, blankIndices]);
 
   // Disable global keyboard shortcuts while this mode is mounted (capture
   // phase). When focus is inside one of our inputs, the Navigation handler
@@ -688,12 +666,11 @@ const CLOZE_LEVEL_BG = [
 ];
 
 function VanishingClozeMode({
-  verse, timesRecited, customClozeLevel, seed, onResult, onLevelChange,
+  verse, timesRecited, customClozeLevel, onResult, onLevelChange,
 }: {
   verse: KJVVerse;
   timesRecited: number;
   customClozeLevel: 0 | 1 | 2 | 3 | 4 | null | undefined;
-  seed: number;
   onResult: (correct: boolean) => void;
   onLevelChange: (level: 0 | 1 | 2 | 3 | 4 | null) => void;
 }) {
@@ -701,8 +678,18 @@ function VanishingClozeMode({
   // User override takes precedence; falls back to the auto-computed level.
   const level = (customClozeLevel ?? autoLevel) as 0 | 1 | 2 | 3 | 4;
   const isOverride = customClozeLevel != null && customClozeLevel !== autoLevel;
-  const blankedText = useMemo(() => applyVanishingCloze(verse.text, level, seed), [verse, level, seed]);
-  const missingWords = useMemo(() => getVanishingClozeAnswers(verse.text, level, seed), [verse, level, seed]);
+  // Compute the mask once (randomized via Math.random) and derive the blanked
+  // text + missing words from it so they always agree.
+  const mask = useMemo(() => getVanishingClozeMask(verse.text, level, 0), [verse, level]);
+  const blankedText = useMemo(() => {
+    if (level === 0) return verse.text;
+    const BLANK = '______';
+    return verse.text.split(' ').map((w, i) => mask[i] ? BLANK : w).join(' ');
+  }, [verse, level, mask]);
+  const missingWords = useMemo(() => {
+    const words = verse.text.split(' ');
+    return words.filter((_, i) => mask[i]);
+  }, [verse, mask]);
 
   const [userInput, setUserInput] = useState('');
   const [checked, setChecked] = useState(false);
@@ -892,9 +879,11 @@ function PracticeSession({
   const [results, setResults] = useState<{ verse: KJVVerse; correct: boolean; rating: PerformanceRating }[]>([]);
 
   const verse = verses[idx];
-  // Per-verse random seed used by Word Bank / Vanishing Cloze (which need a
-  // stable shuffle while the user is interacting with the same verse).
-  const seed = idx * 31 + 7;
+  // Word Bank / Vanishing Cloze use Math.random() internally (called in
+  // useMemo/useState initializers keyed by verse), so the shuffle / blank
+  // selection is different every session but stable while the user
+  // interacts with a given verse. The `seed` prop is now ignored by the
+  // helpers (kept for API compatibility) — no deterministic seed needed.
 
   // Pool of distractor verses for multiple-choice / reference modes.
   // When the session itself has fewer than 4 verses (e.g. practicing a single
@@ -1039,7 +1028,7 @@ function PracticeSession({
 
         {/* ── WORD BANK ── */}
         {mode === 'word-bank' && (
-          <WordBankMode key={idx} verse={verse} seed={seed} onResult={(correct) => { setRevealed(true); setTotal(t => t + 1); if (correct) setScore(s => s + 1); setResults(r => [...r, { verse, correct, rating: correct ? 'excellent' : 'poor' }]); }} />
+          <WordBankMode key={idx} verse={verse} onResult={(correct) => { setRevealed(true); setTotal(t => t + 1); if (correct) setScore(s => s + 1); setResults(r => [...r, { verse, correct, rating: correct ? 'excellent' : 'poor' }]); }} />
         )}
 
         {/* ── FIRST LETTERS ── */}
@@ -1054,7 +1043,6 @@ function PracticeSession({
             verse={verse}
             timesRecited={timesRecited}
             customClozeLevel={progressMap.get(verse.reference)?.customClozeLevel ?? null}
-            seed={seed}
             onLevelChange={(lvl) => onSetClozeLevel(verse.reference, lvl)}
             onResult={(correct) => { setRevealed(true); setTotal(t => t + 1); if (correct) setScore(s => s + 1); setResults(r => [...r, { verse, correct, rating: correct ? 'excellent' : 'poor' }]); }}
             onAdvance={advance}
@@ -1068,7 +1056,6 @@ function PracticeSession({
             verse={verse}
             timesRecited={timesRecited}
             customClozeLevel={progressMap.get(verse.reference)?.customClozeLevel ?? null}
-            seed={seed}
             onLevelChange={(lvl) => onSetClozeLevel(verse.reference, lvl)}
             onResult={(correct) => { setRevealed(true); setTotal(t => t + 1); if (correct) setScore(s => s + 1); setResults(r => [...r, { verse, correct, rating: correct ? 'excellent' : 'poor' }]); }}
           />

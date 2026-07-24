@@ -123,16 +123,16 @@ describe('Vanishing Cloze level override', () => {
 
   it('an override to level 4 fully blanks all words regardless of timesRecited', () => {
     const text = 'The LORD is my shepherd; I shall not want.';
-    const blanked = applyVanishingCloze(text, 4, 7);
+    const blanked = applyVanishingCloze(text, 4);
     expect(blanked.split(' ').every(w => w.includes('___'))).toBe(true);
-    expect(getVanishingClozeAnswers(text, 4, 7)).toHaveLength(text.split(' ').length);
+    expect(getVanishingClozeAnswers(text, 4)).toHaveLength(text.split(' ').length);
   });
 
   it('an override to level 0 shows the full verse even when timesRecited is high', () => {
     const text = 'The LORD is my shepherd; I shall not want.';
-    const blanked = applyVanishingCloze(text, 0, 7);
+    const blanked = applyVanishingCloze(text, 0);
     expect(blanked).toBe(text);
-    expect(getVanishingClozeAnswers(text, 0, 7)).toEqual([]);
+    expect(getVanishingClozeAnswers(text, 0)).toEqual([]);
   });
 
   it('override precedence: customClozeLevel ?? autoLevel resolves correctly', () => {
@@ -152,36 +152,33 @@ describe('getVanishingClozeMask', () => {
   const text = 'For God so loved the world that he gave his only begotten Son';
 
   it('level 0 returns all-false mask', () => {
-    const mask = getVanishingClozeMask(text, 0, 1);
+    const mask = getVanishingClozeMask(text, 0);
     expect(mask.every(b => b === false)).toBe(true);
     expect(mask).toHaveLength(text.split(' ').length);
   });
 
   it('level 4 returns all-true mask', () => {
-    const mask = getVanishingClozeMask(text, 4, 1);
+    const mask = getVanishingClozeMask(text, 4);
     expect(mask.every(b => b === true)).toBe(true);
   });
 
-  it('mask count matches applyVanishingCloze blank count', () => {
+  it('mask blank count matches the expected fraction for each level', () => {
+    const words = text.split(' ');
     for (const lvl of [1, 2, 3] as const) {
-      const mask = getVanishingClozeMask(text, lvl, 7);
-      const blanked = applyVanishingCloze(text, lvl, 7).split(' ');
+      const mask = getVanishingClozeMask(text, lvl);
       const maskCount = mask.filter(Boolean).length;
-      const blankCount = blanked.filter(w => w === '______').length;
-      expect(maskCount).toBe(blankCount);
+      const fractions = { 1: 0.25, 2: 0.5, 3: 0.75 } as const;
+      const expected = Math.max(1, Math.round(words.length * fractions[lvl]));
+      expect(maskCount).toBe(expected);
     }
   });
 
-  it('mask indices match getVanishingClozeAnswers selection', () => {
-    const mask = getVanishingClozeMask(text, 2, 7);
-    const words = text.split(' ');
-    const expectedBlanks = new Set(getVanishingClozeAnswers(text, 2, 7));
-    const maskBlanks = new Set(words.filter((_, i) => mask[i]));
-    expect(maskBlanks).toEqual(expectedBlanks);
-  });
-
-  it('is deterministic — same text+level+seed gives same mask', () => {
-    expect(getVanishingClozeMask(text, 2, 7)).toEqual(getVanishingClozeMask(text, 2, 7));
+  it('is non-deterministic — different calls usually produce different masks', () => {
+    const masks = new Set<string>();
+    for (let i = 0; i < 20; i++) {
+      masks.add(getVanishingClozeMask(text, 2).join(','));
+    }
+    expect(masks.size).toBeGreaterThan(1);
   });
 });
 

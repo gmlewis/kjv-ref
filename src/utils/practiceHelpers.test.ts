@@ -13,32 +13,26 @@ describe('buildWordBank', () => {
   const text = 'For God so loved the world';
 
   it('returns same tokens as the verse words', () => {
-    const bank = buildWordBank(text, 1);
+    const bank = buildWordBank(text);
     expect(bank.slice().sort()).toEqual(text.split(' ').sort());
   });
 
-  it('is stable — same seed produces same order', () => {
-    expect(buildWordBank(text, 42)).toEqual(buildWordBank(text, 42));
-  });
-
-  it('different seeds produce different orders (usually)', () => {
-    const a = buildWordBank('In the beginning God created the heaven', 1);
-    const b = buildWordBank('In the beginning God created the heaven', 999);
-    // At least one position differs (extremely unlikely to collide for 7 words)
-    expect(a.join(' ')).not.toBe('In the beginning God created the heaven'); // shuffled
-    // Both seeds should be different from each other in practice; just verify same-seed stability
-    expect(buildWordBank('In the beginning God created the heaven', 1))
-      .toEqual(buildWordBank('In the beginning God created the heaven', 1));
+  it('shuffles the order (non-deterministic via Math.random)', () => {
+    // The bank should be a permutation of the original words, but almost
+    // never in the original order (extremely unlikely for 6 words).
+    const bank = buildWordBank('In the beginning God created the heaven');
+    expect(bank.slice().sort()).toEqual(['In', 'the', 'beginning', 'God', 'created', 'the', 'heaven'].sort());
+    expect(bank.join(' ')).not.toBe('In the beginning God created the heaven');
   });
 
   it('preserves punctuation attached to words', () => {
-    const bank = buildWordBank('God, so loved the world.', 1);
+    const bank = buildWordBank('God, so loved the world.');
     expect(bank).toContain('God,');
     expect(bank).toContain('world.');
   });
 
   it('handles single-word text', () => {
-    expect(buildWordBank('Amen', 1)).toEqual(['Amen']);
+    expect(buildWordBank('Amen')).toEqual(['Amen']);
   });
 });
 
@@ -128,11 +122,11 @@ describe('applyVanishingCloze', () => {
   const text = 'For God so loved the world that he gave his only begotten Son';
 
   it('level 0 returns full text unchanged', () => {
-    expect(applyVanishingCloze(text, 0, 1)).toBe(text);
+    expect(applyVanishingCloze(text, 0)).toBe(text);
   });
 
   it('level 4 blanks all words', () => {
-    const result = applyVanishingCloze(text, 4, 1);
+    const result = applyVanishingCloze(text, 4);
     expect(result).not.toContain('God');
     expect(result).not.toContain('world');
     // All tokens replaced with blanks
@@ -143,8 +137,7 @@ describe('applyVanishingCloze', () => {
   });
 
   it('level 1 blanks approximately 25% of words', () => {
-    const words = text.split(' ');
-    const result = applyVanishingCloze(text, 1, 1);
+    const result = applyVanishingCloze(text, 1);
     const blankedCount = result.split(' ').filter(w => w === '______').length;
     // 25% of 13 words ≈ 3 words blanked (allow ±1)
     expect(blankedCount).toBeGreaterThanOrEqual(2);
@@ -152,12 +145,19 @@ describe('applyVanishingCloze', () => {
   });
 
   it('level 2 blanks more than level 1', () => {
-    const level1Blanks = applyVanishingCloze(text, 1, 1).split(' ').filter(w => w === '______').length;
-    const level2Blanks = applyVanishingCloze(text, 2, 1).split(' ').filter(w => w === '______').length;
+    const level1Blanks = applyVanishingCloze(text, 1).split(' ').filter(w => w === '______').length;
+    const level2Blanks = applyVanishingCloze(text, 2).split(' ').filter(w => w === '______').length;
     expect(level2Blanks).toBeGreaterThan(level1Blanks);
   });
 
-  it('is deterministic — same text+level+seed always gives same result', () => {
-    expect(applyVanishingCloze(text, 2, 7)).toBe(applyVanishingCloze(text, 2, 7));
+  it('is non-deterministic — different calls usually produce different blank selections', () => {
+    // With Math.random(), two calls should almost never produce the same
+    // blank set for 13 words at level 2 (6 blanks out of 13).
+    const results = new Set<string>();
+    for (let i = 0; i < 20; i++) {
+      results.add(applyVanishingCloze(text, 2));
+    }
+    // We should see at least 2 different selections in 20 draws.
+    expect(results.size).toBeGreaterThan(1);
   });
 });

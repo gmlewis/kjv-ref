@@ -1,19 +1,19 @@
 // ── Word Bank ──────────────────────────────────────────────────────────────────
 
-/** Seeded shuffle — same seed always returns same order */
-function seededShuffle<T>(arr: T[], seed: number): T[] {
+/** Fisher–Yates shuffle using Math.random() — non-deterministic. */
+function shuffle<T>(arr: T[]): T[] {
   const result = [...arr];
   for (let i = result.length - 1; i > 0; i--) {
-    const j = Math.floor(((seed * (i + 1) * 2654435761) >>> 0) % (i + 1));
+    const j = Math.floor(Math.random() * (i + 1));
     [result[i], result[j]] = [result[j], result[i]];
   }
   return result;
 }
 
-/** Split verse text into word tokens and seeded-shuffle them */
-export function buildWordBank(text: string, seed: number): string[] {
+/** Split verse text into word tokens and shuffle them (non-deterministic). */
+export function buildWordBank(text: string, _seed?: number): string[] {
   const tokens = text.split(' ').filter(t => t.length > 0);
-  return seededShuffle(tokens, seed);
+  return shuffle(tokens);
 }
 
 function normalise(text: string): string {
@@ -67,10 +67,25 @@ export function getVanishingClozeLevel(timesRecited: number): 0 | 1 | 2 | 3 | 4 
 const BLANK = '______';
 
 /**
- * Replace a fraction of words with blanks based on cloze level.
- * Deterministic: same text+level+seed always gives same result.
+ * Randomly pick `count` distinct indices from [0, wordCount) using
+ * Math.random(). Used by all vanishing-cloze helpers so they stay in sync
+ * with a single random draw per call.
  */
-export function applyVanishingCloze(text: string, level: 0 | 1 | 2 | 3 | 4, seed: number): string {
+function pickBlankIndices(wordCount: number, blankCount: number): Set<number> {
+  const all = Array.from({ length: wordCount }, (_, i) => i);
+  // Fisher–Yates partial shuffle — pick the first `blankCount` elements.
+  for (let i = wordCount - 1; i > 0 && i >= wordCount - blankCount; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [all[i], all[j]] = [all[j], all[i]];
+  }
+  return new Set(all.slice(wordCount - blankCount));
+}
+
+/**
+ * Replace a fraction of words with blanks based on cloze level.
+ * Non-deterministic: which words are blanked is randomized each call.
+ */
+export function applyVanishingCloze(text: string, level: 0 | 1 | 2 | 3 | 4, _seed?: number): string {
   if (level === 0) return text;
   const words = text.split(' ');
   if (level === 4) return words.map(() => BLANK).join(' ');
@@ -79,19 +94,12 @@ export function applyVanishingCloze(text: string, level: 0 | 1 | 2 | 3 | 4, seed
   const fraction = fractions[level as 1 | 2 | 3];
   const blankCount = Math.max(1, Math.round(words.length * fraction));
 
-  // Deterministically pick which indices to blank using seeded selection
-  const indices = new Set<number>();
-  let s = seed;
-  while (indices.size < blankCount) {
-    s = (s * 1664525 + 1013904223) >>> 0; // LCG
-    indices.add(s % words.length);
-  }
-
+  const indices = pickBlankIndices(words.length, blankCount);
   return words.map((w, i) => (indices.has(i) ? BLANK : w)).join(' ');
 }
 
 /** The missing words (in order of appearance) for a vanishing cloze */
-export function getVanishingClozeAnswers(text: string, level: 0 | 1 | 2 | 3 | 4, seed: number): string[] {
+export function getVanishingClozeAnswers(text: string, level: 0 | 1 | 2 | 3 | 4, _seed?: number): string[] {
   if (level === 0) return [];
   const words = text.split(' ');
   if (level === 4) return [...words];
@@ -100,22 +108,16 @@ export function getVanishingClozeAnswers(text: string, level: 0 | 1 | 2 | 3 | 4,
   const fraction = fractions[level as 1 | 2 | 3];
   const blankCount = Math.max(1, Math.round(words.length * fraction));
 
-  const indices = new Set<number>();
-  let s = seed;
-  while (indices.size < blankCount) {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    indices.add(s % words.length);
-  }
-
+  const indices = pickBlankIndices(words.length, blankCount);
   return words.filter((_, i) => indices.has(i));
 }
 
 /**
  * Return a boolean array marking which word indices are blanked for the
- * given vanishing cloze level + seed. Same selection logic as
- * applyVanishingCloze / getVanishingClozeAnswers so all three stay in sync.
+ * given vanishing cloze level. Same selection logic as applyVanishingCloze /
+ * getVanishingClozeAnswers so all three stay in sync.
  */
-export function getVanishingClozeMask(text: string, level: 0 | 1 | 2 | 3 | 4, seed: number): boolean[] {
+export function getVanishingClozeMask(text: string, level: 0 | 1 | 2 | 3 | 4, _seed?: number): boolean[] {
   const words = text.split(' ');
   if (level === 0) return words.map(() => false);
   if (level === 4) return words.map(() => true);
@@ -124,13 +126,7 @@ export function getVanishingClozeMask(text: string, level: 0 | 1 | 2 | 3 | 4, se
   const fraction = fractions[level as 1 | 2 | 3];
   const blankCount = Math.max(1, Math.round(words.length * fraction));
 
-  const indices = new Set<number>();
-  let s = seed;
-  while (indices.size < blankCount) {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    indices.add(s % words.length);
-  }
-
+  const indices = pickBlankIndices(words.length, blankCount);
   return words.map((_, i) => indices.has(i));
 }
 

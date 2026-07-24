@@ -2,9 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   getVanishingClozeLevel,
   getVanishingClozeMask,
-  getVanishingClozeAnswers,
   firstLetterOf,
-  applyVanishingCloze,
 } from '../utils/practiceHelpers';
 
 // The Simplified Vanishing Cloze mode (see Practice.tsx) uses these helpers
@@ -84,29 +82,28 @@ describe('Simplified Vanishing Cloze — level progression mirrors Vanishing Clo
   });
 
   it('level 0 produces an empty blank mask (study card)', () => {
-    const mask = getVanishingClozeMask('In the beginning God created', 0, 1);
+    const mask = getVanishingClozeMask('In the beginning God created', 0);
     expect(mask.every(b => !b)).toBe(true);
   });
 
-  it('mask is consistent with applyVanishingCloze output', () => {
+  it('mask blank count matches the expected fraction', () => {
     const text = 'For God so loved the world that whosoever believeth in him';
+    const words = text.split(' ');
     for (const lvl of [1, 2, 3] as const) {
-      const mask = getVanishingClozeMask(text, lvl, 42);
-      const blanked = applyVanishingCloze(text, lvl, 42).split(' ');
-      mask.forEach((b, i) => {
-        if (b) expect(blanked[i]).toBe('______');
-        else expect(blanked[i]).not.toBe('______');
-      });
+      const mask = getVanishingClozeMask(text, lvl);
+      const fractions = { 1: 0.25, 2: 0.5, 3: 0.75 } as const;
+      const expected = Math.max(1, Math.round(words.length * fractions[lvl]));
+      expect(mask.filter(Boolean).length).toBe(expected);
     }
   });
 
-  it('masked words are exactly the answers returned by getVanishingClozeAnswers', () => {
+  it('mask is non-deterministic — different calls usually differ', () => {
     const text = 'For God so loved the world that whosoever believeth in him';
-    const mask = getVanishingClozeMask(text, 2, 42);
-    const words = text.split(' ');
-    const maskedWords = words.filter((_, i) => mask[i]);
-    const answers = getVanishingClozeAnswers(text, 2, 42);
-    expect(maskedWords).toEqual(answers);
+    const masks = new Set<string>();
+    for (let i = 0; i < 20; i++) {
+      masks.add(getVanishingClozeMask(text, 2).join(','));
+    }
+    expect(masks.size).toBeGreaterThan(1);
   });
 });
 
