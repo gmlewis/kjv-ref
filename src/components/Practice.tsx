@@ -1171,7 +1171,7 @@ function PracticeSession({
               onClick={advance}
               className="flex-[2] bg-gradient-to-r from-indigo-500 to-purple-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2"
             >
-              {idx + 1 >= verses.length ? <><Trophy className="w-5 h-5" /> Finish Session</> : <>Next Verse <ChevronRight className="w-5 h-5" /></>}
+              {idx + 1 >= verses.length ? <><Trophy className="w-5 h-5" /> Finish Session</> : <>Next Verse <ChevronRight className="w-5 h-5" />{mode === 'simplified-vanishing-cloze' && <span className="ml-2 text-xs font-normal opacity-80"><kbd className="kbd-key inline">⌘</kbd>{' '}<kbd className="kbd-key inline">→</kbd></span>}</>}
             </button>
           </div>
         )}
