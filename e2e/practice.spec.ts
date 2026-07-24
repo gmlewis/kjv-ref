@@ -396,6 +396,88 @@ test.describe('Practice — Simplified Vanishing Cloze mode', () => {
       await expect(frame.locator('input[maxlength="1"]')).toHaveCount(initialCount - 1);
     }
   });
+
+  test('ArrowRight/ArrowLeft move focus between blank input boxes with wraparound', async ({ page }) => {
+    const frame = await openPractice(page);
+    await selectMode(frame, 'Simplified Vanishing Cloze');
+    const inputs = frame.locator('input[maxlength="1"]');
+    if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
+      const n = await inputs.count();
+      expect(n).toBeGreaterThanOrEqual(2);
+      // Focus the first input, press ArrowRight → second input should be focused.
+      await inputs.nth(0).focus();
+      await inputs.nth(0).press('ArrowRight');
+      await expect(inputs.nth(1)).toBeFocused();
+      // Press ArrowRight again → wraps around to the first input.
+      await inputs.nth(1).press('ArrowRight');
+      await expect(inputs.nth(0)).toBeFocused();
+      // Press ArrowLeft → wraps back to the last input.
+      await inputs.nth(0).press('ArrowLeft');
+      await expect(inputs.nth(n - 1)).toBeFocused();
+      // Press ArrowLeft again → second-to-last input.
+      if (n >= 3) {
+        await inputs.nth(n - 1).press('ArrowLeft');
+        await expect(inputs.nth(n - 2)).toBeFocused();
+      }
+    }
+  });
+
+  test('ArrowRight skips resolved blanks and lands on the next unresolved one', async ({ page }) => {
+    const frame = await openPractice(page);
+    await selectMode(frame, 'Simplified Vanishing Cloze');
+    const inputs = frame.locator('input[maxlength="1"]');
+    if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
+      const n = await inputs.count();
+      expect(n).toBeGreaterThanOrEqual(3);
+      // Resolve the first blank (it becomes a pill, no longer an input).
+      await inputs.nth(0).focus();
+      await inputs.nth(0).press('a');
+      // Now the remaining inputs shift. Focus the new first input and press
+      // ArrowLeft — it should skip over the resolved pill and wrap to the
+      // last unresolved blank.
+      await frame.locator('input[maxlength="1"]').first().focus();
+      await frame.locator('input[maxlength="1"]').first().press('ArrowLeft');
+      await expect(frame.locator('input[maxlength="1"]').last()).toBeFocused();
+    }
+  });
+
+  test('Cmd+RightArrow advances to the next verse after completion', async ({ page }) => {
+    const frame = await openPractice(page);
+    await selectMode(frame, 'Simplified Vanishing Cloze');
+    const inputs = frame.locator('input[maxlength="1"]');
+    if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
+      // Resolve all blanks to trigger auto-complete.
+      let n = await inputs.count();
+      while (n > 0) {
+        await frame.locator('input[maxlength="1"]').first().focus();
+        await frame.locator('input[maxlength="1"]').first().press('a');
+        n = await frame.locator('input[maxlength="1"]').count();
+      }
+      // Wait for the feedback + Next Verse button to appear.
+      await expect(frame.locator('button:has-text("Next Verse"), button:has-text("Finish Session")').first()).toBeVisible({ timeout: 5_000 });
+
+      // Now press Cmd/Ctrl+RightArrow — should advance to the next verse
+      // (or finish the session). We should leave the "done" state.
+      const verseTextBefore = await frame.locator('text=Verse').first().textContent();
+      await page.keyboard.press('Control+ArrowRight');
+      // The verse counter should change (or session complete should appear).
+      await expect(frame.locator('text=Verse 2 of').or(frame.locator('text=Session Complete!')).first()).toBeVisible({ timeout: 5_000 });
+    }
+  });
+
+  test('Cmd+RightArrow does NOT advance before the verse is completed', async ({ page }) => {
+    const frame = await openPractice(page);
+    await selectMode(frame, 'Simplified Vanishing Cloze');
+    const inputs = frame.locator('input[maxlength="1"]');
+    if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
+      // Press Cmd/Ctrl+RightArrow before resolving any blanks.
+      const urlBefore = page.url();
+      await page.keyboard.press('Control+ArrowRight');
+      // Should still be on verse 1 — no advance happened.
+      await expect(frame.locator('text=Verse 1 of').first()).toBeVisible({ timeout: 2_000 });
+      expect(page.url()).toBe(urlBefore);
+    }
+  });
 });
 
 // ─── Vanishing Cloze Mode ─────────────────────────────────────────────────────

@@ -328,7 +328,7 @@ function FirstLettersMode({ verse, onResult }: { verse: KJVVerse; onResult: (cor
 // the instant the last blank is resolved. Keyboard shortcuts (⌘/Ctrl+Enter)
 // are intentionally disabled in this mode.
 function SimplifiedVanishingClozeMode({
-  verse, timesRecited, customClozeLevel, seed, onResult, onLevelChange,
+  verse, timesRecited, customClozeLevel, seed, onResult, onLevelChange, onAdvance,
 }: {
   verse: KJVVerse;
   timesRecited: number;
@@ -336,6 +336,7 @@ function SimplifiedVanishingClozeMode({
   seed: number;
   onResult: (correct: boolean) => void;
   onLevelChange: (level: 0 | 1 | 2 | 3 | 4 | null) => void;
+  onAdvance: () => void;
 }) {
   const autoLevel = getVanishingClozeLevel(timesRecited) as 0 | 1 | 2 | 3 | 4;
   const level = (customClozeLevel ?? autoLevel) as 0 | 1 | 2 | 3 | 4;
@@ -373,8 +374,22 @@ function SimplifiedVanishingClozeMode({
   // phase). When focus is inside one of our inputs, the Navigation handler
   // already early-returns on INPUT targets, so we do nothing. When focus is
   // outside, we swallow the keystroke and refocus the first unresolved blank.
+  // Exception: Cmd/Ctrl+RightArrow is allowed through to our React handler
+  // for "Next Verse" when done.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Cmd/Ctrl+RightArrow advances to the next verse once done, regardless
+      // of where focus is. Stop propagation so the Books.tsx chapter-nav
+      // handler doesn't also fire.
+      if ((e.metaKey || e.ctrlKey) && e.key === 'ArrowRight') {
+        e.stopPropagation();
+        if (done) {
+          e.preventDefault();
+          onAdvance();
+        }
+        return;
+      }
+
       const target = e.target as HTMLElement | null;
       const inOurInput = !!target && target.tagName === 'INPUT' &&
         (target as HTMLElement).closest('[data-svc-mode]') != null;
@@ -397,7 +412,7 @@ function SimplifiedVanishingClozeMode({
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [blankIndices, results]);
+  }, [blankIndices, results, done, onAdvance]);
 
   // Resolve a single blank: record the entry + result, advance focus.
   const resolveBlank = useCallback((idx: number, ch: string) => {
@@ -438,12 +453,53 @@ function SimplifiedVanishingClozeMode({
   };
 
   const handleKey = (idx: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (done || (idx in results)) return;
+    // Cmd/Ctrl+RightArrow advances to the next verse once done.
+    if ((e.metaKey || e.ctrlKey) && e.key === 'ArrowRight') {
+      if (done) {
+        e.preventDefault();
+        onAdvance();
+      }
+      return;
+    }
+
+    if (done || (idx in results)) {
+      // After done, allow ArrowRight/ArrowLeft for focus navigation among
+      // pills (no-op visually, but prevents default scrolling).
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') return;
+      return;
+    }
+
     if (e.key === '?') {
       e.preventDefault();
       resolveBlank(idx, '?');
       return;
     }
+
+    // ArrowRight / ArrowLeft move focus between blank input boxes with
+    // wraparound. Only applies to unresolved blanks (resolved ones are
+    // replaced by pills, so they're not focusable inputs).
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      const pos = blankIndices.indexOf(idx);
+      // Find the next unresolved blank after this one, wrapping around.
+      let nextPos = (pos + 1) % blankIndices.length;
+      while (nextPos !== pos && blankIndices[nextPos] in results) {
+        nextPos = (nextPos + 1) % blankIndices.length;
+      }
+      inputRefs.current[blankIndices[nextPos]]?.focus();
+      return;
+    }
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const pos = blankIndices.indexOf(idx);
+      let prevPos = (pos - 1 + blankIndices.length) % blankIndices.length;
+      while (prevPos !== pos && blankIndices[prevPos] in results) {
+        prevPos = (prevPos - 1 + blankIndices.length) % blankIndices.length;
+      }
+      inputRefs.current[blankIndices[prevPos]]?.focus();
+      return;
+    }
+
     // Backspace on an already-resolved blank moves to the previous unresolved.
     if (e.key === 'Backspace') {
       const pos = blankIndices.indexOf(idx);
@@ -1001,6 +1057,7 @@ function PracticeSession({
             seed={seed}
             onLevelChange={(lvl) => onSetClozeLevel(verse.reference, lvl)}
             onResult={(correct) => { setRevealed(true); setTotal(t => t + 1); if (correct) setScore(s => s + 1); setResults(r => [...r, { verse, correct, rating: correct ? 'excellent' : 'poor' }]); }}
+            onAdvance={advance}
           />
         )}
 
