@@ -356,20 +356,67 @@ function SimplifiedVanishingClozeMode({
     setChecked(false);
     setResults({});
     inputRefs.current = [];
-  }, [verse.reference, level, seed]);
+    // Auto-focus the first blank input so keystrokes go to the input (not
+    // the window, where global shortcuts like '?' / '/' / 'g' / 't' would
+    // fire). Re-run when the verse/level changes so a fresh verse grabs
+    // focus immediately.
+    const t = setTimeout(() => {
+      const firstIdx = blankIndices[0];
+      if (firstIdx != null) inputRefs.current[firstIdx]?.focus();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [verse.reference, level, seed, blankIndices]);
 
-  // Disable global keyboard shortcuts (e.g. ⌘/Ctrl+Enter) while this mode is
-  // mounted. The user interacts purely via the inline single-letter inputs.
+  // Disable ALL global keyboard shortcuts while this mode is mounted.
+  // The user interacts purely via the inline single-letter inputs, so any
+  // keypress that isn't on an input must be swallowed (otherwise '?',
+  // '/', 'g', 't', 'Home', 'End', ⌘/Ctrl+Enter, etc. would trigger nav
+  // actions / open the shortcuts modal). Capture phase lets us intercept
+  // before the bubble-phase handlers in Navigation.tsx / KeyboardModals.tsx.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      // If focus is inside one of our inputs, let its React onKeyDown handle
+      // it normally — but still swallow the global shortcut keys so they
+      // don't double-fire (e.g. '?' would both reveal the word AND open the
+      // shortcuts modal).
+      const target = e.target as HTMLElement | null;
+      const inOurInput = !!target && target.tagName === 'INPUT' &&
+        (target as HTMLElement).closest('[data-svc-mode]') != null;
+
+      // Global shortcut keys defined in Navigation.tsx + KeyboardModals.tsx:
+      // '?', '/', 'g', 't', Home, End, and ⌘/Ctrl+Enter / ⌘/Ctrl+K.
+      // We always suppress these in this mode. For all other keys we only
+      // suppress when the event target is NOT one of our inputs (so normal
+      // typing inside an input still works).
+      const isShortcutKey =
+        e.key === '?' || e.key === '/' ||
+        e.key === 'g' || e.key === 't' ||
+        e.key === 'Home' || e.key === 'End' ||
+        ((e.metaKey || e.ctrlKey) && (e.key === 'Enter' || e.key === 'k'));
+
+      if (isShortcutKey) {
         e.preventDefault();
         e.stopPropagation();
+        return;
+      }
+      if (!inOurInput) {
+        // Swallow every other key too, so e.g. pressing 'a' while focus is on
+        // the card body doesn't accidentally trigger anything and we keep the
+        // user "trapped" in the input flow. We do NOT preventDefault for
+        // modifier-only / navigation keys that the browser needs.
+        if (e.key.length === 1 || e.key === 'Backspace') {
+          e.preventDefault();
+          e.stopPropagation();
+          // Refocus the first empty blank so the keystroke isn't lost.
+          const firstEmpty = blankIndices.find(i => !(entries[i] ?? '') && results[i] !== 'revealed');
+          const focusIdx = firstEmpty ?? blankIndices[0];
+          if (focusIdx != null) inputRefs.current[focusIdx]?.focus();
+        }
       }
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, []);
+  }, [blankIndices, entries, results]);
 
   const allFilled = blankIndices.every(i => (entries[i] ?? '').length > 0);
 
@@ -496,7 +543,7 @@ function SimplifiedVanishingClozeMode({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-svc-mode>
       <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-bold ${CLOZE_LEVEL_BG[level]} ${CLOZE_LEVEL_COLORS[level]}`}>
         <Hash className="w-3 h-3" /> Level {level} — {CLOZE_LEVEL_LABELS[level]}{isOverride ? ' (override)' : ''}
       </div>
@@ -1474,7 +1521,8 @@ function Practice() {
                 <h1 className="text-3xl font-bold gradient-text">
                   {mode === 'reference' && targetReference
                     ? 'Practice: Reference Match'
-                    : targetReference ? `Practice: ${targetReference}` : 'Practice Mode'}
+                    : targetReference ? `Practice: ${targetReference}`
+                    : mode ? MODE_INFO[mode].label : 'Practice Mode'}
                 </h1>
                 <p className="text-gray-500">{mode ? MODE_INFO[mode].description : 'Choose your practice style'}</p>
               </div>

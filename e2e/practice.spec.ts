@@ -304,22 +304,49 @@ test.describe('Practice — Simplified Vanishing Cloze mode', () => {
     }
   });
 
-  test('no Cmd/Ctrl+Enter keyboard shortcut is wired (Check requires button click)', async ({ page }) => {
+  test('global keyboard shortcuts are disabled in this mode (no shortcuts modal, no nav)', async ({ page }) => {
     const frame = await openPractice(page);
     await selectMode(frame, 'Simplified Vanishing Cloze');
     const inputs = frame.locator('input[maxlength="1"]');
     if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
-      const n = await inputs.count();
-      for (let i = 0; i < n; i++) {
-        await inputs.nth(i).focus();
-        await inputs.nth(i).press('a');
-      }
+      // Press the global shortcut keys defined in Navigation.tsx /
+      // KeyboardModals.tsx. None of them should fire while this mode is
+      // active: no shortcuts modal, no search modal, no theme toggle, no nav.
+      // We click the card background first to ensure focus isn't in an input —
+      // this is the exact scenario that triggered the original bug (pressing
+      // '?' opened the shortcuts modal).
+      await frame.locator('text=Type the first letter of each blanked word:').click();
+      await page.keyboard.press('?');
+      await expect(frame.locator('text=Keyboard Shortcuts')).not.toBeVisible({ timeout: 1_000 });
+      await page.keyboard.press('/');
+      await expect(frame.locator('text=Search Full Bible')).not.toBeVisible({ timeout: 1_000 });
+      const urlBeforeG = page.url();
+      await page.keyboard.press('g');
+      expect(page.url()).toBe(urlBeforeG);
+      await page.keyboard.press('t');
+      expect(page.url()).toBe(urlBeforeG);
+      await page.keyboard.press('Control+Enter');
+      // Check button should remain enabled (the global ⌘/Ctrl+Enter handler
+      // in the Vanishing Cloze / Recall modes does NOT run here).
       const checkBtn = frame.locator('button:has-text("Check Answer")');
       await expect(checkBtn).toBeEnabled();
-      // Press Cmd/Ctrl+Enter — the shortcut should be suppressed in this mode,
-      // so the button should NOT have been clicked (still visible & enabled).
-      await page.keyboard.press('Control+Enter');
-      await expect(checkBtn).toBeEnabled();
+    }
+  });
+
+  test('typing a letter while focus is outside an input refocuses the first empty blank', async ({ page }) => {
+    const frame = await openPractice(page);
+    await selectMode(frame, 'Simplified Vanishing Cloze');
+    const inputs = frame.locator('input[maxlength="1"]');
+    if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
+      // Click the prompt text (focus leaves the input), then type a letter
+      // via page.keyboard. The capture-phase handler should refocus the
+      // first blank and route the keystroke there.
+      await frame.locator('text=Type the first letter of each blanked word:').click();
+      await page.keyboard.press('a');
+      // The first input should now contain the typed letter (or at least be
+      // focused and non-empty).
+      const firstInput = inputs.first();
+      await expect(firstInput).toHaveValue(/.+/);
     }
   });
 });
