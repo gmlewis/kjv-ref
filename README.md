@@ -106,7 +106,7 @@ bundle before pushing.
 
 ## Unit tests
 
-Uses [Vitest](https://vitest.dev) with jsdom. 891 tests across 28 files.
+Uses [Vitest](https://vitest.dev) with jsdom.
 
 ```bash
 bun run test          # watch mode (re-runs on file changes)
@@ -184,9 +184,9 @@ Run this sequence before pushing to `master` (which triggers the live deploy):
 
 ```bash
 bun install              # clean install
-bun run test:run         # 891 unit tests
+bun run test:run         # unit tests
 bun run build            # production build
-bun run e2e              # 122 e2e tests against the built bundle
+bun run e2e              # e2e tests against the built bundle
 ```
 
 If all four pass, the GitHub Pages deploy will succeed — the CI workflow runs
