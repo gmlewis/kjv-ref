@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      (function() {
+        var stored = localStorage.getItem('kjv-theme');
+        if (stored === 'dark' || (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+      // GitHub Pages SPA fallback: if 404.html redirected here with a path in
+      // the query string (/?/books/Genesis/1), restore it via history.replaceState
+      // so the router sees the correct URL.
+      (function() {
+        var l = window.location;
+        if (l.search && l.search.indexOf('?/') === 0) {
+          var restored = l.search
+            .slice(2)                          // drop '?/'
+            .replace(/~and~/g, '&');           // restore '&'
+          var hash = l.hash || '';
+          var query = '';
+          var qIdx = restored.indexOf('&');
+          if (qIdx >= 0) {
+            query = '?' + restored.slice(qIdx + 1);
+            restored = restored.slice(0, qIdx);
+          }
+          history.replaceState(null, null, l.pathname + restored + query + hash);
+        }
+      })();
+    </script>
+    <link rel="icon" type="image/svg+xml" href="/kjv-ref/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KJV Ref — Bible Memorization</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&family=Noto+Serif+Hebrew:wght@400;700&display=swap" rel="stylesheet">
+    <script type="module" crossorigin src="/kjv-ref/assets/index-DuxE7kbJ.js"></script>
+    <link rel="stylesheet" crossorigin href="/kjv-ref/assets/index-D9P-adx3.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
