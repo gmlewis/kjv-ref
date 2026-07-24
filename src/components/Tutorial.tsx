@@ -254,7 +254,7 @@ function buildSteps(): TutorialStep[] {
       navigateTo: '/practice',
       content: (
         <div className="space-y-3">
-          <p>Now let's explore the <strong>6 practice modes</strong>! Each mode trains your memory
+          <p>Now let's explore the <strong>7 practice modes</strong>! Each mode trains your memory
           in a different way, from easy recognition to full recall.</p>
           <p>The modes are arranged from easiest to hardest. We recommend starting with
           <strong> Word Bank</strong> and working your way up to <strong>Full Recall</strong>.</p>
@@ -333,7 +333,8 @@ function buildSteps(): TutorialStep[] {
           you master the verse (same 5 levels: Study Mode → Full Recall).</p>
           <p><strong>Tip:</strong> If you can't recall a word, press <kbd className="kbd-key inline">?</kbd>
           in that blank to reveal the word — it will be marked as incorrect so the verse comes back for
-          review sooner. Keyboard shortcuts (like <kbd className="kbd-key inline">⌘/Ctrl+Enter</kbd>) are
+          review sooner. You can also click any blank in any order to fill them in whatever sequence
+          you like. Keyboard shortcuts (like <kbd className="kbd-key inline">⌘/Ctrl+Enter</kbd>) are
           disabled in this mode.</p>
           <p><strong>What it's great for:</strong> This is the easier sibling of Vanishing Cloze. It's a
           great stepping stone when full Vanishing Cloze feels too demanding but Word Bank / First Letters
@@ -356,6 +357,12 @@ function buildSteps(): TutorialStep[] {
             <Eye className="w-6 h-6 text-teal-500" />
             <span className="font-bold text-teal-600 text-lg">Vanishing Cloze — Adapts to You</span>
           </div>
+          <p className="text-sm bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-700 rounded-lg p-2">
+            <strong>What does "cloze" mean?</strong> A <em>cloze test</em> is a classic language-learning
+            exercise where some words are removed from a text and you have to fill them in from context.
+            The name comes from <em>"closure"</em> — your brain fills in the missing pieces. "Vanishing"
+            refers to the fact that <strong>more words vanish (get blanked out) as you master the verse</strong>.
+          </p>
           <p><strong>How it works:</strong> The verse is displayed with some words blanked out (shown as
           underscores). You type the complete verse including the blanked words. The clever part:
           <strong> the number of blanks increases as you master the verse!</strong></p>

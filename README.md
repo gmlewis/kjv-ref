@@ -14,7 +14,7 @@ at **[gmlewis.github.io/kjv-ref](https://gmlewis.github.io/kjv-ref)**.
 
 ## Features
 
-- **6 practice modes:** Word Bank, First Letters, Vanishing Cloze, Multiple Choice, Reference Match, Full Recall
+- **7 practice modes:** Word Bank, First Letters, Simplified Vanishing Cloze, Vanishing Cloze, Multiple Choice, Reference Match, Full Recall
 - **Multi-verse ranges:** bookmark and practice verse ranges like "Psalms 23:1-6"
 - **Spaced repetition:** SM-2 algorithm schedules reviews at increasing intervals
 - **Strong's Concordance:** tap any word for Hebrew/Greek lexicon data
@@ -106,7 +106,7 @@ bundle before pushing.
 
 ## Unit tests
 
-Uses [Vitest](https://vitest.dev) with jsdom. 791 tests across 24 files.
+Uses [Vitest](https://vitest.dev) with jsdom. 891 tests across 28 files.
 
 ```bash
 bun run test          # watch mode (re-runs on file changes)
@@ -121,7 +121,12 @@ bun run test:coverage # with coverage report
 | `src/data/strongs.test.ts` | Strong's lexicon lookup |
 | `src/data/strongs-index.test.ts` | Strong's word index |
 | `src/data/interlinear.test.ts` | Interlinear word mapping |
-| `src/utils/practiceHelpers.test.ts` | Word Bank shuffle, First Letters, Vanishing Cloze |
+| `src/utils/practiceHelpers.test.ts` | Word Bank shuffle, First Letters, Vanishing Cloze, cloze mask, first-letter helpers |
+| `src/components/Practice.cloze.test.ts` | Vanishing Cloze diff/score, cloze mask, first-letter helpers |
+| `src/components/Practice.simplified-cloze.test.ts` | Simplified Vanishing Cloze first-letter validation logic |
+| `src/components/Practice.range.test.ts` | Multi-verse range practice sessions |
+| `src/components/Practice.distractors.test.ts` | Multiple-choice / reference-mode distractor selection |
+| `src/components/Practice.verse-count.test.ts` | Practice verse filtering |
 | `src/utils/spacedRepetition.test.ts` | SM-2 review scheduling |
 | `src/utils/bibleBooks.test.ts` | Book metadata, prev/next chapter, verse navigation |
 | `src/utils/verseNav.test.ts` | Verse-level next/prev navigation with wraparound |
@@ -137,8 +142,6 @@ bun run test:coverage # with coverage report
 | `src/components/InterlinearWordPopover.test.tsx` | Interlinear word popover, RTL positioning fix |
 | `src/components/KeyboardModals.test.tsx` | Shortcuts modal, search modal |
 | `src/components/Books.keyboard.test.tsx` | Keyboard shortcuts for verse/chapter navigation |
-| `src/components/Practice.verse-count.test.ts` | Practice verse filtering |
-| `src/components/Practice.range.test.ts` | Multi-verse range practice sessions |
 | `scripts/build-interlinear-words.test.ts` | Interlinear build script |
 
 ---
@@ -169,7 +172,7 @@ bunx playwright test --grep "Word Bank" --headed
 |-----------|----------------|
 | `e2e/navigation.spec.ts` | Nav bar, all 5 sections, mobile hamburger menu |
 | `e2e/dashboard.spec.ts` | Hero, stat cards, featured verses, CTAs |
-| `e2e/practice.spec.ts` | Mode selector, Word Bank, First Letters, Vanishing Cloze, Multiple Choice, Reference Match, session summary, progress tracking |
+| `e2e/practice.spec.ts` | Mode selector, Word Bank, First Letters, Simplified Vanishing Cloze, Vanishing Cloze, Multiple Choice, Reference Match, session summary, progress tracking |
 | `e2e/books.spec.ts` | Books grid, Old/New filter, search, book detail, chapter view, featured verses, chapter jump navigation |
 | `e2e/stats-achievements.spec.ts` | Statistics page, Achievements page |
 
@@ -181,9 +184,9 @@ Run this sequence before pushing to `master` (which triggers the live deploy):
 
 ```bash
 bun install              # clean install
-bun run test:run         # 791 unit tests
+bun run test:run         # 891 unit tests
 bun run build            # production build
-bun run e2e              # 93 e2e tests against the built bundle
+bun run e2e              # 122 e2e tests against the built bundle
 ```
 
 If all four pass, the GitHub Pages deploy will succeed — the CI workflow runs
@@ -221,10 +224,19 @@ the intended path via `history.replaceState` in `index.html`.
 |------|-------------|-----------------|
 | **Word Bank** | Tap chips to assemble the verse | Always available |
 | **First Letters** | Each word is shown as its first letter only | Always available |
+| **Simplified Vanishing Cloze** | Like Vanishing Cloze, but you only type the first letter of each blanked word — easier adaptive practice | Always available |
 | **Vanishing Cloze** | Words are progressively blanked out (0% → 25% → 50% → 75% → 100%) | Always available; blanking level scales with `timesRecited` |
 | **Multiple Choice** | Pick the correct verse text from 4 options | Always available |
 | **Reference Match** | Given the text, recall the reference | Always available |
 | **Full Recall** | Type the verse from memory | Hidden behind "Show all modes" |
+
+> **What does "cloze" mean?** A *cloze test* is a classic language-learning
+> exercise where some words are removed from a text and you have to fill them
+> in from context (the name comes from "closure" — your brain closes the
+> gaps). "Vanishing" refers to the fact that more words vanish (get blanked
+> out) as you master the verse. The **Simplified** variant asks only for the
+> first letter of each blanked word, making it a lighter-weight stepping
+> stone to the full Vanishing Cloze mode.
 
 Spaced repetition (due reviews) are surfaced at the top of the practice queue
 and shown as a badge in the nav.
@@ -281,7 +293,7 @@ kjv-ref/
 │   │   ├── interlinear.ts      # Interlinear word mapping
 │   │   └── dataUrls.ts         # Static URL registry (no-op for static site)
 │   ├── utils/
-│   │   ├── practiceHelpers.ts  # Word Bank, First Letters, Vanishing Cloze
+│   │   ├── practiceHelpers.ts  # Word Bank, First Letters, Vanishing Cloze, Simplified Vanishing Cloze
 │   │   ├── spacedRepetition.ts # SM-2 algorithm
 │   │   ├── bibleBooks.ts       # Book metadata, prev/next chapter, verse navigation
 │   │   ├── bibleRefSearch.ts   # Fuzzy Bible reference search (abbreviations, ranges)

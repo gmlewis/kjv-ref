@@ -46,7 +46,7 @@ describe('Tutorial', () => {
     expect(document.body.textContent).toContain('Step 1 of 22');
   });
 
-  it('has 21 steps total', () => {
+  it('has 22 steps total', () => {
     renderTutorial();
     expect(document.body.textContent).toContain('of 22');
   });

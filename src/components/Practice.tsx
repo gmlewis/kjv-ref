@@ -367,47 +367,40 @@ function SimplifiedVanishingClozeMode({
     return () => clearTimeout(t);
   }, [verse.reference, level, seed, blankIndices]);
 
-  // Disable ALL global keyboard shortcuts while this mode is mounted.
-  // The user interacts purely via the inline single-letter inputs, so any
-  // keypress that isn't on an input must be swallowed (otherwise '?',
-  // '/', 'g', 't', 'Home', 'End', ⌘/Ctrl+Enter, etc. would trigger nav
-  // actions / open the shortcuts modal). Capture phase lets us intercept
-  // before the bubble-phase handlers in Navigation.tsx / KeyboardModals.tsx.
+  // Disable global keyboard shortcuts while this mode is mounted.
+  // The user interacts purely via the inline single-letter inputs, but
+  // focus can drift to the card body (e.g. after clicking the prompt text),
+  // at which point global shortcut keys (?, /, g, t, Home, End, ⌘/Ctrl+Enter)
+  // defined in Navigation.tsx / KeyboardModals.tsx would fire on `window`.
+  // We intercept in the CAPTURE phase — before those bubble-phase handlers —
+  // and:
+  //   • If focus is inside one of our inputs: do nothing. The Navigation
+  //     handler already early-returns when the event target is an INPUT, so
+  //     there's nothing to suppress. (Calling preventDefault() here would
+  //     block legitimate typing — e.g. 't' and 'g' are real first letters.)
+  //   • If focus is NOT inside one of our inputs: swallow the keystroke so
+  //     no global shortcut fires, and refocus the first empty blank so the
+  //     keystroke isn't lost (single-char keys are forwarded to that input).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // If focus is inside one of our inputs, let its React onKeyDown handle
-      // it normally — but still swallow the global shortcut keys so they
-      // don't double-fire (e.g. '?' would both reveal the word AND open the
-      // shortcuts modal).
       const target = e.target as HTMLElement | null;
       const inOurInput = !!target && target.tagName === 'INPUT' &&
         (target as HTMLElement).closest('[data-svc-mode]') != null;
+      if (inOurInput) return;
 
-      // Global shortcut keys defined in Navigation.tsx + KeyboardModals.tsx:
-      // '?', '/', 'g', 't', Home, End, and ⌘/Ctrl+Enter / ⌘/Ctrl+K.
-      // We always suppress these in this mode. For all other keys we only
-      // suppress when the event target is NOT one of our inputs (so normal
-      // typing inside an input still works).
-      const isShortcutKey =
+      // Focus is outside our inputs — swallow everything so global shortcuts
+      // (and ordinary typing) don't trigger nav / modals. For printable
+      // single-char keys + Backspace, refocus the first empty blank so the
+      // keystroke is forwarded into the input flow.
+      const isPotentialShortcut =
         e.key === '?' || e.key === '/' ||
         e.key === 'g' || e.key === 't' ||
         e.key === 'Home' || e.key === 'End' ||
         ((e.metaKey || e.ctrlKey) && (e.key === 'Enter' || e.key === 'k'));
-
-      if (isShortcutKey) {
+      if (isPotentialShortcut || e.key.length === 1 || e.key === 'Backspace') {
         e.preventDefault();
         e.stopPropagation();
-        return;
-      }
-      if (!inOurInput) {
-        // Swallow every other key too, so e.g. pressing 'a' while focus is on
-        // the card body doesn't accidentally trigger anything and we keep the
-        // user "trapped" in the input flow. We do NOT preventDefault for
-        // modifier-only / navigation keys that the browser needs.
         if (e.key.length === 1 || e.key === 'Backspace') {
-          e.preventDefault();
-          e.stopPropagation();
-          // Refocus the first empty blank so the keystroke isn't lost.
           const firstEmpty = blankIndices.find(i => !(entries[i] ?? '') && results[i] !== 'revealed');
           const focusIdx = firstEmpty ?? blankIndices[0];
           if (focusIdx != null) inputRefs.current[focusIdx]?.focus();
@@ -561,12 +554,48 @@ function SimplifiedVanishingClozeMode({
             }
             const entry = entries[i] ?? '';
             const res = results[i];
-            let inputClass = 'border-2 border-teal-300 bg-teal-50 text-teal-700 focus:border-teal-600 focus:outline-none';
+
+            // After Check, replace the single-letter input with a colored
+            // word pill: green = correct, red = wrong (shows the correct word
+            // and the wrong typed letter), orange = revealed.
             if (checked) {
-              if (res === 'correct') inputClass = 'border-2 border-green-400 bg-green-50 text-green-700';
-              else if (res === 'wrong') inputClass = 'border-2 border-red-400 bg-red-50 text-red-700';
-              else if (res === 'revealed') inputClass = 'border-2 border-orange-400 bg-orange-50 text-orange-700';
+              let pillClass = 'border-2 ';
+              let content: React.ReactNode = word;
+              let title = '';
+              if (res === 'correct') {
+                pillClass += 'border-green-400 bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-200';
+                title = `You typed '${entry.toUpperCase()}' — correct!`;
+              } else if (res === 'wrong') {
+                pillClass += 'border-red-400 bg-red-100 text-red-800 dark:bg-red-900/60 dark:text-red-200';
+                const expected = firstLetterOf(word).toUpperCase();
+                title = `You typed '${(entry || '—').toUpperCase()}' — expected '${expected}'`;
+                content = (
+                  <span>
+                    <span className="line-through opacity-70">{entry || '—'}</span>{' '}→{' '}{word}
+                  </span>
+                );
+              } else if (res === 'revealed') {
+                pillClass += 'border-orange-400 bg-orange-100 text-orange-800 dark:bg-orange-900/60 dark:text-orange-200';
+                title = 'Revealed (marked incorrect)';
+                content = (
+                  <span>
+                    <span className="italic opacity-80">revealed</span>{' '}{word}
+                  </span>
+                );
+              }
+              return (
+                <span
+                  key={i}
+                  title={title}
+                  className={`inline-block px-2.5 py-1 rounded-lg verse-text text-xl font-semibold leading-tight ${pillClass}`}
+                >
+                  {content}
+                </span>
+              );
             }
+
+            // Pre-check: a single-letter input box.
+            const inputClass = 'border-2 border-teal-300 bg-teal-50 text-teal-700 focus:border-teal-600 focus:outline-none';
             return (
               <span key={i} className="inline-flex flex-col items-center">
                 <input
@@ -575,14 +604,10 @@ function SimplifiedVanishingClozeMode({
                   value={entry}
                   onChange={(e) => handleEntry(i, e.target.value)}
                   onKeyDown={(e) => handleKey(i, e)}
-                  disabled={checked}
                   maxLength={1}
                   aria-label={`First letter of word ${i + 1}`}
-                  className={`w-8 h-10 text-center text-xl font-bold rounded-lg ${inputClass} ${checked ? 'cursor-default' : ''}`}
+                  className={`w-8 h-10 text-center text-xl font-bold rounded-lg ${inputClass}`}
                 />
-                {checked && (
-                  <span className="text-xs font-semibold text-gray-600 mt-0.5">{words[i]}</span>
-                )}
               </span>
             );
           })}
@@ -604,28 +629,6 @@ function SimplifiedVanishingClozeMode({
         </button>
       ) : (
         <>
-          {/* Per-blank summary */}
-          <div className="p-4 rounded-xl bg-white border border-gray-200 dark:bg-slate-800 dark:border-slate-700">
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-200 mb-3 uppercase tracking-wide">Your answers:</p>
-            <div className="flex flex-wrap gap-2 leading-loose">
-              {blankIndices.map(idx => {
-                const res = results[idx];
-                const expected = firstLetterOf(words[idx]).toUpperCase();
-                const got = (entries[idx] ?? '').toUpperCase();
-                const label = res === 'revealed' ? 'Revealed' : got || '—';
-                const color = res === 'correct'
-                  ? 'bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-200'
-                  : res === 'revealed'
-                  ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/60 dark:text-orange-200'
-                  : 'bg-red-100 text-red-800 dark:bg-red-900/60 dark:text-red-200';
-                return (
-                  <span key={idx} className={`px-2 py-0.5 rounded font-semibold text-sm ${color}`} title={`Expected first letter: ${expected}`}>
-                    {label} → {words[idx]}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
           <div className={`p-4 rounded-xl flex items-center gap-3 ${
             blankIndices.every(i => results[i] === 'correct')
               ? 'bg-green-50 border border-green-200 dark:bg-green-900/40 dark:border-green-700'

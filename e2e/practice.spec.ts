@@ -304,6 +304,82 @@ test.describe('Practice — Simplified Vanishing Cloze mode', () => {
     }
   });
 
+  test('typing a global-shortcut letter (t/g/?) into a focused input still types it (regression)', async ({ page }) => {
+    const frame = await openPractice(page);
+    await selectMode(frame, 'Simplified Vanishing Cloze');
+    const inputs = frame.locator('input[maxlength="1"]');
+    if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
+      const n = await inputs.count();
+      expect(n).toBeGreaterThanOrEqual(3);
+      // Fill the first two inputs normally.
+      await inputs.nth(0).focus();
+      await inputs.nth(0).press('a');
+      await inputs.nth(1).focus();
+      await inputs.nth(1).press('b');
+      // Now type 't' (which is a global "toggle theme" shortcut key) into the
+      // third focused input. Before the fix, the capture-phase handler
+      // unconditionally called preventDefault/stopPropagation on 't' even
+      // inside our inputs, so nothing got typed.
+      await inputs.nth(2).focus();
+      await page.keyboard.press('t');
+      await expect(inputs.nth(2)).toHaveValue('t');
+      // Same for 'g' (global "go to books" shortcut).
+      if (n >= 4) {
+        await inputs.nth(3).focus();
+        await page.keyboard.press('g');
+        await expect(inputs.nth(3)).toHaveValue('g');
+      }
+      // The global shortcuts must NOT have fired either.
+      await expect(frame.locator('text=Keyboard Shortcuts')).not.toBeVisible({ timeout: 500 });
+      const urlAfter = page.url();
+      expect(urlAfter).toMatch(/\/practice/);
+    }
+  });
+
+  test('pressing "?" in a focused input reveals the word even after filling earlier blanks', async ({ page }) => {
+    // Regression: the capture-phase handler used to call stopPropagation on
+    // '?' unconditionally, which blocked the React onKeyDown reveal handler
+    // from firing once focus had moved to the 3rd input.
+    const frame = await openPractice(page);
+    await selectMode(frame, 'Simplified Vanishing Cloze');
+    const inputs = frame.locator('input[maxlength="1"]');
+    if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
+      const n = await inputs.count();
+      expect(n).toBeGreaterThanOrEqual(3);
+      await inputs.nth(0).focus();
+      await inputs.nth(0).press('a');
+      await inputs.nth(1).focus();
+      await inputs.nth(1).press('b');
+      // Move to the third input and press '?'. The global shortcuts modal
+      // must NOT open, and the word must be revealed (marked incorrect).
+      await inputs.nth(2).focus();
+      await page.keyboard.press('?');
+      await expect(frame.locator('text=Keyboard Shortcuts')).not.toBeVisible({ timeout: 500 });
+      // The reveal hint line should be visible.
+      await expect(frame.locator('text=/reveal/i').first()).toBeVisible();
+    }
+  });
+
+  test('check reveals word pills (green for correct, red for wrong showing correct word)', async ({ page }) => {
+    const frame = await openPractice(page);
+    await selectMode(frame, 'Simplified Vanishing Cloze');
+    const inputs = frame.locator('input[maxlength="1"]');
+    if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
+      const n = await inputs.count();
+      for (let i = 0; i < n; i++) {
+        await inputs.nth(i).focus();
+        await inputs.nth(i).press('a');
+      }
+      await frame.locator('button:has-text("Check Answer")').click();
+      // After check, the single-letter inputs are replaced by colored word
+      // pills. At least one green pill should appear for correct guesses, and
+      // red pills (with "→ word" text) for wrong ones.
+      await expect(frame.locator('text=All first letters correct').or(frame.locator('text=wrong or revealed')).first()).toBeVisible({ timeout: 5_000 });
+      // No more single-letter inputs should remain after checking.
+      await expect(frame.locator('input[maxlength="1"]')).toHaveCount(0);
+    }
+  });
+
   test('global keyboard shortcuts are disabled in this mode (no shortcuts modal, no nav)', async ({ page }) => {
     const frame = await openPractice(page);
     await selectMode(frame, 'Simplified Vanishing Cloze');

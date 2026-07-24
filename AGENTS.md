@@ -27,7 +27,7 @@ bun run preview      # serve ./dist at http://localhost:4173/kjv-ref/
 ## Unit tests
 
 ```bash
-bun run test:run     # single run (791 tests, ~12s)
+bun run test:run     # single run (891 tests, ~13s)
 bun run test         # watch mode
 ```
 
@@ -36,7 +36,7 @@ All unit tests must pass before pushing.
 ## E2e tests
 
 ```bash
-bun run e2e          # auto-builds + serves ./dist, then runs Playwright (93 tests)
+bun run e2e          # auto-builds + serves ./dist, then runs Playwright (122 tests)
 bun run e2e:headed   # same, with visible browser
 ```
 
