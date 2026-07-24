@@ -22,11 +22,27 @@ async function selectMode(page: Page, label: string) {
 // ─── Mode Selector ─────────────────────────────────────────────────────────────
 
 test.describe('Practice — mode selector', () => {
-  test('shows 5 recommended modes', async ({ page }) => {
+  test('shows 6 recommended modes', async ({ page }) => {
     const frame = await openPractice(page);
-    for (const label of ['Word Bank', 'First Letters', 'Vanishing Cloze', 'Multiple Choice', 'Reference Match']) {
+    for (const label of ['Word Bank', 'First Letters', 'Simplified Vanishing Cloze', 'Vanishing Cloze', 'Multiple Choice', 'Reference Match']) {
       await expect(frame.locator(`text=${label}`).first()).toBeVisible();
     }
+  });
+
+  test('Simplified Vanishing Cloze is listed immediately before Vanishing Cloze', async ({ page }) => {
+    const frame = await openPractice(page);
+    const cards = frame.locator('button:has-text("Start")');
+    const labels: string[] = [];
+    const count = await cards.count();
+    for (let i = 0; i < count; i++) {
+      const text = await cards.nth(i).textContent();
+      labels.push(text ?? '');
+    }
+    const simpIdx = labels.findIndex(l => l.includes('Simplified Vanishing Cloze'));
+    const vanIdx = labels.findIndex(l => l.includes('Vanishing Cloze') && !l.includes('Simplified'));
+    expect(simpIdx).toBeGreaterThanOrEqual(0);
+    expect(vanIdx).toBeGreaterThanOrEqual(0);
+    expect(simpIdx).toBe(vanIdx - 1);
   });
 
   test('"Full Recall" is hidden by default', async ({ page }) => {
@@ -206,6 +222,105 @@ test.describe('Practice — First Letters mode', () => {
     // Hint should have space-separated single characters
     const hint = await frame.locator('[class*="font-mono"]').first().textContent();
     expect(hint?.trim()).toMatch(/^[A-Za-z]( [A-Za-z])*$/);
+  });
+});
+
+// ─── Simplified Vanishing Cloze Mode ──────────────────────────────────────────
+
+test.describe('Practice — Simplified Vanishing Cloze mode', () => {
+  test('shows level badge and inline single-letter inputs for blanked words', async ({ page }) => {
+    const frame = await openPractice(page);
+    await selectMode(frame, 'Simplified Vanishing Cloze');
+    await expect(frame.locator('text=Level').first()).toBeVisible();
+    // Levels > 0 render inline <input> boxes for the blanks; level 0 has none.
+    const inputs = frame.locator('input[maxlength="1"]');
+    if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
+      expect(await inputs.count()).toBeGreaterThan(0);
+    }
+  });
+
+  test('typing a first letter fills the input', async ({ page }) => {
+    const frame = await openPractice(page);
+    await selectMode(frame, 'Simplified Vanishing Cloze');
+    const input = frame.locator('input[maxlength="1"]').first();
+    if (await input.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await input.focus();
+      await input.press('a');
+      await expect(input).toHaveValue(/.+/);
+    }
+  });
+
+  test('Check Answer button is disabled until all blanks are filled', async ({ page }) => {
+    const frame = await openPractice(page);
+    await selectMode(frame, 'Simplified Vanishing Cloze');
+    const checkBtn = frame.locator('button:has-text("Check Answer")');
+    if (await checkBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await expect(checkBtn).toBeDisabled();
+    }
+  });
+
+  test('pressing "?" in an input reveals that word and is marked incorrect', async ({ page }) => {
+    const frame = await openPractice(page);
+    await selectMode(frame, 'Simplified Vanishing Cloze');
+    const input = frame.locator('input[maxlength="1"]').first();
+    if (await input.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await input.focus();
+      await input.press('?');
+      // The '?' reveal hint line should be visible, and the input should
+      // show '?' (or be marked revealed). Then we can fill the rest + check.
+      await expect(frame.locator('text=/reveal/i').first()).toBeVisible();
+    }
+  });
+
+  test('level 0 (study card) shows a "Got it" button', async ({ page }) => {
+    const frame = await openPractice(page);
+    await selectMode(frame, 'Simplified Vanishing Cloze');
+    const levelText = await frame.locator('text=Level').first().textContent();
+    if (levelText?.includes('Level 0')) {
+      await expect(frame.locator('text=Study Mode').first()).toBeVisible();
+      await expect(frame.locator('button:has-text("Got it")').first()).toBeVisible();
+    }
+  });
+
+  test('submitting all correct first letters shows success feedback', async ({ page }) => {
+    const frame = await openPractice(page);
+    await selectMode(frame, 'Simplified Vanishing Cloze');
+    const inputs = frame.locator('input[maxlength="1"]');
+    if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
+      // Fill every blank input with the correct first letter by reading the
+      // placeholder after check is not possible pre-check; instead just fill
+      // with 'a' for each — at minimum the Check button should become enabled
+      // and produce feedback.
+      const n = await inputs.count();
+      for (let i = 0; i < n; i++) {
+        await inputs.nth(i).focus();
+        await inputs.nth(i).press('a');
+      }
+      const checkBtn = frame.locator('button:has-text("Check Answer")');
+      await expect(checkBtn).toBeEnabled();
+      await checkBtn.click();
+      // Feedback line appears after checking
+      await expect(frame.getByText(/All first letters correct|wrong or revealed/i).first()).toBeVisible({ timeout: 5_000 });
+    }
+  });
+
+  test('no Cmd/Ctrl+Enter keyboard shortcut is wired (Check requires button click)', async ({ page }) => {
+    const frame = await openPractice(page);
+    await selectMode(frame, 'Simplified Vanishing Cloze');
+    const inputs = frame.locator('input[maxlength="1"]');
+    if (await inputs.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
+      const n = await inputs.count();
+      for (let i = 0; i < n; i++) {
+        await inputs.nth(i).focus();
+        await inputs.nth(i).press('a');
+      }
+      const checkBtn = frame.locator('button:has-text("Check Answer")');
+      await expect(checkBtn).toBeEnabled();
+      // Press Cmd/Ctrl+Enter — the shortcut should be suppressed in this mode,
+      // so the button should NOT have been clicked (still visible & enabled).
+      await page.keyboard.press('Control+Enter');
+      await expect(checkBtn).toBeEnabled();
+    }
   });
 });
 

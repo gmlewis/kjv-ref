@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useMyProgress, useDueReviews, useMyBookmarks, useCreateSessionMutation, useAwardAchievementMutation, useUpdateProgressMutation, useUpsertReviewScheduleMutation, useUpdateDailyGoalMutation, useSetClozeLevelMutation } from '../hooks';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -18,20 +18,21 @@ import { extractKeywords, assessDifficulty } from '../utils/spacedRepetition';
 import {
   buildWordBank, checkWordBankAnswer,
   toFirstLetters,
-  getVanishingClozeLevel, applyVanishingCloze, getVanishingClozeAnswers,
+  getVanishingClozeLevel, applyVanishingCloze, getVanishingClozeAnswers, getVanishingClozeMask, firstLetterOf,
   diffWords, type DiffToken,
 } from '../utils/practiceHelpers';
 
-type PracticeMode = 'word-bank' | 'first-letters' | 'vanishing-cloze' | 'multiple-choice' | 'reference' | 'recall';
+type PracticeMode = 'word-bank' | 'first-letters' | 'simplified-vanishing-cloze' | 'vanishing-cloze' | 'multiple-choice' | 'reference' | 'recall';
 type PerformanceRating = 'excellent' | 'good' | 'poor';
 
 const MODE_INFO: Record<PracticeMode, { label: string; description: string; icon: any; badge?: string; highlight?: boolean }> = {
-  'word-bank':       { label: 'Word Bank',       description: 'Tap the shuffled words into the correct order',        icon: Layers,    badge: 'Tap to order',   highlight: true },
-  'first-letters':   { label: 'First Letters',   description: 'Each word shown as its first letter only — fill in the rest', icon: AlignLeft, badge: 'Hint-guided',    highlight: true },
-  'vanishing-cloze': { label: 'Vanishing Cloze', description: 'Blanks increase as your mastery grows',                icon: Eye,       badge: 'Adapts to you',  highlight: true },
-  'multiple-choice': { label: 'Multiple Choice', description: 'Select the correct verse text from four options',       icon: Award,     badge: undefined },
-  'reference':       { label: 'Reference Match', description: 'Identify the correct reference for a verse',           icon: BookOpen,  badge: undefined },
-  'recall':          { label: 'Full Recall',      description: 'Type the complete verse from memory',                  icon: Target,    badge: 'Advanced' },
+  'word-bank':                 { label: 'Word Bank',                 description: 'Tap the shuffled words into the correct order',        icon: Layers,    badge: 'Tap to order',   highlight: true },
+  'first-letters':             { label: 'First Letters',             description: 'Each word shown as its first letter only — fill in the rest', icon: AlignLeft, badge: 'Hint-guided',    highlight: true },
+  'simplified-vanishing-cloze':{ label: 'Simplified Vanishing Cloze', description: 'Blanks grow with mastery — type just the first letter of each blanked word', icon: Eye, badge: 'Adapts to you',  highlight: true },
+  'vanishing-cloze':           { label: 'Vanishing Cloze',           description: 'Blanks increase as your mastery grows',                icon: Eye,       badge: 'Adapts to you',  highlight: true },
+  'multiple-choice':           { label: 'Multiple Choice',           description: 'Select the correct verse text from four options',       icon: Award,     badge: undefined },
+  'reference':                 { label: 'Reference Match',           description: 'Identify the correct reference for a verse',           icon: BookOpen,  badge: undefined },
+  'recall':                    { label: 'Full Recall',               description: 'Type the complete verse from memory',                  icon: Target,    badge: 'Advanced' },
 };
 
 // Fisher–Yates shuffle using JavaScript's built-in Math.random().
@@ -311,6 +312,288 @@ function FirstLettersMode({ verse, onResult }: { verse: KJVVerse; onResult: (cor
             {result ? 'Great recall! Keep it up.' : 'Marked for more practice — you\'ll get it!'}
           </p>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Simplified Vanishing Cloze Mode ─────────────────────────────────────────
+// Same progressive-blanking scheme as Vanishing Cloze, but the user only types
+// the FIRST LETTER of each blanked word into a small inline input. Pressing
+// '?' in any input reveals that word and marks it incorrect. Keyboard
+// shortcuts (⌘/Ctrl+Enter) are intentionally disabled in this mode.
+function SimplifiedVanishingClozeMode({
+  verse, timesRecited, customClozeLevel, seed, onResult, onLevelChange,
+}: {
+  verse: KJVVerse;
+  timesRecited: number;
+  customClozeLevel: 0 | 1 | 2 | 3 | 4 | null | undefined;
+  seed: number;
+  onResult: (correct: boolean) => void;
+  onLevelChange: (level: 0 | 1 | 2 | 3 | 4 | null) => void;
+}) {
+  const autoLevel = getVanishingClozeLevel(timesRecited) as 0 | 1 | 2 | 3 | 4;
+  const level = (customClozeLevel ?? autoLevel) as 0 | 1 | 2 | 3 | 4;
+  const isOverride = customClozeLevel != null && customClozeLevel !== autoLevel;
+
+  const words = useMemo(() => verse.text.split(' '), [verse]);
+  const mask = useMemo(() => getVanishingClozeMask(verse.text, level, seed), [verse, level, seed]);
+  const blankIndices = useMemo(() => mask.map((b, i) => b ? i : -1).filter(i => i >= 0), [mask]);
+
+  // One-letter entry per blank. '' = empty, '?' = revealed (auto-incorrect).
+  const [entries, setEntries] = useState<Record<number, string>>({});
+  const [checked, setChecked] = useState(false);
+  // Per-blank result after check: 'correct' | 'wrong' | 'revealed'
+  const [results, setResults] = useState<Record<number, 'correct' | 'wrong' | 'revealed'>>({});
+
+  // Refs for auto-advancing focus between inputs.
+  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Reset state when verse / level changes.
+  useEffect(() => {
+    setEntries({});
+    setChecked(false);
+    setResults({});
+    inputRefs.current = [];
+  }, [verse.reference, level, seed]);
+
+  // Disable global keyboard shortcuts (e.g. ⌘/Ctrl+Enter) while this mode is
+  // mounted. The user interacts purely via the inline single-letter inputs.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
+
+  const allFilled = blankIndices.every(i => (entries[i] ?? '').length > 0);
+
+  const handleEntry = (idx: number, raw: string) => {
+    if (checked) return;
+    // Take only the first character typed.
+    const ch = raw.length > 0 ? raw[raw.length - 1] : '';
+    setEntries(prev => ({ ...prev, [idx]: ch }));
+    // Auto-advance to next blank input.
+    const pos = blankIndices.indexOf(idx);
+    if (ch && pos >= 0 && pos < blankIndices.length - 1) {
+      const nextIdx = blankIndices[pos + 1];
+      inputRefs.current[nextIdx]?.focus();
+    }
+  };
+
+  const handleKey = (idx: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (checked) return;
+    // '?' reveals the word for this blank and marks it incorrect.
+    if (e.key === '?') {
+      e.preventDefault();
+      setEntries(prev => ({ ...prev, [idx]: '?' }));
+      setResults(prev => ({ ...prev, [idx]: 'revealed' }));
+      const pos = blankIndices.indexOf(idx);
+      if (pos >= 0 && pos < blankIndices.length - 1) {
+        const nextIdx = blankIndices[pos + 1];
+        inputRefs.current[nextIdx]?.focus();
+      }
+      return;
+    }
+    // Backspace on empty input moves focus back to the previous blank.
+    if (e.key === 'Backspace' && (entries[idx] ?? '') === '') {
+      const pos = blankIndices.indexOf(idx);
+      if (pos > 0) {
+        e.preventDefault();
+        const prevIdx = blankIndices[pos - 1];
+        inputRefs.current[prevIdx]?.focus();
+      }
+    }
+  };
+
+  const handleCheck = useCallback(() => {
+    const nextResults: Record<number, 'correct' | 'wrong' | 'revealed'> = {};
+    let allCorrect = true;
+    for (const idx of blankIndices) {
+      const entry = entries[idx] ?? '';
+      if (entry === '?') {
+        nextResults[idx] = 'revealed';
+        allCorrect = false;
+        continue;
+      }
+      const expected = firstLetterOf(words[idx]).toLowerCase();
+      const got = entry.toLowerCase();
+      if (got && got === expected) {
+        nextResults[idx] = 'correct';
+      } else {
+        nextResults[idx] = 'wrong';
+        allCorrect = false;
+      }
+    }
+    setResults(nextResults);
+    setChecked(true);
+    onResult(allCorrect);
+  }, [entries, words, blankIndices, onResult]);
+
+  // Level selector (shared UI with Vanishing Cloze).
+  const LevelSelector = (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs font-semibold text-slate-500 dark:text-slate-200 flex items-center gap-1">
+        <Hash className="w-3 h-3" /> Level:
+      </span>
+      {([0, 1, 2, 3, 4] as const).map((lvl) => {
+        const active = lvl === level;
+        const isAuto = lvl === autoLevel;
+        return (
+          <button
+            key={lvl}
+            onClick={() => onLevelChange(lvl)}
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all border ${
+              active
+                ? `${CLOZE_LEVEL_BG[lvl]} ${CLOZE_LEVEL_COLORS[lvl]} border-current shadow-sm`
+                : 'bg-white text-gray-500 dark:bg-slate-800 dark:text-slate-300 border-gray-200 dark:border-slate-600 hover:border-gray-300 dark:hover:border-slate-400'
+            }`}
+            title={isAuto ? `Level ${lvl} — ${CLOZE_LEVEL_LABELS[lvl]} (auto)` : `Level ${lvl} — ${CLOZE_LEVEL_LABELS[lvl]}`}
+          >
+            {lvl}{isAuto && !isOverride ? '·auto' : ''}
+          </button>
+        );
+      })}
+      {isOverride && (
+        <button
+          onClick={() => onLevelChange(null)}
+          className="px-2 py-1 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-300 hover:text-purple-600 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/40 transition-colors"
+          title="Reset to the auto-computed level based on practice count"
+        >
+          Reset to auto
+        </button>
+      )}
+    </div>
+  );
+
+  // Level 0: study card — same as Vanishing Cloze.
+  if (level === 0) {
+    return (
+      <div className="space-y-4">
+        <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-bold ${CLOZE_LEVEL_BG[0]} ${CLOZE_LEVEL_COLORS[0]}`}>
+          <Hash className="w-3 h-3" /> Level 0 — {CLOZE_LEVEL_LABELS[0]}
+        </div>
+        {LevelSelector}
+        <div className="verse-card rounded-xl p-6 bg-gradient-to-br from-blue-50 to-indigo-50">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-300 mb-3 uppercase tracking-wide">Read this verse:</p>
+          <p className="verse-text text-xl text-gray-800 leading-relaxed italic">"{verse.text}"</p>
+        </div>
+        <p className="text-sm text-slate-500 dark:text-slate-300">Study this verse carefully. As you practice more, words will be hidden progressively.</p>
+        <button
+          onClick={() => { setChecked(true); onResult(true); }}
+          className="w-full btn-primary text-white py-4 rounded-xl font-bold text-lg shadow-lg"
+          disabled={checked}
+        >
+          Got it! <CheckCircle className="inline w-5 h-5 ml-2" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-bold ${CLOZE_LEVEL_BG[level]} ${CLOZE_LEVEL_COLORS[level]}`}>
+        <Hash className="w-3 h-3" /> Level {level} — {CLOZE_LEVEL_LABELS[level]}{isOverride ? ' (override)' : ''}
+      </div>
+      {LevelSelector}
+
+      {/* Blanked verse with inline single-letter inputs */}
+      <div className="verse-card rounded-xl p-5 bg-gradient-to-br from-teal-50 to-emerald-50">
+        <p className="text-xs font-semibold text-slate-500 dark:text-slate-300 mb-3 uppercase tracking-wide">
+          Type the first letter of each blanked word:
+        </p>
+        <div ref={containerRef} className="flex flex-wrap gap-1.5 leading-loose items-center">
+          {words.map((word, i) => {
+            if (!mask[i]) {
+              return <span key={i} className="verse-text text-xl text-gray-800">{word}</span>;
+            }
+            const entry = entries[i] ?? '';
+            const res = results[i];
+            let inputClass = 'border-2 border-teal-300 bg-teal-50 text-teal-700 focus:border-teal-600 focus:outline-none';
+            if (checked) {
+              if (res === 'correct') inputClass = 'border-2 border-green-400 bg-green-50 text-green-700';
+              else if (res === 'wrong') inputClass = 'border-2 border-red-400 bg-red-50 text-red-700';
+              else if (res === 'revealed') inputClass = 'border-2 border-orange-400 bg-orange-50 text-orange-700';
+            }
+            return (
+              <span key={i} className="inline-flex flex-col items-center">
+                <input
+                  ref={(el) => { inputRefs.current[i] = el; }}
+                  type="text"
+                  value={entry}
+                  onChange={(e) => handleEntry(i, e.target.value)}
+                  onKeyDown={(e) => handleKey(i, e)}
+                  disabled={checked}
+                  maxLength={1}
+                  aria-label={`First letter of word ${i + 1}`}
+                  className={`w-8 h-10 text-center text-xl font-bold rounded-lg ${inputClass} ${checked ? 'cursor-default' : ''}`}
+                />
+                {checked && (
+                  <span className="text-xs font-semibold text-gray-600 mt-0.5">{words[i]}</span>
+                )}
+              </span>
+            );
+          })}
+        </div>
+        {!checked && blankIndices.length > 0 && (
+          <p className="text-xs text-teal-600 dark:text-teal-300 font-semibold mt-3">
+            {blankIndices.length} word{blankIndices.length !== 1 ? 's' : ''} hidden · press <kbd className="kbd-key inline">?</kbd> to reveal a word (marked incorrect)
+          </p>
+        )}
+      </div>
+
+      {!checked ? (
+        <button
+          onClick={handleCheck}
+          disabled={!allFilled}
+          className="w-full btn-primary text-white py-4 rounded-xl font-bold text-lg shadow-lg disabled:opacity-50"
+        >
+          Check Answer
+        </button>
+      ) : (
+        <>
+          {/* Per-blank summary */}
+          <div className="p-4 rounded-xl bg-white border border-gray-200 dark:bg-slate-800 dark:border-slate-700">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-200 mb-3 uppercase tracking-wide">Your answers:</p>
+            <div className="flex flex-wrap gap-2 leading-loose">
+              {blankIndices.map(idx => {
+                const res = results[idx];
+                const expected = firstLetterOf(words[idx]).toUpperCase();
+                const got = (entries[idx] ?? '').toUpperCase();
+                const label = res === 'revealed' ? 'Revealed' : got || '—';
+                const color = res === 'correct'
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-200'
+                  : res === 'revealed'
+                  ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/60 dark:text-orange-200'
+                  : 'bg-red-100 text-red-800 dark:bg-red-900/60 dark:text-red-200';
+                return (
+                  <span key={idx} className={`px-2 py-0.5 rounded font-semibold text-sm ${color}`} title={`Expected first letter: ${expected}`}>
+                    {label} → {words[idx]}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+          <div className={`p-4 rounded-xl flex items-center gap-3 ${
+            blankIndices.every(i => results[i] === 'correct')
+              ? 'bg-green-50 border border-green-200 dark:bg-green-900/40 dark:border-green-700'
+              : 'bg-red-50 border border-red-200 dark:bg-red-900/40 dark:border-red-700'
+          }`}>
+            {blankIndices.every(i => results[i] === 'correct')
+              ? <CheckCircle className="w-7 h-7 text-green-500 dark:text-green-400" />
+              : <XCircle className="w-7 h-7 text-red-500 dark:text-red-400" />}
+            <p className="font-bold text-gray-800 dark:text-slate-100">
+              {blankIndices.every(i => results[i] === 'correct')
+                ? 'Well done! All first letters correct.'
+                : 'Some letters were wrong or revealed — keep practicing!'}
+            </p>
+          </div>
+        </>
       )}
     </div>
   );
@@ -694,6 +977,19 @@ function PracticeSession({
           <FirstLettersMode key={idx} verse={verse} onResult={(correct) => { setRevealed(true); setTotal(t => t + 1); if (correct) setScore(s => s + 1); setResults(r => [...r, { verse, correct, rating: correct ? 'excellent' : 'poor' }]); }} />
         )}
 
+        {/* ── SIMPLIFIED VANISHING CLOZE ── */}
+        {mode === 'simplified-vanishing-cloze' && (
+          <SimplifiedVanishingClozeMode
+            key={idx}
+            verse={verse}
+            timesRecited={timesRecited}
+            customClozeLevel={progressMap.get(verse.reference)?.customClozeLevel ?? null}
+            seed={seed}
+            onLevelChange={(lvl) => onSetClozeLevel(verse.reference, lvl)}
+            onResult={(correct) => { setRevealed(true); setTotal(t => t + 1); if (correct) setScore(s => s + 1); setResults(r => [...r, { verse, correct, rating: correct ? 'excellent' : 'poor' }]); }}
+          />
+        )}
+
         {/* ── VANISHING CLOZE ── */}
         {mode === 'vanishing-cloze' && (
           <VanishingClozeMode
@@ -824,14 +1120,15 @@ function PracticeSession({
 }
 
 // ─── Mode Selector ────────────────────────────────────────────────────────────
-const RECOMMENDED_MODES: PracticeMode[] = ['word-bank', 'first-letters', 'vanishing-cloze', 'multiple-choice', 'reference'];
+const RECOMMENDED_MODES: PracticeMode[] = ['word-bank', 'first-letters', 'simplified-vanishing-cloze', 'vanishing-cloze', 'multiple-choice', 'reference'];
 
 function ModeSelector({ onSelect, dueCount }: { onSelect: (mode: PracticeMode) => void; dueCount: number }) {
   const [showAll, setShowAll] = useState(false);
   const gradients: Record<PracticeMode, string> = {
     'word-bank':       'from-purple-500 to-indigo-600',
-    'first-letters':   'from-blue-500 to-cyan-600',
-    'vanishing-cloze': 'from-teal-500 to-green-600',
+  'first-letters':             'from-blue-500 to-cyan-600',
+  'simplified-vanishing-cloze':'from-teal-400 to-emerald-500',
+  'vanishing-cloze':           'from-teal-500 to-green-600',
     'multiple-choice': 'from-green-500 to-emerald-600',
     'reference':       'from-orange-500 to-amber-600',
     'recall':          'from-red-500 to-pink-600',

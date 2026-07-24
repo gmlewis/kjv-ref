@@ -110,6 +110,41 @@ export function getVanishingClozeAnswers(text: string, level: 0 | 1 | 2 | 3 | 4,
   return words.filter((_, i) => indices.has(i));
 }
 
+/**
+ * Return a boolean array marking which word indices are blanked for the
+ * given vanishing cloze level + seed. Same selection logic as
+ * applyVanishingCloze / getVanishingClozeAnswers so all three stay in sync.
+ */
+export function getVanishingClozeMask(text: string, level: 0 | 1 | 2 | 3 | 4, seed: number): boolean[] {
+  const words = text.split(' ');
+  if (level === 0) return words.map(() => false);
+  if (level === 4) return words.map(() => true);
+
+  const fractions: Record<1 | 2 | 3, number> = { 1: 0.25, 2: 0.5, 3: 0.75 };
+  const fraction = fractions[level as 1 | 2 | 3];
+  const blankCount = Math.max(1, Math.round(words.length * fraction));
+
+  const indices = new Set<number>();
+  let s = seed;
+  while (indices.size < blankCount) {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    indices.add(s % words.length);
+  }
+
+  return words.map((_, i) => indices.has(i));
+}
+
+/**
+ * The "first letter" of a word, stripping leading non-alphabetic characters
+ * (e.g. opening quotes) before extracting. Returns '' if the word has no
+ * alphabetic character. Used by the Simplified Vanishing Cloze mode to
+ * validate the single-letter typed into each blank.
+ */
+export function firstLetterOf(word: string): string {
+  const stripped = word.replace(/^[^a-zA-Z]+/, '');
+  return stripped.length > 0 ? stripped[0] : '';
+}
+
 // ── Word-by-word diff (for Vanishing Cloze / Recall feedback) ────────────────
 
 export type DiffToken =

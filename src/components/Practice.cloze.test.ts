@@ -5,6 +5,8 @@ import {
   getVanishingClozeLevel,
   applyVanishingCloze,
   getVanishingClozeAnswers,
+  getVanishingClozeMask,
+  firstLetterOf,
   type DiffToken,
 } from '../utils/practiceHelpers';
 
@@ -143,5 +145,67 @@ describe('Vanishing Cloze level override', () => {
     const u: 0 | 1 | 2 | 3 | 4 | null | undefined = undefined;
     expect(n ?? autoLevel).toBe(autoLevel);
     expect(u ?? autoLevel).toBe(autoLevel);
+  });
+});
+
+describe('getVanishingClozeMask', () => {
+  const text = 'For God so loved the world that he gave his only begotten Son';
+
+  it('level 0 returns all-false mask', () => {
+    const mask = getVanishingClozeMask(text, 0, 1);
+    expect(mask.every(b => b === false)).toBe(true);
+    expect(mask).toHaveLength(text.split(' ').length);
+  });
+
+  it('level 4 returns all-true mask', () => {
+    const mask = getVanishingClozeMask(text, 4, 1);
+    expect(mask.every(b => b === true)).toBe(true);
+  });
+
+  it('mask count matches applyVanishingCloze blank count', () => {
+    for (const lvl of [1, 2, 3] as const) {
+      const mask = getVanishingClozeMask(text, lvl, 7);
+      const blanked = applyVanishingCloze(text, lvl, 7).split(' ');
+      const maskCount = mask.filter(Boolean).length;
+      const blankCount = blanked.filter(w => w === '______').length;
+      expect(maskCount).toBe(blankCount);
+    }
+  });
+
+  it('mask indices match getVanishingClozeAnswers selection', () => {
+    const mask = getVanishingClozeMask(text, 2, 7);
+    const words = text.split(' ');
+    const expectedBlanks = new Set(getVanishingClozeAnswers(text, 2, 7));
+    const maskBlanks = new Set(words.filter((_, i) => mask[i]));
+    expect(maskBlanks).toEqual(expectedBlanks);
+  });
+
+  it('is deterministic — same text+level+seed gives same mask', () => {
+    expect(getVanishingClozeMask(text, 2, 7)).toEqual(getVanishingClozeMask(text, 2, 7));
+  });
+});
+
+describe('firstLetterOf', () => {
+  it('returns the first alphabetic character of a word', () => {
+    expect(firstLetterOf('For')).toBe('F');
+    expect(firstLetterOf('God')).toBe('G');
+    expect(firstLetterOf('loved')).toBe('l');
+  });
+
+  it('strips leading non-alphabetic characters', () => {
+    expect(firstLetterOf('"And')).toBe('A');
+    expect(firstLetterOf('...God')).toBe('G');
+    expect(firstLetterOf("''Lord's")).toBe('L');
+  });
+
+  it('returns empty string for words with no alphabetic character', () => {
+    expect(firstLetterOf('---')).toBe('');
+    expect(firstLetterOf('123')).toBe('');
+    expect(firstLetterOf('')).toBe('');
+  });
+
+  it('preserves original case of the first letter', () => {
+    expect(firstLetterOf('The')).toBe('T');
+    expect(firstLetterOf('the')).toBe('t');
   });
 });

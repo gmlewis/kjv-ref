@@ -318,9 +318,38 @@ function buildSteps(): TutorialStep[] {
       placement: 'center',
     },
 
-    // ─── 16. Vanishing Cloze ──────────────────────────────────────────────────
+    // ─── 16. Simplified Vanishing Cloze ───────────────────────────────────────
     {
-      title: 'Mode 3: Vanishing Cloze',
+      title: 'Mode 3: Simplified Vanishing Cloze',
+      content: (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Eye className="w-6 h-6 text-teal-400" />
+            <span className="font-bold text-teal-500 text-lg">Simplified Vanishing Cloze — Easier Adaptive Mode</span>
+          </div>
+          <p><strong>How it works:</strong> Just like Vanishing Cloze, the verse is displayed with some words
+          blanked out (shown as small input boxes). But instead of typing the entire verse, you only type
+          <strong> the first letter of each blanked word</strong>. The number of blanks still increases as
+          you master the verse (same 5 levels: Study Mode → Full Recall).</p>
+          <p><strong>Tip:</strong> If you can't recall a word, press <kbd className="kbd-key inline">?</kbd>
+          in that blank to reveal the word — it will be marked as incorrect so the verse comes back for
+          review sooner. Keyboard shortcuts (like <kbd className="kbd-key inline">⌘/Ctrl+Enter</kbd>) are
+          disabled in this mode.</p>
+          <p><strong>What it's great for:</strong> This is the easier sibling of Vanishing Cloze. It's a
+          great stepping stone when full Vanishing Cloze feels too demanding but Word Bank / First Letters
+          are no longer challenging enough. You still have to recall each word, but only its initial —
+          a much lighter cognitive load.</p>
+          <p><strong>Why try it:</strong> It gives you the adaptive, progressive-disclosure benefits of
+          Vanishing Cloze with less typing, making it perfect for quick review sessions or for verses
+          you're still building confidence on.</p>
+        </div>
+      ),
+      placement: 'center',
+    },
+
+    // ─── 17. Vanishing Cloze ──────────────────────────────────────────────────
+    {
+      title: 'Mode 4: Vanishing Cloze',
       content: (
         <div className="space-y-3">
           <div className="flex items-center gap-2 mb-2">
@@ -352,9 +381,9 @@ function buildSteps(): TutorialStep[] {
       placement: 'center',
     },
 
-    // ─── 17. Multiple Choice ──────────────────────────────────────────────────
+    // ─── 18. Multiple Choice ──────────────────────────────────────────────────
     {
-      title: 'Mode 4: Multiple Choice',
+      title: 'Mode 5: Multiple Choice',
       content: (
         <div className="space-y-3">
           <div className="flex items-center gap-2 mb-2">
@@ -379,9 +408,9 @@ function buildSteps(): TutorialStep[] {
       placement: 'center',
     },
 
-    // ─── 18. Reference Match ──────────────────────────────────────────────────
+    // ─── 19. Reference Match ──────────────────────────────────────────────────
     {
-      title: 'Mode 5: Reference Match',
+      title: 'Mode 6: Reference Match',
       content: (
         <div className="space-y-3">
           <div className="flex items-center gap-2 mb-2">
@@ -406,9 +435,9 @@ function buildSteps(): TutorialStep[] {
       placement: 'center',
     },
 
-    // ─── 19. Full Recall ──────────────────────────────────────────────────────
+    // ─── 20. Full Recall ──────────────────────────────────────────────────────
     {
-      title: 'Mode 6: Full Recall',
+      title: 'Mode 7: Full Recall',
       content: (
         <div className="space-y-3">
           <div className="flex items-center gap-2 mb-2">
@@ -436,7 +465,7 @@ function buildSteps(): TutorialStep[] {
 
     // ═══════════════════════════════════════════════════════════════════════════
 
-    // ─── 20. Settings export ──────────────────────────────────────────────────
+    // ─── 21. Settings export ──────────────────────────────────────────────────
     {
       title: 'Backup and Share Your Data',
       content: (
@@ -460,7 +489,7 @@ function buildSteps(): TutorialStep[] {
       placement: 'bottom-right',
     },
 
-    // ─── 21. Done! ────────────────────────────────────────────────────────────
+    // ─── 22. Done! ────────────────────────────────────────────────────────────
     {
       title: "You're All Set!",
       navigateTo: '/',
