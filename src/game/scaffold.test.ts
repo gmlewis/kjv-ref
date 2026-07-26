@@ -39,9 +39,9 @@ describe('buildTilePuzzle', () => {
     expect(p.bank.every(t => t.display === t.word)).toBe(true);
   });
 
-  it('layer 2 bank tiles show only first letters', () => {
+  it('layer 2 bank tiles show full words', () => {
     const p = buildTilePuzzle(v, 2, 1);
-    expect(p.bank.every(t => t.display.length <= 1)).toBe(true);
+    expect(p.bank.every(t => t.display === t.word)).toBe(true);
   });
 
   it('is deterministic for a fixed seed', () => {

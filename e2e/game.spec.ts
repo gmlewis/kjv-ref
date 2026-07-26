@@ -147,4 +147,48 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     const exitBox = await exitBtn.boundingBox();
     expect(exitBox!.x + exitBox!.width).toBeLessThanOrEqual(412);
   });
+
+  test('D-7: Bank tiles display full words across progression layers (regression check)', async ({ page }) => {
+    await openApp(page, '/kjv-ref/practice');
+
+    // Pre-seed progress for Exodus 20:3 (first starter verse) at customClozeLevel 2
+    await page.evaluate(() => {
+      localStorage.setItem(
+        'kjv-memorize-progress',
+        JSON.stringify([
+          { verse: { reference: 'Exodus 20:3' }, status: 'learning', timesRecited: 1, streak: 1, accuracy: 100, customClozeLevel: 2 },
+        ]),
+      );
+    });
+
+    await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
+    const canvas = page.locator('canvas');
+    await expect(canvas).toBeVisible();
+
+    // Wait for game engine context to be fully booted
+    await page.waitForFunction(() => typeof (window as any).__lampGamePuzzle === 'function', { timeout: 15000 });
+
+    // Tap canvas to advance past L0 study card to tile puzzle mode if initial state is study
+    await page.waitForTimeout(500);
+    await canvas.click();
+    await page.waitForTimeout(500);
+
+    // Verify tile bank words in engine puzzle state
+    const info = await page.evaluate(() => {
+      const getPuzzle = (window as any).__lampGamePuzzle;
+      if (getPuzzle) {
+        const p = getPuzzle();
+        return p ? { layer: p.layer, reference: p.reference, bankLength: p.bank.length, displays: p.bank.map((t: any) => t.display) } : null;
+      }
+      return null;
+    });
+
+    console.log('D-7 Puzzle info:', JSON.stringify(info));
+    const bankDisplays = info?.displays ?? [];
+    expect(bankDisplays.length).toBeGreaterThan(0);
+    // Every bank tile MUST display a full word (length > 1), NEVER a single letter
+    for (const d of bankDisplays) {
+      expect(d.length).toBeGreaterThan(1);
+    }
+  });
 });

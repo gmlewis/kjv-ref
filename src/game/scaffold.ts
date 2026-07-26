@@ -94,11 +94,11 @@ export function buildTilePuzzle(verse: KJVVerse, layer: ScaffoldLayer, seed?: nu
   }
 
   if (layer === 1 || layer === 2) {
-    // Order / first-letter order: every slot blank, full bank of tiles.
+    // Order mode: every slot blank, full bank of tiles.
     const tiles: TileSpec[] = words.map((word, i) => ({
       id: `t${i}`,
       word,
-      display: layer === 1 ? word : firstLetterOf(word),
+      display: word,
     }));
     return {
       layer,
@@ -122,7 +122,7 @@ export function buildTilePuzzle(verse: KJVVerse, layer: ScaffoldLayer, seed?: nu
       bankTiles.push({
         id: `t${i}`,
         word: words[i],
-        display: layer === 3 ? words[i] : firstLetterOf(words[i]),
+        display: words[i],
       });
     } else {
       slots[i].preFilled = true;

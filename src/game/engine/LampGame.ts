@@ -56,7 +56,7 @@ import type {
   DefaultTextData,
 } from '@babylonjs/lite';
 import type { KJVVerse } from '../../data/kjv-verses';
-import type { ProgressEntry, DueEntry } from '../types';
+import type { ProgressEntry, DueEntry, TilePuzzle } from '../types';
 import { selectNextLamps } from '../selection';
 import { getGameLayer, buildTilePuzzle } from '../scaffold';
 import { scoreTilePuzzle, performanceRating, computeXp, applyCombo, levelForXp } from '../scoring';
@@ -106,6 +106,8 @@ export interface LampGame {
   dispose(): void;
   /** Live-switch the palette when the user toggles dark mode. */
   setTheme(theme: GameTheme): void;
+  /** Optional getter for current puzzle state (used in E2E tests). */
+  getPuzzle?(): TilePuzzle | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1158,5 +1160,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     disposeEngine(engine);
   }
 
-  return { dispose, setTheme };
+  (window as any).__lampGamePuzzle = () => puzzle;
+
+  return { dispose, setTheme, getPuzzle: () => puzzle };
 }
