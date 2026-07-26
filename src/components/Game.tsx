@@ -38,9 +38,10 @@ export default function Game() {
 
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [soundEnabled, setSoundEnabled] = useState(() => loadGameState().settings.sound);
+  const defaultVerse = starterRegions()[0]?.verses[0];
   const [showPeek, setShowPeek] = useState(false);
-  const [activeRef, setActiveRef] = useState<string>('');
-  const [activeText, setActiveText] = useState<string>('');
+  const [activeRef, setActiveRef] = useState<string>(() => defaultVerse?.reference ?? '');
+  const [activeText, setActiveText] = useState<string>(() => defaultVerse?.text ?? '');
 
   useEffect(() => {
     setAudioMuted(!soundEnabled);
@@ -90,6 +91,10 @@ export default function Game() {
           (p: any) => p?.status === 'mastered',
         ).length;
         const pool = unlockedRegions(starterRegions(), masteredCount).flatMap((r) => r.verses);
+        if (pool.length > 0) {
+          setActiveRef(pool[0].reference);
+          setActiveText(pool[0].text);
+        }
         const dailyGoalCompleted = !!getDailyGoal()?.completed;
 
         const { createLampGame } = await import('../game');
@@ -106,6 +111,12 @@ export default function Game() {
             onResolve: (result: LampResolveResult) => {
               handleResolve(result, pool);
             },
+            onVerseChange: (v: any) => {
+              if (v?.reference && v?.text) {
+                setActiveRef(v.reference);
+                setActiveText(v.text);
+              }
+            },
           },
         });
         if (cancelled) {
@@ -113,10 +124,6 @@ export default function Game() {
           return;
         }
         engineRef.current = engine;
-        if (pool.length > 0) {
-          setActiveRef(pool[0].reference);
-          setActiveText(pool[0].text);
-        }
         setStatus('ready');
       } catch {
         if (!cancelled) setStatus('error');

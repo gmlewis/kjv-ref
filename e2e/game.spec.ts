@@ -89,4 +89,32 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     });
     expect(typeof soundState).toBe('boolean');
   });
+
+  test('D-5: Peek button displays active verse text overlay matching active verse', async ({ page }) => {
+    await openApp(page, '/kjv-ref/practice');
+
+    const card = page.locator('text=Lamp of the Path');
+    await card.scrollIntoViewIfNeeded();
+    await card.click();
+    await page.waitForURL('**/practice/game');
+
+    // Wait for game boot loading overlay to disappear
+    await expect(page.locator('text=Lighting the lamps…')).toBeHidden({ timeout: 15000 });
+
+    const peekBtn = page.locator('button[aria-label="Peek verse text"]');
+    await expect(peekBtn).toBeVisible();
+
+    // Click Peek button
+    await peekBtn.click();
+
+    // Verify verse peek popup card is displayed
+    const hideBtn = page.locator('button[aria-label="Hide verse text"]');
+    await expect(hideBtn).toBeVisible();
+
+    // Verify active verse text element is visible inside the peek card
+    const peekVerseEl = page.locator('.animate-fadeIn .font-serif');
+    await expect(peekVerseEl).toBeVisible();
+    const peekCardText = await peekVerseEl.innerText();
+    expect(peekCardText.length).toBeGreaterThan(10);
+  });
 });

@@ -80,6 +80,8 @@ export interface LampResolveResult {
 export interface LampGameCallbacks {
   /** Called by the engine each time the player resolves a lamp. */
   onResolve: (result: LampResolveResult) => void;
+  /** Called when the active verse changes so host UI can sync state (e.g. Peek feature). */
+  onVerseChange?: (verse: KJVVerse) => void;
   /** Called when all lamps in the session queue are lit. */
   onSessionComplete?: (stats: { totalXp: number; lampsLit: number; bestCombo: number }) => void;
 }
@@ -239,6 +241,9 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let hudData: DefaultTextData | null = null;
   let feedbackLayer: TextLayer | null = null;
   let feedbackData: DefaultTextData | null = null;
+  let feedbackBgSprite: Sprite2DHandle | null = null;
+  let slotBottomY = 220;
+  let bankTopY = 500;
   let typedLayer: TextLayer | null = null;
   let typedData: DefaultTextData | null = null;
   let typedText = '';
@@ -246,6 +251,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let pathSprite: Sprite2DHandle | null = null;
   let lampSprites: Sprite2DHandle[] = [];
   let gameState = loadGameState();
+  const sessionLitRefs = new Set<string>();
   let combo = 0;
   let puzzleStartMs = 0;
   let resolving = false;
@@ -303,10 +309,22 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // Layer pivot is center (default [0.5,0.5]); positionPx is the quad center.
     updateSprite2D(sprite, { positionPx: [x + w / 2, y + h / 2], sizePx: [w, h], color });
   }
-  function placeText(layer: TextLayer, data: DefaultTextData, cellX: number, cellY: number, cellW: number, cellH: number) {
+  function placeText(
+    layer: TextLayer,
+    data: DefaultTextData,
+    cellX: number,
+    cellY: number,
+    cellW: number,
+    cellH: number,
+    fontSizePx: number = WORD_FONT,
+  ) {
+    // In Babylon Lite WebGPU shader, glyph Y ascends by font ascender (~0.75 * fontSizePx) above layer.positionPx.y.
+    // Setting layer.positionPx.y = cellY + (cellH / 2) + (fontSizePx * 0.25) places top of font at cellY + 9px
+    // and bottom of font descenders at cellY + cellH - 9px, producing exact 9px equal top & bottom padding.
+    const baselineY = cellY + cellH / 2 + fontSizePx * 0.25;
     layer.positionPx = {
       x: cellX + Math.max(0, (cellW - data.width) / 2),
-      y: cellY + Math.max(0, (cellH - data.height) / 2),
+      y: baselineY,
     };
   }
   function setTilePos(t: TileView, x: number, y: number) {
@@ -374,6 +392,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       disposeDefaultTextData(feedbackData);
       feedbackData = null;
     }
+    if (feedbackBgSprite) {
+      removeSprite2D(feedbackBgSprite);
+      feedbackBgSprite = null;
+    }
     if (typedLayer) {
       removeTextRendererLayer(textRenderer, typedLayer);
       typedLayer = null;
@@ -398,6 +420,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   function buildPuzzle(v: KJVVerse) {
     teardownPuzzle();
     verse = v;
+    opts.callbacks.onVerseChange?.(v);
 
     const boot = progressFor(v.reference);
     const timesRecited = sessionRecited.get(v.reference) ?? boot?.timesRecited ?? 0;
@@ -469,17 +492,20 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // Render lamp markers along the path
     const lampCount = queue.length;
     const lampStep = (W - 4 * MARGIN) / Math.max(1, lampCount - 1);
+    const activeIndex = Math.max(0, queueIndex - 1);
     for (let i = 0; i < lampCount; i++) {
       const qv = queue[i];
       const qProgress = progressFor(qv.reference);
-      const isCurrent = qv.reference === v.reference;
+      const isCurrent = i === activeIndex;
+      const isSessionLit = sessionLitRefs.has(qv.reference) || i < activeIndex;
       const isMastered = qProgress?.status === 'mastered';
       const isDue = opts.due.some(d => d.verse.reference === qv.reference);
 
-      let lampCol = spriteColor(palette.slotBorder, 0.6);
-      if (isMastered) lampCol = spriteColor(palette.lamp, 1);
-      else if (isDue) lampCol = spriteColor(palette.accent, 0.9);
-      if (isCurrent) lampCol = spriteColor(palette.accent, 1);
+      let lampCol = spriteColor(palette.slotBorder, 0.6); // unlit slate
+      if (isMastered || isSessionLit) lampCol = spriteColor('#fbbf24', 1); // glowing gold flame!
+      else if (isDue) lampCol = spriteColor('#f59e0b', 0.9); // amber due review
+
+      if (isCurrent) lampCol = spriteColor(palette.accent, 1); // active highlight
 
       const lx = 2 * MARGIN + i * lampStep;
       const size = isCurrent ? 18 : 12;
@@ -510,6 +536,9 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // Slots: a background sprite per slot; pre-filled slots also show their word.
     const slotWidths = puzzle.slots.map(() => maxCellW);
     const slotPos = wrapLayout(slotWidths, areaX, areaW, SLOT_AREA_TOP, CELL_H);
+    const maxSlotY = slotPos.length > 0 ? Math.max(...slotPos.map((p) => p.y)) : SLOT_AREA_TOP;
+    slotBottomY = maxSlotY + CELL_H;
+
     slots = puzzle.slots.map((s, i) => {
       const pos = slotPos[i];
       const w = slotWidths[i];
@@ -546,8 +575,24 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // Tiles (bank) — only for tile modes.
     if (!isRecall && !isStudy) {
       const tileWidths = puzzle.bank.map(() => maxCellW);
-      const bankTop = H - BANK_BOTTOM_PAD - CELL_H;
-      const tilePos = wrapLayout(tileWidths, areaX, areaW, bankTop, CELL_H);
+
+      // Determine number of wrapped rows for bank tiles:
+      let rowCount = 1;
+      let rW = 0;
+      for (const w of tileWidths) {
+        if (rW > 0 && rW + GAP + w > areaW) {
+          rowCount++;
+          rW = w;
+        } else {
+          rW += (rW > 0 ? GAP : 0) + w;
+        }
+      }
+      const totalBankH = rowCount * CELL_H + (rowCount - 1) * GAP;
+      // Light path line is at pathY = H - 36.
+      // Bottom of lowest bank tile row must end at or above H - 65 (29px clearance above light path line & lamps).
+      const maxBankBottomY = H - 65;
+      bankTopY = maxBankBottomY - totalBankH;
+      const tilePos = wrapLayout(tileWidths, areaX, areaW, bankTopY, CELL_H);
       tiles = puzzle.bank.map((t, i) => {
         const pos = tilePos[i];
         const w = tileWidths[i];
@@ -845,6 +890,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     const earnedXp = computeXp(layer, wordCount, fluent, combo);
     combo = applyCombo(combo, correct);
     if (correct) {
+      if (verse) sessionLitRefs.add(verse.reference);
       playLampLitSound(combo);
       gameState.xp += earnedXp;
       gameState.level = levelForXp(gameState.xp);
@@ -880,18 +926,37 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       }
     }
 
-    // Display clear celebratory feedback banner
+    // Display clear celebratory feedback banner with background toast pill
     const [W] = canvasSize();
     const bannerMsg = correct
       ? `🔥 Lamp Lit! +${earnedXp} XP (${Math.round(accuracy)}%)`
       : `Try Again (${Math.round(accuracy)}%)`;
-    const bannerColor = correct ? textColor('#22c55e', 1) : textColor('#ef4444', 1);
+    const bannerTextColor = textColor('#ffffff', 1);
 
     if (feedbackLayer) removeTextRendererLayer(textRenderer, feedbackLayer);
     if (feedbackData) disposeDefaultTextData(feedbackData);
+    if (feedbackBgSprite) {
+      removeSprite2D(feedbackBgSprite);
+      feedbackBgSprite = null;
+    }
 
-    feedbackData = createDefaultTextData(font, 22, bannerMsg, bannerColor, { align: 'center' });
-    feedbackLayer = createTextLayer(feedbackData, { positionPx: { x: (W - feedbackData.width) / 2, y: SLOT_AREA_TOP + 64 } });
+    feedbackData = createDefaultTextData(font, 22, bannerMsg, bannerTextColor, { align: 'center' });
+
+    // Position toast banner cleanly in the clear space below the last slot row:
+    const bannerCenterY = slotBottomY + 42;
+    const pillW = feedbackData.width + 40;
+    const pillH = 38;
+    const pillBgCol = correct ? spriteColor('#047857', 0.95) : spriteColor('#b91c1c', 0.95);
+
+    feedbackBgSprite = addSprite2D(spriteLayer, {
+      positionPx: [W / 2, bannerCenterY],
+      sizePx: [pillW, pillH],
+      color: pillBgCol,
+      frame: 0,
+    });
+
+    feedbackLayer = createTextLayer(feedbackData, {});
+    placeText(feedbackLayer, feedbackData, (W - pillW) / 2, bannerCenterY - pillH / 2, pillW, pillH, 22);
     addTextRendererLayer(textRenderer, feedbackLayer);
 
     // Paced 1.4s delay so the player can see and read their lit verse
@@ -904,6 +969,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       if (feedbackData) {
         disposeDefaultTextData(feedbackData);
         feedbackData = null;
+      }
+      if (feedbackBgSprite) {
+        removeSprite2D(feedbackBgSprite);
+        feedbackBgSprite = null;
       }
       if (wasStudy) buildPuzzle(verse);
       else nextPuzzle();
