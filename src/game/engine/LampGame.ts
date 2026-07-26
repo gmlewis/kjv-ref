@@ -478,12 +478,23 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       lampSprites.push(lSprite);
     }
 
-    // Slots: a background sprite per slot; pre-filled slots also show their word.
-    const slotWidths = puzzle.slots.map((s) => {
-      if (!s.preFilled) return MIN_CELL_W;
+    // Measure the longest word block in the verse puzzle so all slot and tile boxes are uniformly sized.
+    let maxCellW = MIN_CELL_W;
+    for (const s of puzzle.slots) {
       const data = createDefaultTextData(font, WORD_FONT, s.word, textColor(palette.text));
-      return Math.max(MIN_CELL_W, data.width + 2 * CELL_PAD);
-    });
+      const w = data.width + 2 * CELL_PAD;
+      if (w > maxCellW) maxCellW = w;
+      disposeDefaultTextData(data);
+    }
+    for (const t of puzzle.bank) {
+      const data = createDefaultTextData(font, WORD_FONT, t.display, textColor(palette.text));
+      const w = data.width + 2 * CELL_PAD;
+      if (w > maxCellW) maxCellW = w;
+      disposeDefaultTextData(data);
+    }
+
+    // Slots: a background sprite per slot; pre-filled slots also show their word.
+    const slotWidths = puzzle.slots.map(() => maxCellW);
     const slotPos = wrapLayout(slotWidths, areaX, areaW, SLOT_AREA_TOP, CELL_H);
     slots = puzzle.slots.map((s, i) => {
       const pos = slotPos[i];
@@ -520,10 +531,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
     // Tiles (bank) — only for tile modes.
     if (!isRecall && !isStudy) {
-      const tileWidths = puzzle.bank.map((t) => {
-        const data = createDefaultTextData(font, WORD_FONT, t.display, textColor(palette.text));
-        return Math.max(MIN_CELL_W, data.width + 2 * CELL_PAD);
-      });
+      const tileWidths = puzzle.bank.map(() => maxCellW);
       const bankTop = H - BANK_BOTTOM_PAD - CELL_H;
       const tilePos = wrapLayout(tileWidths, areaX, areaW, bankTop, CELL_H);
       tiles = puzzle.bank.map((t, i) => {
