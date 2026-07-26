@@ -78,10 +78,10 @@ export interface LampResolveResult {
 }
 
 export interface LampGameCallbacks {
-  /** Called by the engine each time the player resolves a lamp. The React host
-   *  wires this to `useUpdateProgressMutation` + `useUpsertReviewScheduleMutation`
-   *  (mirroring `Practice.tsx` `handleComplete`). */
+  /** Called by the engine each time the player resolves a lamp. */
   onResolve: (result: LampResolveResult) => void;
+  /** Called when all lamps in the session queue are lit. */
+  onSessionComplete?: (stats: { totalXp: number; lampsLit: number; bestCombo: number }) => void;
 }
 
 export interface LampGameOptions {
@@ -237,6 +237,8 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let promptData: DefaultTextData | null = null;
   let hudLayer: TextLayer | null = null;
   let hudData: DefaultTextData | null = null;
+  let feedbackLayer: TextLayer | null = null;
+  let feedbackData: DefaultTextData | null = null;
   let typedLayer: TextLayer | null = null;
   let typedData: DefaultTextData | null = null;
   let typedText = '';
@@ -364,6 +366,14 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       disposeDefaultTextData(hudData);
       hudData = null;
     }
+    if (feedbackLayer) {
+      removeTextRendererLayer(textRenderer, feedbackLayer);
+      feedbackLayer = null;
+    }
+    if (feedbackData) {
+      disposeDefaultTextData(feedbackData);
+      feedbackData = null;
+    }
     if (typedLayer) {
       removeTextRendererLayer(textRenderer, typedLayer);
       typedLayer = null;
@@ -426,7 +436,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       ? 'Type the verse, then press Enter'
       : isStudy
         ? 'Read the verse — tap to continue'
-        : 'Drag the tiles into the verse';
+        : 'Tap or drag tiles into the verse';
     promptData = createDefaultTextData(font, PROMPT_FONT, promptText, textColor(palette.accent), {
       align: 'center',
     });
@@ -827,7 +837,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     }, 350);
   }
 
-  function report(reference: string, correct: boolean, accuracy: number) {
+  function report(reference: string, correct: boolean, accuracy: number): number {
     const fluent = correct;
     const rating = performanceRating(correct, false, fluent);
     const wordCount = verse ? verse.text.split(' ').length : 10;
@@ -844,6 +854,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       playTileErrorSound();
     }
     onResolve({ reference, correct, accuracy, rating, fluent, usedHint: false });
+    return earnedXp;
   }
 
   function resolveTilePuzzle() {
@@ -857,12 +868,46 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     });
     const { correct, accuracy } = scoreTilePuzzle(placed, verse.text);
     bumpRecited();
-    report(verse.reference, correct, accuracy);
-    // After reading a new verse once (L0), immediately scaffold it up to L1
-    // (drag tiles) instead of skipping to the next verse — otherwise a first-time
-    // player taps through the whole queue with no interaction.
-    if (wasStudy) buildPuzzle(verse);
-    else nextPuzzle();
+    const earnedXp = report(verse.reference, correct, accuracy);
+
+    // Glow slot borders bright green for correct, red for incorrect
+    const highlightCol = correct ? spriteColor('#22c55e', 1) : spriteColor('#ef4444', 1);
+    for (const s of slots) {
+      if (s.borders.length > 0) {
+        for (const b of s.borders) {
+          updateSprite2D(b, { color: highlightCol });
+        }
+      }
+    }
+
+    // Display clear celebratory feedback banner
+    const [W] = canvasSize();
+    const bannerMsg = correct
+      ? `🔥 Lamp Lit! +${earnedXp} XP (${Math.round(accuracy)}%)`
+      : `Try Again (${Math.round(accuracy)}%)`;
+    const bannerColor = correct ? textColor('#22c55e', 1) : textColor('#ef4444', 1);
+
+    if (feedbackLayer) removeTextRendererLayer(textRenderer, feedbackLayer);
+    if (feedbackData) disposeDefaultTextData(feedbackData);
+
+    feedbackData = createDefaultTextData(font, 22, bannerMsg, bannerColor, { align: 'center' });
+    feedbackLayer = createTextLayer(feedbackData, { positionPx: { x: (W - feedbackData.width) / 2, y: SLOT_AREA_TOP + 64 } });
+    addTextRendererLayer(textRenderer, feedbackLayer);
+
+    // Paced 1.4s delay so the player can see and read their lit verse
+    setTimeout(() => {
+      if (disposed) return;
+      if (feedbackLayer) {
+        removeTextRendererLayer(textRenderer, feedbackLayer);
+        feedbackLayer = null;
+      }
+      if (feedbackData) {
+        disposeDefaultTextData(feedbackData);
+        feedbackData = null;
+      }
+      if (wasStudy) buildPuzzle(verse);
+      else nextPuzzle();
+    }, 1400);
   }
 
   function resolveRecall() {
@@ -891,7 +936,29 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       addTextRendererLayer(textRenderer, headerLayer);
       return;
     }
-    const v = queue[queueIndex % queue.length];
+
+    if (queueIndex >= queue.length) {
+      // Fixed 12-lamp session complete! Trigger onSessionComplete callback.
+      if (opts.callbacks.onSessionComplete) {
+        opts.callbacks.onSessionComplete({
+          totalXp: gameState.xp,
+          lampsLit: queue.length,
+          bestCombo: gameState.comboBest,
+        });
+      }
+      teardownPuzzle();
+      const [W] = canvasSize();
+      headerData = createDefaultTextData(font, HEADER_FONT, 'Journey Complete! All 12 Lamps Lit!', textColor(palette.accent), { align: 'center' });
+      headerLayer = createTextLayer(headerData, { positionPx: { x: (W - headerData.width) / 2, y: HEADER_Y } });
+      addTextRendererLayer(textRenderer, headerLayer);
+
+      promptData = createDefaultTextData(font, PROMPT_FONT, 'Tap Exit above to view your summary', textColor(palette.text), { align: 'center' });
+      promptLayer = createTextLayer(promptData, { positionPx: { x: (W - promptData.width) / 2, y: HEADER_Y + 44 } });
+      addTextRendererLayer(textRenderer, promptLayer);
+      return;
+    }
+
+    const v = queue[queueIndex];
     queueIndex++;
     buildPuzzle(v);
   }

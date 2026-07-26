@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Volume2, VolumeX, X } from 'lucide-react';
+import { Eye, EyeOff, Volume2, VolumeX, X } from 'lucide-react';
 import {
   useMyProgress,
   useDueReviews,
@@ -38,6 +38,9 @@ export default function Game() {
 
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [soundEnabled, setSoundEnabled] = useState(() => loadGameState().settings.sound);
+  const [showPeek, setShowPeek] = useState(false);
+  const [activeRef, setActiveRef] = useState<string>('');
+  const [activeText, setActiveText] = useState<string>('');
 
   useEffect(() => {
     setAudioMuted(!soundEnabled);
@@ -101,7 +104,7 @@ export default function Game() {
           dailyGoalCompleted,
           callbacks: {
             onResolve: (result: LampResolveResult) => {
-              handleResolve(result);
+              handleResolve(result, pool);
             },
           },
         });
@@ -110,6 +113,10 @@ export default function Game() {
           return;
         }
         engineRef.current = engine;
+        if (pool.length > 0) {
+          setActiveRef(pool[0].reference);
+          setActiveText(pool[0].text);
+        }
         setStatus('ready');
       } catch {
         if (!cancelled) setStatus('error');
@@ -127,8 +134,14 @@ export default function Game() {
   }, []);
 
   // --- onResolve: mirror Practice.tsx handleComplete (per-verse writes) ------
-  function handleResolve(result: LampResolveResult) {
+  function handleResolve(result: LampResolveResult, pool: any[]) {
     const { reference, correct } = result;
+    // Update active verse for peek feature
+    const found = pool.find((v) => v.reference === reference);
+    if (found) {
+      setActiveRef(found.reference);
+      setActiveText(found.text);
+    }
     // Accumulate session stats.
     versesPracticedRef.current.add(reference);
     totalCountRef.current += 1;
@@ -190,6 +203,22 @@ export default function Game() {
       <div className="absolute top-4 right-4 z-10 flex items-center gap-3">
         <button
           type="button"
+          onClick={() => setShowPeek((prev) => !prev)}
+          aria-label={showPeek ? 'Hide verse text' : 'Peek verse text'}
+          title={showPeek ? 'Hide full verse text' : 'Peek full verse text'}
+          className="glassmorphism rounded-full px-3.5 py-1.5 shadow-lg hover:bg-white/20 transition-colors flex items-center gap-2"
+        >
+          {showPeek ? (
+            <EyeOff className="w-5 h-5 text-indigo-400" />
+          ) : (
+            <Eye className="w-5 h-5 text-indigo-400" />
+          )}
+          <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+            {showPeek ? 'Hide' : 'Peek'}
+          </span>
+        </button>
+        <button
+          type="button"
           onClick={toggleSound}
           aria-label={soundEnabled ? 'Mute sound' : 'Unmute sound'}
           title={soundEnabled ? 'Sound is on — click to mute' : 'Sound is muted — click to enable'}
@@ -210,6 +239,17 @@ export default function Game() {
           <X className="w-6 h-6 text-gray-700 dark:text-gray-100" />
         </button>
       </div>
+
+      {showPeek && activeText && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 max-w-lg w-11/12 glassmorphism rounded-2xl p-4 shadow-2xl border border-purple-500/30 text-center animate-fadeIn">
+          <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-1">
+            {activeRef}
+          </p>
+          <p className="text-sm font-serif leading-relaxed text-gray-800 dark:text-gray-100">
+            {activeText}
+          </p>
+        </div>
+      )}
 
       {status === 'loading' && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/30 backdrop-blur-sm">
