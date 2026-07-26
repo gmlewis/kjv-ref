@@ -257,6 +257,13 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let combo = 0;
   let puzzleStartMs = 0;
   let resolving = false;
+  // When true, the incorrect-answer feedback banner is showing and the engine
+  // is waiting for a tap to dismiss it and return the misplaced tiles to the bank.
+  let awaitingRetryTap = false;
+  // Per-slot correctness of the most recent tile-puzzle attempt, retained so the
+  // dismiss handler can reset borders / return misplaced tiles after the player
+  // has read the feedback.
+  let lastSlotCorrectness: boolean[] = [];
 
   // --- Input state ---------------------------------------------------------
   let dragging: TileView | null = null;
@@ -451,6 +458,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     typedText = '';
     dragging = null;
     dragPointerId = null;
+    awaitingRetryTap = false;
   }
 
   function buildPuzzle(v: KJVVerse) {
@@ -790,6 +798,14 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   }
 
   function onPointerDown(e: PointerEvent) {
+    if (awaitingRetryTap) {
+      // The incorrect-answer banner stays on screen until the player taps;
+      // dismiss it now and return the misplaced tiles to the bank for retry.
+      awaitingRetryTap = false;
+      clearFeedbackBanner();
+      returnMisplacedTiles();
+      return;
+    }
     if (resolving || !puzzle || !verse) return;
     const [x, y] = pointerPos(e);
     const isStudy = puzzle.bank.length === 0 && !puzzle.freeRecall;
@@ -982,7 +998,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     const [W] = canvasSize();
     const bannerMsg = correct
       ? `🔥 Lamp Lit! +${earnedXp} XP (${Math.round(accuracy)}%)`
-      : `❌ ${wrongCount} ${wrongCount === 1 ? 'Word' : 'Words'} Misplaced (${Math.round(accuracy)}%) — Returning...`;
+      : `❌ ${wrongCount} ${wrongCount === 1 ? 'Word' : 'Words'} Misplaced (${Math.round(accuracy)}%) — Tap to retry`;
     const bannerTextColor = textColor('#ffffff', 1);
 
     if (feedbackLayer) removeTextRendererLayer(textRenderer, feedbackLayer);
@@ -1011,47 +1027,65 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     placeText(feedbackLayer, feedbackData, (W - pillW) / 2, bannerCenterY - pillH / 2, pillW, pillH, 22);
     addTextRendererLayer(textRenderer, feedbackLayer);
 
-    // Paced 1.4s delay so the player can see and study their slot feedback
-    setTimeout(() => {
-      if (disposed) return;
-      if (feedbackLayer) {
-        removeTextRendererLayer(textRenderer, feedbackLayer);
-        feedbackLayer = null;
-      }
-      if (feedbackData) {
-        disposeDefaultTextData(feedbackData);
-        feedbackData = null;
-      }
-      if (feedbackBgSprite) {
-        removeSprite2D(feedbackBgSprite);
-        feedbackBgSprite = null;
-      }
-
-      if (correct || wasStudy) {
+    if (correct || wasStudy) {
+      // Paced 1.4s delay so the player can see and study their slot feedback,
+      // then advance to the next puzzle (or re-present the same verse at the
+      // next layer for the L0 read-along).
+      setTimeout(() => {
+        if (disposed) return;
+        clearFeedbackBanner();
         if (wasStudy) buildPuzzle(verse);
         else nextPuzzle();
-      } else {
-        // Return ONLY the misplaced tiles back to the word bank so the player can learn & retry!
-        for (let i = 0; i < slots.length; i++) {
-          const s = slots[i];
-          if (s.preFilled || slotCorrectness[i]) continue;
+      }, 1400);
+    } else {
+      // Incorrect: keep the red banner + per-slot glow on screen until the
+      // player taps, so they have time to read the feedback before the
+      // misplaced tiles return to the word bank.
+      lastSlotCorrectness = slotCorrectness;
+      awaitingRetryTap = true;
+    }
+  }
 
-          // Reset slot borders to default border color
-          for (const b of s.borders) {
-            updateSprite2D(b, { color: spriteColor(palette.slotBorder, 1) });
-          }
+  /** Remove the feedback banner (text + background pill). */
+  function clearFeedbackBanner() {
+    if (feedbackLayer) {
+      removeTextRendererLayer(textRenderer, feedbackLayer);
+      feedbackLayer = null;
+    }
+    if (feedbackData) {
+      disposeDefaultTextData(feedbackData);
+      feedbackData = null;
+    }
+    if (feedbackBgSprite) {
+      removeSprite2D(feedbackBgSprite);
+      feedbackBgSprite = null;
+    }
+  }
 
-          // Animate misplaced tile smoothly back to its word bank home location
-          const t = tiles.find((tt) => tt.placedSlotIndex === s.index);
-          if (t) {
-            t.placedSlotIndex = null;
-            updateSprite2D(t.sprite, { color: spriteColor(palette.tile, 1) });
-            animateTileTo(t, t.homeX, t.homeY, 300);
-          }
-        }
-        resolving = false;
+  /**
+   * Return only the misplaced tiles to the word bank, reset their slots' borders
+   * to the default color, and clear the resolving flag so the player can retry.
+   * Uses {@link lastSlotCorrectness} to decide which tiles to move.
+   */
+  function returnMisplacedTiles() {
+    for (let i = 0; i < slots.length; i++) {
+      const s = slots[i];
+      if (s.preFilled || lastSlotCorrectness[i]) continue;
+
+      // Reset slot borders to default border color
+      for (const b of s.borders) {
+        updateSprite2D(b, { color: spriteColor(palette.slotBorder, 1) });
       }
-    }, 1400);
+
+      // Animate misplaced tile smoothly back to its word bank home location
+      const t = tiles.find((tt) => tt.placedSlotIndex === s.index);
+      if (t) {
+        t.placedSlotIndex = null;
+        updateSprite2D(t.sprite, { color: spriteColor(palette.tile, 1) });
+        animateTileTo(t, t.homeX, t.homeY, 300);
+      }
+    }
+    resolving = false;
   }
 
   function resolveRecall() {
