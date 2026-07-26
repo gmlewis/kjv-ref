@@ -119,6 +119,7 @@ const MARGIN = 24;
 const HEADER_Y = 44;
 const SLOT_AREA_TOP = 118;
 const BANK_BOTTOM_PAD = 96;
+const BORDER_T = 2; // outline thickness (CSS px) for blank slot drop-targets
 
 // ---------------------------------------------------------------------------
 // Color helpers. Palette colors are sRGB hex; sprites tint a white 1x1 atlas
@@ -147,6 +148,9 @@ interface SlotView {
   preFilled: boolean;
   x: number; y: number; w: number; h: number; // cell top-left + size
   sprite: Sprite2DHandle;
+  /** 4 thin outline quads (top/bottom/left/right) drawn only for blank slots,
+   *  so the drop target stays visible against the background. Empty for pre-filled. */
+  borders: Sprite2DHandle[];
   textLayer?: TextLayer;
   textData?: DefaultTextData;
 }
@@ -298,6 +302,17 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     placeSprite(t.sprite, x, y, t.w, t.h, spriteColor(palette.tile, 1));
     placeText(t.textLayer, t.textData, x, y, t.w, t.h);
   }
+  /** Position the 4 outline quads of a blank slot's drop-target border. */
+  function placeSlotBorders(s: SlotView) {
+    if (s.borders.length === 0) return;
+    const col = spriteColor(palette.slotBorder, 1);
+    const T = BORDER_T;
+    const { x, y, w, h } = s;
+    placeSprite(s.borders[0], x, y, w, T, col); // top
+    placeSprite(s.borders[1], x, y + h - T, w, T, col); // bottom
+    placeSprite(s.borders[2], x, y, T, h, col); // left
+    placeSprite(s.borders[3], x + w - T, y, T, h, col); // right
+  }
 
   // =========================================================================
   // Puzzle teardown / build.
@@ -305,6 +320,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   function teardownPuzzle() {
     for (const s of slots) {
       removeSprite2D(s.sprite);
+      for (const b of s.borders) removeSprite2D(b);
       if (s.textLayer) removeTextRendererLayer(textRenderer, s.textLayer);
       if (s.textData) disposeDefaultTextData(s.textData);
     }
@@ -389,14 +405,16 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     slots = puzzle.slots.map((s, i) => {
       const pos = slotPos[i];
       const w = slotWidths[i];
-      const color = s.preFilled ? spriteColor(palette.tile, 0.7) : spriteColor(palette.slot, 0.55);
+      const color = s.preFilled
+        ? spriteColor(palette.tile, 0.7)
+        : spriteColor(palette.slot, 0.35); // faint fill — the border carries visibility
       const sprite = addSprite2D(spriteLayer, {
         positionPx: [pos.x + w / 2, pos.y + CELL_H / 2],
         sizePx: [w, CELL_H],
         color,
         frame: 0,
       });
-      const view: SlotView = { index: s.index, word: s.word, preFilled: s.preFilled, x: pos.x, y: pos.y, w, h: CELL_H, sprite };
+      const view: SlotView = { index: s.index, word: s.word, preFilled: s.preFilled, x: pos.x, y: pos.y, w, h: CELL_H, sprite, borders: [] };
       if (s.preFilled) {
         const data = createDefaultTextData(font, WORD_FONT, s.word, textColor(palette.text, 0.6));
         view.textData = data;
@@ -404,6 +422,15 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
         placeText(view.textLayer, data, pos.x, pos.y, w, CELL_H);
         view.textLayer.opacity = 0.6;
         addTextRendererLayer(textRenderer, view.textLayer);
+      } else {
+        // Outline the blank slot so the drop target is obvious.
+        const bcol = spriteColor(palette.slotBorder, 1);
+        for (let b = 0; b < 4; b++) {
+          view.borders.push(
+            addSprite2D(spriteLayer, { positionPx: [0, 0], sizePx: [1, 1], color: bcol, frame: 0 }),
+          );
+        }
+        placeSlotBorders(view);
       }
       return view;
     });
@@ -483,8 +510,9 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     slots.forEach((s, i) => {
       const pos = slotPos[i];
       s.x = pos.x; s.y = pos.y;
-      const color = s.preFilled ? spriteColor(palette.tile, 0.7) : spriteColor(palette.slot, 0.55);
+      const color = s.preFilled ? spriteColor(palette.tile, 0.7) : spriteColor(palette.slot, 0.35);
       placeSprite(s.sprite, s.x, s.y, s.w, s.h, color);
+      placeSlotBorders(s);
       if (s.textLayer && s.textData) placeText(s.textLayer, s.textData, s.x, s.y, s.w, s.h);
     });
 
@@ -635,6 +663,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   function resolveTilePuzzle() {
     if (!verse || !puzzle) return;
     resolving = true;
+    const wasStudy = puzzle.layer === 0; // read-along: re-present same verse at next layer
     const placed = puzzle.slots.map((s) => {
       if (s.preFilled) return s.word;
       const t = tiles.find((tt) => tt.placedSlotIndex === s.index);
@@ -643,7 +672,11 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     const { correct, accuracy } = scoreTilePuzzle(placed, verse.text);
     bumpRecited();
     report(verse.reference, correct, accuracy);
-    nextPuzzle();
+    // After reading a new verse once (L0), immediately scaffold it up to L1
+    // (drag tiles) instead of skipping to the next verse — otherwise a first-time
+    // player taps through the whole queue with no interaction.
+    if (wasStudy) buildPuzzle(verse);
+    else nextPuzzle();
   }
 
   function resolveRecall() {

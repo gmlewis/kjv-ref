@@ -13,6 +13,8 @@ export interface GamePalette {
   tile: string;
   tileBorder: string;
   slot: string;
+  /** Outline colour for blank (drop-target) slots — must contrast with `background`. */
+  slotBorder: string;
   accent: string;
   lamp: string;
 }
@@ -23,6 +25,7 @@ const LIGHT: GamePalette = {
   tile: '#ffffff',
   tileBorder: '#cbd5e1',
   slot: '#e2e8f0',
+  slotBorder: '#94a3b8', // slate-400 — clearly visible on the near-white background
   accent: '#f59e0b',
   lamp: '#fbbf24',
 };
@@ -32,7 +35,8 @@ const DARK: GamePalette = {
   text: '#e2e8f0',
   tile: '#1e293b',
   tileBorder: '#334155',
-  slot: '#0f172a',
+  slot: '#1e293b',
+  slotBorder: '#64748b', // slate-500 — clearly visible on the near-black background
   accent: '#fbbf24',
   lamp: '#fde68a',
 };
