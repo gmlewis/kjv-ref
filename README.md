@@ -40,7 +40,7 @@ at **[gmlewis.github.io/kjv-ref](https://gmlewis.github.io/kjv-ref)**.
 - **Styling:** Tailwind CSS 3
 - **Routing:** react-router-dom 7
 - **Tests:** Vitest (unit), Playwright (e2e)
-- **Deploy:** GitHub Pages (auto-deploy on push to `main`)
+- **Deploy:** GitHub Pages (auto-deploy on push to `master`)
 
 ---
 
@@ -198,7 +198,9 @@ the same `bun install` + `bun run build`.
 
 Deployment is **automatic**. Pushing to `master` triggers
 `.github/workflows/deploy.yml`, which runs `bun install` + `bun run build` and
-publishes `./dist` to GitHub Pages. The site goes live at
+pushes `./dist` to the `gh-pages` branch (via `peaceiris/actions-gh-pages`).
+GitHub Pages is configured to publish from the `gh-pages` branch, so that push
+triggers the actual `pages build and deployment` build. The site goes live at
 `https://gmlewis.github.io/kjv-ref/`.
 
 There is no manual deploy step.
@@ -206,9 +208,39 @@ There is no manual deploy step.
 ### GitHub Pages setup (one-time repo config)
 
 1. **Repository → Settings → Pages:** set "Build and deployment" source to
-   **GitHub Actions** (not "Deploy from a branch"). The workflow in
-   `.github/workflows/deploy.yml` handles the rest.
+   **Deploy from a branch**, branch **`gh-pages`** / **`/` (root)**. The
+   `deploy.yml` workflow builds the app and pushes `./dist` to that branch;
+   GitHub Pages publishes from it.
 2. The default branch must be `master`.
+
+### Troubleshooting a stuck GitHub Pages deploy
+
+Occasionally the `pages build and deployment` step gets wedged in GitHub's
+build queue: the `Deploy to GitHub Pages` workflow succeeds and the `gh-pages`
+branch is updated, but **no `pages build and deployment` run ever appears** in
+the Actions list and the live site stays on the old version. GitHub shows no
+outage when this happens — it's a per-repo queue stall.
+
+The GitHub Pages build API is the source of truth (the Actions run is only
+created once the build actually *starts*, so a stuck build shows nothing there):
+
+```bash
+# Check the latest Pages build. duration:0 with a stale created_at = stuck
+# (a healthy build runs in ~20-30s and reports a non-zero duration).
+gh api repos/gmlewis/kjv-ref/pages/builds/latest --jq '{status, duration, created_at, commit}'
+
+# Overall Pages status (prints "building" while stuck, "built" when healthy)
+gh api repos/gmlewis/kjv-ref/pages --jq .status
+
+# Re-trigger the Pages build (enqueues a fresh build; the stuck one is abandoned)
+gh api -X POST repos/gmlewis/kjv-ref/pages/builds
+```
+
+After re-triggering, poll the latest build until `status` is `built` (or
+`errored`). A fresh build typically completes in ~20-30s, at which point the
+`pages build and deployment` run appears in the Actions list and the site is
+live. This is a GitHub-side queue stall — the deploy workflow and `gh-pages`
+push both succeeded, so no code change is needed.
 
 ### Deep links
 
