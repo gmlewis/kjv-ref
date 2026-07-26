@@ -16,13 +16,24 @@ export function buildWordBank(text: string, _seed?: number): string[] {
   return shuffle(tokens);
 }
 
-function normalise(text: string): string {
+export function normalizeText(text: string): string {
   return text.toLowerCase().replace(/[^a-z\s]/g, '').replace(/\s+/g, ' ').trim();
 }
 
 /** Check whether the selected word tokens match the target verse text */
 export function checkWordBankAnswer(selectedTokens: string[], targetText: string): boolean {
-  return normalise(selectedTokens.join(' ')) === normalise(targetText);
+  return normalizeText(selectedTokens.join(' ')) === normalizeText(targetText);
+}
+
+/** Positional word-recall score: fraction of target words matching the
+ *  input at the same position, as a percentage (0–100). Order-sensitive. */
+export function scoreRecall(input: string, target: string): number {
+  const inputWords = normalizeText(input).split(' ');
+  const targetWords = normalizeText(target).split(' ');
+  if (targetWords.length === 0) return 0;
+  let matches = 0;
+  targetWords.forEach((w, i) => { if (inputWords[i] === w) matches++; });
+  return Math.round((matches / targetWords.length) * 100);
 }
 
 // ── First Letters ──────────────────────────────────────────────────────────────

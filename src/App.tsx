@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { Suspense, lazy } from 'react';
 import Dashboard from "./components/Dashboard";
 import Practice from "./components/Practice";
 import Books from "./components/Books";
@@ -6,6 +7,8 @@ import Favorites from "./components/Favorites";
 import Statistics from "./components/Statistics";
 import Achievements from "./components/Achievements";
 import Navigation from "./components/Navigation";
+
+const Game = lazy(() => import('./components/Game'));
 
 // Vite sets BASE_URL from `base` in vite.config.ts ('/kjv-ref/' in prod, '/' in dev).
 // BrowserRouter needs it as basename so routes match under the project subpath.
@@ -20,6 +23,7 @@ function App() {
           <Routes>
             <Route path="/books/:book/:chapter" element={<Books />} />
             <Route path="/books/:book" element={<Books />} />
+            <Route path="/practice/game" element={<Suspense fallback={<div className="min-h-screen flex items-center justify-center text-gray-500">Loading game…</div>}><Game /></Suspense>} />
             <Route path="/practice/:reference" element={<Practice />} />
             <Route path="/books" element={<Books />} />
             <Route path="/favorites" element={<Favorites />} />

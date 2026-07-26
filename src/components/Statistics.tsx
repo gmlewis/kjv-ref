@@ -38,8 +38,8 @@ function Statistics() {
     : 0;
 
   // Sessions by mode
-  const modeData = ['recall', 'fill-blank', 'multiple-choice', 'reference'].map(m => ({
-    mode: m.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+  const modeData = ['recall', 'fill-blank', 'multiple-choice', 'reference', 'game'].map(m => ({
+    mode: m === 'game' ? 'Lamp of the Path' : m.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
     sessions: sessionList.filter(s => s?.mode === m).length,
   })).filter(d => d.sessions > 0);
 

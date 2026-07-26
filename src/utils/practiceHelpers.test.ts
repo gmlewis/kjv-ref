@@ -7,6 +7,8 @@ import {
   applyVanishingCloze,
   diffWords,
   diffScore,
+  normalizeText,
+  scoreRecall,
 } from './practiceHelpers';
 
 // ── Word Bank ──────────────────────────────────────────────────────────────────
@@ -242,5 +244,54 @@ describe('diffScore', () => {
   it('does not count extra user words in the total', () => {
     const diff = diffWords('for god so loved extra', 'for god so loved');
     expect(diffScore(diff)).toEqual({ correct: 4, total: 4 });
+  });
+});
+
+// ── normalizeText / scoreRecall ────────────────────────────────────────────────
+
+describe('normalizeText', () => {
+  it('lowercases the input', () => {
+    expect(normalizeText('Hello')).toBe('hello');
+  });
+
+  it('strips non-[a-z\\s] characters', () => {
+    expect(normalizeText('Hello, World!')).toBe('hello world');
+  });
+
+  it('collapses repeated whitespace into a single space', () => {
+    expect(normalizeText('  Foo   bar  ')).toBe('foo bar');
+  });
+
+  it('trims leading and trailing whitespace', () => {
+    expect(normalizeText('   hello   ')).toBe('hello');
+  });
+
+  it('handles empty string', () => {
+    expect(normalizeText('')).toBe('');
+  });
+});
+
+describe('scoreRecall', () => {
+  it('returns 100 for an exact match', () => {
+    expect(scoreRecall('the quick brown fox', 'the quick brown fox')).toBe(100);
+  });
+
+  it('returns 75 when one word of four is wrong', () => {
+    expect(scoreRecall('the quick red fox', 'the quick brown fox')).toBe(75);
+  });
+
+  it('returns 0 for an empty target', () => {
+    expect(scoreRecall('anything', '')).toBe(0);
+  });
+
+  it('is order-sensitive (reversed words score 0)', () => {
+    // Positional algorithm: each target word compared to the input word at the
+    // same index. 'fox brown quick the' vs 'the quick brown fox':
+    //   pos 0: fox vs the ✗
+    //   pos 1: brown vs quick ✗
+    //   pos 2: quick vs brown ✗
+    //   pos 3: the vs fox ✗
+    // → 0 matches → 0.
+    expect(scoreRecall('fox brown quick the', 'the quick brown fox')).toBe(0);
   });
 });

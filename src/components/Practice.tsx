@@ -5,10 +5,11 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   CheckCircle, XCircle, RotateCcw, Sparkles, Zap, Target,
   Award, BookOpen, ArrowLeft, ChevronRight, Shuffle, Filter,
-  Minus, Trophy, Layers, AlignLeft, Eye, Hash, Star, X,
+  Minus, Trophy, Layers, AlignLeft, Eye, Hash, Star, X, Flame,
 } from 'lucide-react';
 import { parseVerseRef, parseVerseRangeRef } from '../utils/urlHelpers';
 import { BIBLE_BOOKS } from '../utils/bibleBooks';
+import { sessionModeFor } from '../utils/sessionMode';
 
 const BOOK_ORDER = new Map(BIBLE_BOOKS.map((b, i) => [b.name, i]));
 
@@ -21,9 +22,10 @@ import {
   toFirstLetters,
   getVanishingClozeLevel, getVanishingClozeMask, firstLetterOf,
   diffWords, type DiffToken,
+  normalizeText, scoreRecall,
 } from '../utils/practiceHelpers';
 
-type PracticeMode = 'word-bank' | 'first-letters' | 'simplified-vanishing-cloze' | 'vanishing-cloze' | 'multiple-choice' | 'reference' | 'recall';
+type PracticeMode = 'word-bank' | 'first-letters' | 'simplified-vanishing-cloze' | 'vanishing-cloze' | 'multiple-choice' | 'reference' | 'recall' | 'lamp-path';
 type PerformanceRating = 'excellent' | 'good' | 'poor';
 
 const MODE_INFO: Record<PracticeMode, { label: string; description: string; icon: any; badge?: string; highlight?: boolean }> = {
@@ -34,6 +36,7 @@ const MODE_INFO: Record<PracticeMode, { label: string; description: string; icon
   'multiple-choice':           { label: 'Multiple Choice',           description: 'Select the correct verse text from four options',       icon: Award,     badge: undefined },
   'reference':                 { label: 'Reference Match',           description: 'Identify the correct reference for a verse',           icon: BookOpen,  badge: undefined },
   'recall':                    { label: 'Full Recall',               description: 'Type the complete verse from memory',                  icon: Target,    badge: 'Advanced' },
+  'lamp-path':                  { label: 'Lamp of the Path',          description: 'A game: light a path of lamps by recalling verses — drag the tiles into order', icon: Flame, badge: 'New', highlight: true },
 };
 
 // Fisher–Yates shuffle using JavaScript's built-in Math.random().
@@ -47,19 +50,6 @@ function shuffleWithMathRandom<T>(arr: T[]): T[] {
     [result[i], result[j]] = [result[j], result[i]];
   }
   return result;
-}
-
-function normalizeText(t: string) {
-  return t.toLowerCase().replace(/[^a-z\s]/g, '').replace(/\s+/g, ' ').trim();
-}
-
-function scoreRecall(input: string, target: string): number {
-  const inputWords = normalizeText(input).split(' ');
-  const targetWords = normalizeText(target).split(' ');
-  if (targetWords.length === 0) return 0;
-  let matches = 0;
-  targetWords.forEach((w, i) => { if (inputWords[i] === w) matches++; });
-  return Math.round((matches / targetWords.length) * 100);
 }
 
 // ─── Session Summary ──────────────────────────────────────────────────────────
@@ -1193,7 +1183,7 @@ function PracticeSession({
 }
 
 // ─── Mode Selector ────────────────────────────────────────────────────────────
-const RECOMMENDED_MODES: PracticeMode[] = ['word-bank', 'first-letters', 'simplified-vanishing-cloze', 'vanishing-cloze', 'multiple-choice', 'reference'];
+const RECOMMENDED_MODES: PracticeMode[] = ['word-bank', 'first-letters', 'simplified-vanishing-cloze', 'vanishing-cloze', 'multiple-choice', 'reference', 'lamp-path'];
 
 function ModeSelector({ onSelect, dueCount }: { onSelect: (mode: PracticeMode) => void; dueCount: number }) {
   const [showAll, setShowAll] = useState(false);
@@ -1205,6 +1195,7 @@ function ModeSelector({ onSelect, dueCount }: { onSelect: (mode: PracticeMode) =
     'multiple-choice': 'from-green-500 to-emerald-600',
     'reference':       'from-orange-500 to-amber-600',
     'recall':          'from-red-500 to-pink-600',
+    'lamp-path':       'from-amber-400 to-orange-600',
   };
 
   const displayModes = showAll ? (Object.keys(MODE_INFO) as PracticeMode[]) : RECOMMENDED_MODES;
@@ -1474,7 +1465,7 @@ function Practice() {
     try {
       await doCreateSession({
         versesPracticed: results.map(r => r.verse.reference),
-        mode: mode === 'recall' ? 'recall' : mode === 'multiple-choice' ? 'multiple-choice' : mode === 'reference' ? 'reference' : 'fill-blank',
+        mode: sessionModeFor(mode),
         score: total > 0 ? Math.round((score / total) * 100) : 0,
         totalQuestions: total,
       });
@@ -1664,7 +1655,7 @@ function Practice() {
                 </div>
               )}
 
-              <ModeSelector onSelect={setMode} dueCount={dueCount} />
+              <ModeSelector onSelect={(m) => { if (m === 'lamp-path') { navigate('/practice/game'); return; } setMode(m); }} dueCount={dueCount} />
             </>
           )}
         </>

@@ -22,9 +22,9 @@ async function selectMode(page: Page, label: string) {
 // ─── Mode Selector ─────────────────────────────────────────────────────────────
 
 test.describe('Practice — mode selector', () => {
-  test('shows 6 recommended modes', async ({ page }) => {
+  test('shows 7 recommended modes', async ({ page }) => {
     const frame = await openPractice(page);
-    for (const label of ['Word Bank', 'First Letters', 'Simplified Vanishing Cloze', 'Vanishing Cloze', 'Multiple Choice', 'Reference Match']) {
+    for (const label of ['Word Bank', 'First Letters', 'Simplified Vanishing Cloze', 'Vanishing Cloze', 'Multiple Choice', 'Reference Match', 'Lamp of the Path']) {
       await expect(frame.locator(`text=${label}`).first()).toBeVisible();
     }
   });
