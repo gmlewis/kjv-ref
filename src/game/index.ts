@@ -14,3 +14,11 @@ export type {
 
 export { paletteFor } from './engine/theme';
 export type { GameTheme, GamePalette } from './engine/theme';
+
+export {
+  setAudioMuted,
+  isAudioMuted,
+  playTileSnapSound,
+  playTileErrorSound,
+  playLampLitSound,
+} from './engine/audio';

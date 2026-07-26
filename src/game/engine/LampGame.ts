@@ -61,6 +61,7 @@ import { selectNextLamps } from '../selection';
 import { getGameLayer, buildTilePuzzle } from '../scaffold';
 import { scoreTilePuzzle, performanceRating, computeXp, applyCombo, levelForXp } from '../scoring';
 import { loadGameState, saveGameState } from '../state';
+import { playTileSnapSound, playTileErrorSound, playLampLitSound } from './audio';
 import { scoreRecall } from '../../utils/practiceHelpers';
 import type { PerformanceRating } from '../scoring';
 import { paletteFor } from './theme';
@@ -160,6 +161,7 @@ interface TileView {
   word: string;
   display: string;
   homeX: number; homeY: number; // bank cell top-left
+  curX: number; curY: number;
   w: number; h: number;
   sprite: Sprite2DHandle;
   textLayer: TextLayer;
@@ -306,6 +308,8 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     };
   }
   function setTilePos(t: TileView, x: number, y: number) {
+    t.curX = x;
+    t.curY = y;
     placeSprite(t.sprite, x, y, t.w, t.h, spriteColor(palette.tile, 1));
     placeText(t.textLayer, t.textData, x, y, t.w, t.h);
   }
@@ -551,6 +555,8 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
           display: t.display,
           homeX: pos.x,
           homeY: pos.y,
+          curX: pos.x,
+          curY: pos.y,
           w,
           h: CELL_H,
           sprite,
@@ -636,6 +642,43 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   // =========================================================================
   // Input handling.
   // =========================================================================
+  let downX = 0;
+  let downY = 0;
+  let downTilePlacedSlotIndex: number | null = null;
+
+  function animateTileTo(t: TileView, targetX: number, targetY: number, durationMs: number = 140) {
+    const startX = t.curX;
+    const startY = t.curY;
+    const startTime = performance.now();
+
+    function step(now: number) {
+      if (disposed) return;
+      const elapsed = now - startTime;
+      const progress = Math.min(1, elapsed / durationMs);
+      const ease = 1 - Math.pow(1 - progress, 3);
+      const curX = startX + (targetX - startX) * ease;
+      const curY = startY + (targetY - startY) * ease;
+
+      setTilePos(t, curX, curY);
+
+      if (progress < 1) {
+        requestAnimationFrame(step);
+      } else {
+        setTilePos(t, targetX, targetY);
+      }
+    }
+    requestAnimationFrame(step);
+  }
+
+  function getFirstOpenSlot(): SlotView | null {
+    for (const s of slots) {
+      if (s.preFilled) continue;
+      const occupied = tiles.some((t) => t.placedSlotIndex === s.index);
+      if (!occupied) return s;
+    }
+    return null;
+  }
+
   function pointerPos(e: PointerEvent): [number, number] {
     const rect = canvas.getBoundingClientRect();
     return [e.clientX - rect.left, e.clientY - rect.top];
@@ -669,11 +712,13 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     if (puzzle.freeRecall) return; // keyboard-driven
     const t = hitTile(x, y);
     if (!t) return;
+    downX = x;
+    downY = y;
+    downTilePlacedSlotIndex = t.placedSlotIndex;
     dragging = t;
     dragPointerId = e.pointerId;
     dragOffX = x - (t.placedSlotIndex != null ? slots[t.placedSlotIndex].x : t.homeX);
     dragOffY = y - (t.placedSlotIndex != null ? slots[t.placedSlotIndex].y : t.homeY);
-    if (t.placedSlotIndex != null) t.placedSlotIndex = null; // pick up
     setTilePos(t, x - dragOffX, y - dragOffY);
     try {
       canvas.setPointerCapture(e.pointerId);
@@ -697,20 +742,49 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       /* ignore */
     }
     const [x, y] = pointerPos(e);
+    const dist = Math.hypot(x - downX, y - downY);
+
+    if (dist < 8) {
+      // Tap / click action:
+      if (downTilePlacedSlotIndex == null) {
+        // Tap on bank tile: move to first open slot at top
+        const openSlot = getFirstOpenSlot();
+        if (openSlot) {
+          t.placedSlotIndex = openSlot.index;
+          animateTileTo(t, openSlot.x, openSlot.y);
+          playTileSnapSound();
+          if (allFilled()) scheduleResolve();
+        } else {
+          t.placedSlotIndex = null;
+          animateTileTo(t, t.homeX, t.homeY);
+          playTileErrorSound();
+        }
+      } else {
+        // Tap on placed slot tile: return back to bank at bottom
+        t.placedSlotIndex = null;
+        animateTileTo(t, t.homeX, t.homeY);
+        playTileErrorSound();
+      }
+      return;
+    }
+
+    // Drag action:
     const slot = hitBlankSlot(x, y);
     if (slot) {
       // Place into the blank slot (evict any tile already there).
       const existing = tiles.find((tt) => tt !== t && tt.placedSlotIndex === slot.index);
       if (existing) {
         existing.placedSlotIndex = null;
-        setTilePos(existing, existing.homeX, existing.homeY);
+        animateTileTo(existing, existing.homeX, existing.homeY);
       }
       t.placedSlotIndex = slot.index;
-      setTilePos(t, slot.x, slot.y);
+      animateTileTo(t, slot.x, slot.y);
+      playTileSnapSound();
       if (allFilled()) scheduleResolve();
     } else {
       t.placedSlotIndex = null;
-      setTilePos(t, t.homeX, t.homeY);
+      animateTileTo(t, t.homeX, t.homeY);
+      playTileErrorSound();
     }
   }
 
@@ -761,10 +835,13 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     const earnedXp = computeXp(layer, wordCount, fluent, combo);
     combo = applyCombo(combo, correct);
     if (correct) {
+      playLampLitSound(combo);
       gameState.xp += earnedXp;
       gameState.level = levelForXp(gameState.xp);
       gameState.comboBest = Math.max(gameState.comboBest, combo);
       saveGameState(gameState);
+    } else {
+      playTileErrorSound();
     }
     onResolve({ reference, correct, accuracy, rating, fluent, usedHint: false });
   }

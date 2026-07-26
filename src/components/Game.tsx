@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X } from 'lucide-react';
+import { Volume2, VolumeX, X } from 'lucide-react';
 import {
   useMyProgress,
   useDueReviews,
@@ -22,6 +22,8 @@ import {
 } from '../hooks';
 import { getDailyGoal } from '../storage';
 import { starterRegions, unlockedRegions } from '../game/regions';
+import { loadGameState, saveGameState } from '../game/state';
+import { setAudioMuted } from '../game/engine/audio';
 import type { GameTheme, LampResolveResult } from '../game';
 
 type Theme = GameTheme;
@@ -35,6 +37,20 @@ export default function Game() {
   const engineRef = useRef<{ dispose: () => void; setTheme: (t: Theme) => void } | null>(null);
 
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [soundEnabled, setSoundEnabled] = useState(() => loadGameState().settings.sound);
+
+  useEffect(() => {
+    setAudioMuted(!soundEnabled);
+  }, [soundEnabled]);
+
+  function toggleSound() {
+    const state = loadGameState();
+    const nextSound = !state.settings.sound;
+    state.settings.sound = nextSound;
+    saveGameState(state);
+    setSoundEnabled(nextSound);
+    setAudioMuted(!nextSound);
+  }
 
   // Existing data + mutation hooks (same set Practice.tsx uses).
   const [progress] = useMyProgress();
@@ -171,7 +187,20 @@ export default function Game() {
       <canvas ref={canvasRef} className="w-full h-screen block touch-none" />
 
       {/* Slim overlay HUD */}
-      <div className="absolute top-4 right-4 z-10">
+      <div className="absolute top-4 right-4 z-10 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={toggleSound}
+          aria-label={soundEnabled ? 'Mute sound' : 'Unmute sound'}
+          title={soundEnabled ? 'Sound is on — click to mute' : 'Sound is muted — click to enable'}
+          className="glassmorphism rounded-full p-2 shadow-lg hover:bg-white/20 transition-colors"
+        >
+          {soundEnabled ? (
+            <Volume2 className="w-6 h-6 text-amber-500 dark:text-amber-400" />
+          ) : (
+            <VolumeX className="w-6 h-6 text-gray-500 dark:text-gray-400" />
+          )}
+        </button>
         <button
           type="button"
           onClick={handleExit}

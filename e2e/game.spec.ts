@@ -23,7 +23,7 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     await expect(exitBtn).toBeVisible();
     await exitBtn.click();
 
-    await page.waitForURL('**/practice');
+    await page.waitForURL((url) => url.pathname.endsWith('/practice'));
     await expect(page.locator('text=Practice Mode')).toBeVisible();
   });
 
@@ -49,7 +49,7 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     // Exit the game
     const exitBtn = page.locator('button[aria-label="Exit"]');
     await exitBtn.click();
-    await page.waitForURL('**/practice');
+    await page.waitForURL((url) => url.pathname.endsWith('/practice'));
 
     // Verify localStorage contains game session record
     const sessions = await page.evaluate(() => {
@@ -71,6 +71,22 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     await expect(exitBtn).toBeVisible();
     await exitBtn.click();
 
-    await page.waitForURL('**/practice');
+    await page.waitForURL((url) => url.pathname.endsWith('/practice'));
+  });
+
+  test('D-4: Audio Mute button toggle and localStorage persistence', async ({ page }) => {
+    await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
+    const muteBtn = page.locator('button[aria-label="Unmute sound"], button[aria-label="Mute sound"]');
+    await expect(muteBtn).toBeVisible();
+
+    // Click to toggle mute state
+    await muteBtn.click();
+
+    // Verify kjv-game-state in localStorage has sound setting persisted
+    const soundState = await page.evaluate(() => {
+      const raw = localStorage.getItem('kjv-game-state');
+      return raw ? JSON.parse(raw)?.settings?.sound : null;
+    });
+    expect(typeof soundState).toBe('boolean');
   });
 });
