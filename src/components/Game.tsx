@@ -160,6 +160,8 @@ export default function Game() {
       (p: any) => p?.status === 'mastered',
     ).length;
     if (masteredCount >= 1) await doAwardAchievement({ type: 'master-level' }).catch(() => {});
+    if (masteredCount >= 15) await doAwardAchievement({ type: 'book-complete' }).catch(() => {});
+    if (masteredCount >= 41) await doAwardAchievement({ type: 'testament-complete' }).catch(() => {});
 
     navigate('/practice');
   }

@@ -59,7 +59,8 @@ import type { KJVVerse } from '../../data/kjv-verses';
 import type { ProgressEntry, DueEntry } from '../types';
 import { selectNextLamps } from '../selection';
 import { getGameLayer, buildTilePuzzle } from '../scaffold';
-import { scoreTilePuzzle, performanceRating } from '../scoring';
+import { scoreTilePuzzle, performanceRating, computeXp, applyCombo, levelForXp } from '../scoring';
+import { loadGameState, saveGameState } from '../state';
 import { scoreRecall } from '../../utils/practiceHelpers';
 import type { PerformanceRating } from '../scoring';
 import { paletteFor } from './theme';
@@ -116,8 +117,8 @@ const MIN_CELL_W = 84;
 const CELL_PAD = 14;
 const GAP = 10;
 const MARGIN = 24;
-const HEADER_Y = 44;
-const SLOT_AREA_TOP = 118;
+const HEADER_Y = 60;
+const SLOT_AREA_TOP = 175;
 const BANK_BOTTOM_PAD = 96;
 const BORDER_T = 2; // outline thickness (CSS px) for blank slot drop-targets
 
@@ -232,10 +233,16 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let headerData: DefaultTextData | null = null;
   let promptLayer: TextLayer | null = null;
   let promptData: DefaultTextData | null = null;
+  let hudLayer: TextLayer | null = null;
+  let hudData: DefaultTextData | null = null;
   let typedLayer: TextLayer | null = null;
   let typedData: DefaultTextData | null = null;
   let typedText = '';
   let bgSprite: Sprite2DHandle | null = null;
+  let pathSprite: Sprite2DHandle | null = null;
+  let lampSprites: Sprite2DHandle[] = [];
+  let gameState = loadGameState();
+  let combo = 0;
   let puzzleStartMs = 0;
   let resolving = false;
 
@@ -345,6 +352,14 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       disposeDefaultTextData(promptData);
       promptData = null;
     }
+    if (hudLayer) {
+      removeTextRendererLayer(textRenderer, hudLayer);
+      hudLayer = null;
+    }
+    if (hudData) {
+      disposeDefaultTextData(hudData);
+      hudData = null;
+    }
     if (typedLayer) {
       removeTextRendererLayer(textRenderer, typedLayer);
       typedLayer = null;
@@ -353,6 +368,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       disposeDefaultTextData(typedData);
       typedData = null;
     }
+    for (const ls of lampSprites) {
+      removeSprite2D(ls);
+    }
+    lampSprites = [];
     slots = [];
     tiles = [];
     puzzle = null;
@@ -407,8 +426,57 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     promptData = createDefaultTextData(font, PROMPT_FONT, promptText, textColor(palette.accent), {
       align: 'center',
     });
-    promptLayer = createTextLayer(promptData, { positionPx: { x: (W - promptData.width) / 2, y: HEADER_Y + 52 } });
+    promptLayer = createTextLayer(promptData, { positionPx: { x: (W - promptData.width) / 2, y: HEADER_Y + 44 } });
     addTextRendererLayer(textRenderer, promptLayer);
+
+    // HUD summary (Level, XP, Combo, Layer)
+    const hudText = `Level ${gameState.level}  •  ${gameState.xp} XP  •  Combo x${combo}  •  Layer ${puzzle.layer}`;
+    hudData = createDefaultTextData(font, 16, hudText, textColor(palette.text, 0.8), { align: 'center' });
+    hudLayer = createTextLayer(hudData, { positionPx: { x: (W - hudData.width) / 2, y: HEADER_Y + 72 } });
+    addTextRendererLayer(textRenderer, hudLayer);
+
+    // Path track line across bottom
+    const pathY = H - 36;
+    if (!pathSprite) {
+      pathSprite = addSprite2D(spriteLayer, {
+        positionPx: [W / 2, pathY],
+        sizePx: [W - 2 * MARGIN, 4],
+        color: spriteColor(palette.tileBorder, 0.6),
+        frame: 0,
+      });
+    } else {
+      updateSprite2D(pathSprite, {
+        positionPx: [W / 2, pathY],
+        sizePx: [W - 2 * MARGIN, 4],
+        color: spriteColor(palette.tileBorder, 0.6),
+      });
+    }
+
+    // Render lamp markers along the path
+    const lampCount = queue.length;
+    const lampStep = (W - 4 * MARGIN) / Math.max(1, lampCount - 1);
+    for (let i = 0; i < lampCount; i++) {
+      const qv = queue[i];
+      const qProgress = progressFor(qv.reference);
+      const isCurrent = qv.reference === v.reference;
+      const isMastered = qProgress?.status === 'mastered';
+      const isDue = opts.due.some(d => d.verse.reference === qv.reference);
+
+      let lampCol = spriteColor(palette.slotBorder, 0.6);
+      if (isMastered) lampCol = spriteColor(palette.lamp, 1);
+      else if (isDue) lampCol = spriteColor(palette.accent, 0.9);
+      if (isCurrent) lampCol = spriteColor(palette.accent, 1);
+
+      const lx = 2 * MARGIN + i * lampStep;
+      const size = isCurrent ? 18 : 12;
+      const lSprite = addSprite2D(spriteLayer, {
+        positionPx: [lx, pathY],
+        sizePx: [size, size],
+        color: lampCol,
+        frame: 0,
+      });
+      lampSprites.push(lSprite);
+    }
 
     // Slots: a background sprite per slot; pre-filled slots also show their word.
     const slotWidths = puzzle.slots.map((s) => {
@@ -680,6 +748,16 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   function report(reference: string, correct: boolean, accuracy: number) {
     const fluent = correct;
     const rating = performanceRating(correct, false, fluent);
+    const wordCount = verse ? verse.text.split(' ').length : 10;
+    const layer = puzzle ? puzzle.layer : 0;
+    const earnedXp = computeXp(layer, wordCount, fluent, combo);
+    combo = applyCombo(combo, correct);
+    if (correct) {
+      gameState.xp += earnedXp;
+      gameState.level = levelForXp(gameState.xp);
+      gameState.comboBest = Math.max(gameState.comboBest, combo);
+      saveGameState(gameState);
+    }
     onResolve({ reference, correct, accuracy, rating, fluent, usedHint: false });
   }
 

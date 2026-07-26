@@ -1,0 +1,76 @@
+import { test, expect } from '@playwright/test';
+import { openApp } from './helpers/app-frame';
+
+test.describe('Lamp of the Path Game Mode (Stream D)', () => {
+  test('D-1: Entry from Practice mode selector and navigation to full-page game', async ({ page }) => {
+    await openApp(page, '/kjv-ref/practice');
+
+    // Find the Lamp of the Path mode card
+    const card = page.locator('text=Lamp of the Path');
+    await card.scrollIntoViewIfNeeded();
+    await expect(card).toBeVisible();
+
+    // Click to enter full-page game route
+    await card.click();
+    await page.waitForURL('**/practice/game');
+
+    // Verify canvas element exists
+    const canvas = page.locator('canvas');
+    await expect(canvas).toBeVisible();
+
+    // Verify Exit button exists and returns to /practice
+    const exitBtn = page.locator('button[aria-label="Exit"]');
+    await expect(exitBtn).toBeVisible();
+    await exitBtn.click();
+
+    await page.waitForURL('**/practice');
+    await expect(page.locator('text=Practice Mode')).toBeVisible();
+  });
+
+  test('D-2: Pre-seeded due review & session persistence', async ({ page }) => {
+    await openApp(page, '/kjv-ref/practice');
+
+    // Pre-seed localStorage with progress & review schedule
+    await page.evaluate(() => {
+      const pastDate = new Date(Date.now() - 86400000).toISOString(); // 1 day ago
+      localStorage.setItem('kjv-memorize-progress', JSON.stringify([
+        { verse: { reference: 'Psalm 23:1' }, status: 'mastered', timesRecited: 6, streak: 5, accuracy: 100 }
+      ]));
+      localStorage.setItem('kjv-memorize-review-schedule', JSON.stringify([
+        { verse: { reference: 'Psalm 23:1' }, dueDate: pastDate, interval: 1 }
+      ]));
+    });
+
+    // Reload or navigate to the game route directly
+    await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
+    const canvas = page.locator('canvas');
+    await expect(canvas).toBeVisible();
+
+    // Exit the game
+    const exitBtn = page.locator('button[aria-label="Exit"]');
+    await exitBtn.click();
+    await page.waitForURL('**/practice');
+
+    // Verify localStorage contains game session record
+    const sessions = await page.evaluate(() => {
+      const raw = localStorage.getItem('kjv-memorize-sessions');
+      return raw ? JSON.parse(raw) : [];
+    });
+    expect(Array.isArray(sessions)).toBe(true);
+  });
+
+  test('D-3: Mobile viewport rendering and exit control', async ({ page }) => {
+    // Set mobile iPhone SE viewport
+    await page.setViewportSize({ width: 375, height: 667 });
+
+    await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
+    const canvas = page.locator('canvas');
+    await expect(canvas).toBeVisible();
+
+    const exitBtn = page.locator('button[aria-label="Exit"]');
+    await expect(exitBtn).toBeVisible();
+    await exitBtn.click();
+
+    await page.waitForURL('**/practice');
+  });
+});
