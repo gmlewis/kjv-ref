@@ -916,21 +916,39 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     bumpRecited();
     const earnedXp = report(verse.reference, correct, accuracy);
 
-    // Glow slot borders bright green for correct, red for incorrect
-    const highlightCol = correct ? spriteColor('#22c55e', 1) : spriteColor('#ef4444', 1);
-    for (const s of slots) {
-      if (s.borders.length > 0) {
-        for (const b of s.borders) {
-          updateSprite2D(b, { color: highlightCol });
-        }
+    // Evaluate each slot individually to provide clear per-word visual feedback
+    const slotCorrectness = puzzle.slots.map((s) => {
+      if (s.preFilled) return true;
+      const t = tiles.find((tt) => tt.placedSlotIndex === s.index);
+      if (!t) return false;
+      const cleanT = t.word.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const cleanS = s.word.toLowerCase().replace(/[^a-z0-9]/g, '');
+      return cleanT === cleanS;
+    });
+
+    const wrongCount = slotCorrectness.filter((ok) => !ok).length;
+
+    // Glow slot borders: Bright green for correct slots, Red for incorrect slots!
+    for (let i = 0; i < slots.length; i++) {
+      const s = slots[i];
+      if (s.borders.length === 0) continue;
+      const isOk = slotCorrectness[i];
+      const col = isOk ? spriteColor('#22c55e', 1) : spriteColor('#ef4444', 1);
+      for (const b of s.borders) {
+        updateSprite2D(b, { color: col });
+      }
+      // If tile is placed incorrectly, tint tile with a red error glow
+      const t = tiles.find((tt) => tt.placedSlotIndex === s.index);
+      if (t && !isOk) {
+        updateSprite2D(t.sprite, { color: spriteColor('#fee2e2', 1) });
       }
     }
 
-    // Display clear celebratory feedback banner with background toast pill
+    // Display clear, instructive feedback banner
     const [W] = canvasSize();
     const bannerMsg = correct
       ? `🔥 Lamp Lit! +${earnedXp} XP (${Math.round(accuracy)}%)`
-      : `Try Again (${Math.round(accuracy)}%)`;
+      : `❌ ${wrongCount} ${wrongCount === 1 ? 'Word' : 'Words'} Misplaced (${Math.round(accuracy)}%) — Returning...`;
     const bannerTextColor = textColor('#ffffff', 1);
 
     if (feedbackLayer) removeTextRendererLayer(textRenderer, feedbackLayer);
@@ -959,7 +977,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     placeText(feedbackLayer, feedbackData, (W - pillW) / 2, bannerCenterY - pillH / 2, pillW, pillH, 22);
     addTextRendererLayer(textRenderer, feedbackLayer);
 
-    // Paced 1.4s delay so the player can see and read their lit verse
+    // Paced 1.4s delay so the player can see and study their slot feedback
     setTimeout(() => {
       if (disposed) return;
       if (feedbackLayer) {
@@ -974,8 +992,31 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
         removeSprite2D(feedbackBgSprite);
         feedbackBgSprite = null;
       }
-      if (wasStudy) buildPuzzle(verse);
-      else nextPuzzle();
+
+      if (correct || wasStudy) {
+        if (wasStudy) buildPuzzle(verse);
+        else nextPuzzle();
+      } else {
+        // Return ONLY the misplaced tiles back to the word bank so the player can learn & retry!
+        for (let i = 0; i < slots.length; i++) {
+          const s = slots[i];
+          if (s.preFilled || slotCorrectness[i]) continue;
+
+          // Reset slot borders to default border color
+          for (const b of s.borders) {
+            updateSprite2D(b, { color: spriteColor(palette.slotBorder, 1) });
+          }
+
+          // Animate misplaced tile smoothly back to its word bank home location
+          const t = tiles.find((tt) => tt.placedSlotIndex === s.index);
+          if (t) {
+            t.placedSlotIndex = null;
+            updateSprite2D(t.sprite, { color: spriteColor(palette.tile, 1) });
+            animateTileTo(t, t.homeX, t.homeY, 300);
+          }
+        }
+        resolving = false;
+      }
     }, 1400);
   }
 
