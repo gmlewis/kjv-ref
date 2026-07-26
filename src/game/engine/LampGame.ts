@@ -269,12 +269,46 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     return [canvas.clientWidth || canvas.width || 1, canvas.clientHeight || canvas.height || 1];
   }
 
+  function getResponsiveMetrics(W: number, H: number) {
+    const isMobile = W < 560 || H < 600;
+    const isTiny = W < 400;
+
+    const margin = isMobile ? 12 : 24;
+    const wordFont = isTiny ? 14 : isMobile ? 16 : 22;
+    const headerFont = isTiny ? 20 : isMobile ? 22 : 34;
+    const promptFont = isTiny ? 13 : isMobile ? 14 : 18;
+    const hudFont = isTiny ? 11 : isMobile ? 12 : 14;
+    const cellH = isTiny ? 30 : isMobile ? 36 : 48;
+    const minCellW = isTiny ? 54 : isMobile ? 68 : 84;
+    const cellPad = isMobile ? 8 : 12;
+    const gap = isMobile ? 6 : 10;
+    const headerY = isMobile ? 62 : 60;
+    const slotAreaTop = isMobile ? 148 : 175;
+
+    return {
+      isMobile,
+      isTiny,
+      margin,
+      wordFont,
+      headerFont,
+      promptFont,
+      hudFont,
+      cellH,
+      minCellW,
+      cellPad,
+      gap,
+      headerY,
+      slotAreaTop,
+    };
+  }
+
   function wrapLayout(
     widths: number[],
     areaX: number,
     areaW: number,
     startY: number,
     cellH: number,
+    gap: number = GAP,
   ): { x: number; y: number }[] {
     const pos: { x: number; y: number }[] = [];
     let y = startY;
@@ -282,21 +316,21 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     let rowW = 0;
     const flush = () => {
       if (row.length === 0) return;
-      const total = row.reduce((s, w, i) => s + widths[row[i]] + (i > 0 ? GAP : 0), 0);
+      const total = row.reduce((s, w, i) => s + widths[row[i]] + (i > 0 ? gap : 0), 0);
       let x = areaX + Math.max(0, (areaW - total) / 2);
       for (const wi of row) {
         pos[wi] = { x, y };
-        x += widths[wi] + GAP;
+        x += widths[wi] + gap;
       }
-      y += cellH + GAP;
+      y += cellH + gap;
       row = [];
       rowW = 0;
     };
     for (let i = 0; i < widths.length; i++) {
       const w = widths[i];
-      if (row.length > 0 && rowW + GAP + w > areaW) flush();
+      if (row.length > 0 && rowW + gap + w > areaW) flush();
       row.push(i);
-      rowW += (row.length > 1 ? GAP : 0) + w;
+      rowW += (row.length > 1 ? gap : 0) + w;
     }
     flush();
     return pos;
@@ -428,8 +462,23 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     puzzle = buildTilePuzzle(v, layer, queueIndex + 1);
 
     const [W, H] = canvasSize();
-    const areaX = MARGIN;
-    const areaW = W - 2 * MARGIN;
+    const {
+      isMobile,
+      margin,
+      wordFont,
+      headerFont,
+      promptFont,
+      hudFont,
+      cellH,
+      minCellW,
+      cellPad,
+      gap,
+      headerY,
+      slotAreaTop,
+    } = getResponsiveMetrics(W, H);
+
+    const areaX = margin;
+    const areaW = W - 2 * margin;
 
     if (!bgSprite) {
       bgSprite = addSprite2D(spriteLayer, {
@@ -447,10 +496,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     }
 
     // Header (reference) + prompt.
-    headerData = createDefaultTextData(font, HEADER_FONT, v.reference, textColor(palette.text), {
+    headerData = createDefaultTextData(font, headerFont, v.reference, textColor(palette.text), {
       align: 'center',
     });
-    headerLayer = createTextLayer(headerData, { positionPx: { x: (W - headerData.width) / 2, y: HEADER_Y } });
+    headerLayer = createTextLayer(headerData, { positionPx: { x: (W - headerData.width) / 2, y: headerY } });
     addTextRendererLayer(textRenderer, headerLayer);
 
     const isRecall = puzzle.freeRecall;
@@ -460,16 +509,22 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       : isStudy
         ? 'Read the verse — tap to continue'
         : 'Tap or drag tiles into the verse';
-    promptData = createDefaultTextData(font, PROMPT_FONT, promptText, textColor(palette.accent), {
+    promptData = createDefaultTextData(font, promptFont, promptText, textColor(palette.accent), {
       align: 'center',
     });
-    promptLayer = createTextLayer(promptData, { positionPx: { x: (W - promptData.width) / 2, y: HEADER_Y + 44 } });
+    promptLayer = createTextLayer(promptData, {
+      positionPx: { x: (W - promptData.width) / 2, y: headerY + (isMobile ? 32 : 44) },
+    });
     addTextRendererLayer(textRenderer, promptLayer);
 
-    // HUD summary (Level, XP, Combo, Layer)
-    const hudText = `Level ${gameState.level}  •  ${gameState.xp} XP  •  Combo x${combo}  •  Layer ${puzzle.layer}`;
-    hudData = createDefaultTextData(font, 16, hudText, textColor(palette.text, 0.8), { align: 'center' });
-    hudLayer = createTextLayer(hudData, { positionPx: { x: (W - hudData.width) / 2, y: HEADER_Y + 72 } });
+    // HUD summary (Level, XP, Combo, Layer) — formatted compactly on narrow mobile viewports
+    const hudText = isMobile
+      ? `Lvl ${gameState.level} • ${gameState.xp} XP • Combo x${combo} • L${puzzle.layer}`
+      : `Level ${gameState.level}  •  ${gameState.xp} XP  •  Combo x${combo}  •  Layer ${puzzle.layer}`;
+    hudData = createDefaultTextData(font, hudFont, hudText, textColor(palette.text, 0.8), { align: 'center' });
+    hudLayer = createTextLayer(hudData, {
+      positionPx: { x: (W - hudData.width) / 2, y: headerY + (isMobile ? 52 : 72) },
+    });
     addTextRendererLayer(textRenderer, hudLayer);
 
     // Path track line across bottom
@@ -477,21 +532,21 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     if (!pathSprite) {
       pathSprite = addSprite2D(spriteLayer, {
         positionPx: [W / 2, pathY],
-        sizePx: [W - 2 * MARGIN, 4],
+        sizePx: [W - 2 * margin, 4],
         color: spriteColor(palette.tileBorder, 0.6),
         frame: 0,
       });
     } else {
       updateSprite2D(pathSprite, {
         positionPx: [W / 2, pathY],
-        sizePx: [W - 2 * MARGIN, 4],
+        sizePx: [W - 2 * margin, 4],
         color: spriteColor(palette.tileBorder, 0.6),
       });
     }
 
     // Render lamp markers along the path
     const lampCount = queue.length;
-    const lampStep = (W - 4 * MARGIN) / Math.max(1, lampCount - 1);
+    const lampStep = (W - 4 * margin) / Math.max(1, lampCount - 1);
     const activeIndex = Math.max(0, queueIndex - 1);
     for (let i = 0; i < lampCount; i++) {
       const qv = queue[i];
@@ -499,7 +554,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       const isCurrent = i === activeIndex;
       const isSessionLit = sessionLitRefs.has(qv.reference) || i < activeIndex;
       const isMastered = qProgress?.status === 'mastered';
-      const isDue = opts.due.some(d => d.verse.reference === qv.reference);
+      const isDue = opts.due.some((d) => d.verse.reference === qv.reference);
 
       let lampCol = spriteColor(palette.slotBorder, 0.6); // unlit slate
       if (isMastered || isSessionLit) lampCol = spriteColor('#fbbf24', 1); // glowing gold flame!
@@ -507,7 +562,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
       if (isCurrent) lampCol = spriteColor(palette.accent, 1); // active highlight
 
-      const lx = 2 * MARGIN + i * lampStep;
+      const lx = 2 * margin + i * lampStep;
       const size = isCurrent ? 18 : 12;
       const lSprite = addSprite2D(spriteLayer, {
         positionPx: [lx, pathY],
@@ -519,25 +574,26 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     }
 
     // Measure the longest word block in the verse puzzle so all slot and tile boxes are uniformly sized.
-    let maxCellW = MIN_CELL_W;
+    let maxCellW = minCellW;
     for (const s of puzzle.slots) {
-      const data = createDefaultTextData(font, WORD_FONT, s.word, textColor(palette.text));
-      const w = data.width + 2 * CELL_PAD;
+      const data = createDefaultTextData(font, wordFont, s.word, textColor(palette.text));
+      const w = data.width + 2 * cellPad;
       if (w > maxCellW) maxCellW = w;
       disposeDefaultTextData(data);
     }
     for (const t of puzzle.bank) {
-      const data = createDefaultTextData(font, WORD_FONT, t.display, textColor(palette.text));
-      const w = data.width + 2 * CELL_PAD;
+      const data = createDefaultTextData(font, wordFont, t.display, textColor(palette.text));
+      const w = data.width + 2 * cellPad;
       if (w > maxCellW) maxCellW = w;
       disposeDefaultTextData(data);
     }
+    maxCellW = Math.min(areaW, maxCellW);
 
     // Slots: a background sprite per slot; pre-filled slots also show their word.
     const slotWidths = puzzle.slots.map(() => maxCellW);
-    const slotPos = wrapLayout(slotWidths, areaX, areaW, SLOT_AREA_TOP, CELL_H);
-    const maxSlotY = slotPos.length > 0 ? Math.max(...slotPos.map((p) => p.y)) : SLOT_AREA_TOP;
-    slotBottomY = maxSlotY + CELL_H;
+    const slotPos = wrapLayout(slotWidths, areaX, areaW, slotAreaTop, cellH, gap);
+    const maxSlotY = slotPos.length > 0 ? Math.max(...slotPos.map((p) => p.y)) : slotAreaTop;
+    slotBottomY = maxSlotY + cellH;
 
     slots = puzzle.slots.map((s, i) => {
       const pos = slotPos[i];
@@ -546,17 +602,27 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
         ? spriteColor(palette.tile, 0.7)
         : spriteColor(palette.slot, 0.35); // faint fill — the border carries visibility
       const sprite = addSprite2D(spriteLayer, {
-        positionPx: [pos.x + w / 2, pos.y + CELL_H / 2],
-        sizePx: [w, CELL_H],
+        positionPx: [pos.x + w / 2, pos.y + cellH / 2],
+        sizePx: [w, cellH],
         color,
         frame: 0,
       });
-      const view: SlotView = { index: s.index, word: s.word, preFilled: s.preFilled, x: pos.x, y: pos.y, w, h: CELL_H, sprite, borders: [] };
+      const view: SlotView = {
+        index: s.index,
+        word: s.word,
+        preFilled: s.preFilled,
+        x: pos.x,
+        y: pos.y,
+        w,
+        h: cellH,
+        sprite,
+        borders: [],
+      };
       if (s.preFilled) {
-        const data = createDefaultTextData(font, WORD_FONT, s.word, textColor(palette.text, 0.6));
+        const data = createDefaultTextData(font, wordFont, s.word, textColor(palette.text, 0.6));
         view.textData = data;
         view.textLayer = createTextLayer(data, {});
-        placeText(view.textLayer, data, pos.x, pos.y, w, CELL_H);
+        placeText(view.textLayer, data, pos.x, pos.y, w, cellH, wordFont);
         view.textLayer.opacity = 0.6;
         addTextRendererLayer(textRenderer, view.textLayer);
       } else {
@@ -580,27 +646,27 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       let rowCount = 1;
       let rW = 0;
       for (const w of tileWidths) {
-        if (rW > 0 && rW + GAP + w > areaW) {
+        if (rW > 0 && rW + gap + w > areaW) {
           rowCount++;
           rW = w;
         } else {
-          rW += (rW > 0 ? GAP : 0) + w;
+          rW += (rW > 0 ? gap : 0) + w;
         }
       }
-      const totalBankH = rowCount * CELL_H + (rowCount - 1) * GAP;
+      const totalBankH = rowCount * cellH + (rowCount - 1) * gap;
       // Light path line is at pathY = H - 36.
-      // Bottom of lowest bank tile row must end at or above H - 65 (29px clearance above light path line & lamps).
-      const maxBankBottomY = H - 65;
+      // Bottom of lowest bank tile row must end at or above H - 54 (18px clearance above light path line & lamps).
+      const maxBankBottomY = H - (isMobile ? 50 : 65);
       bankTopY = maxBankBottomY - totalBankH;
-      const tilePos = wrapLayout(tileWidths, areaX, areaW, bankTopY, CELL_H);
+      const tilePos = wrapLayout(tileWidths, areaX, areaW, bankTopY, cellH, gap);
       tiles = puzzle.bank.map((t, i) => {
         const pos = tilePos[i];
         const w = tileWidths[i];
-        const data = createDefaultTextData(font, WORD_FONT, t.display, textColor(palette.text));
+        const data = createDefaultTextData(font, wordFont, t.display, textColor(palette.text));
         const textLayer = createTextLayer(data, {});
         const sprite = addSprite2D(spriteLayer, {
-          positionPx: [pos.x + w / 2, pos.y + CELL_H / 2],
-          sizePx: [w, CELL_H],
+          positionPx: [pos.x + w / 2, pos.y + cellH / 2],
+          sizePx: [w, cellH],
           color: spriteColor(palette.tile, 1),
           frame: 0,
         });
@@ -613,13 +679,13 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
           curX: pos.x,
           curY: pos.y,
           w,
-          h: CELL_H,
+          h: cellH,
           sprite,
           textLayer,
           textData: data,
           placedSlotIndex: null,
         };
-        placeText(textLayer, data, pos.x, pos.y, w, CELL_H);
+        placeText(textLayer, data, pos.x, pos.y, w, cellH, wordFont);
         addTextRendererLayer(textRenderer, textLayer);
         return view;
       });
@@ -627,8 +693,8 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
     // Free-recall typed-answer layer.
     if (isRecall) {
-      typedData = createDefaultTextData(font, TYPED_FONT, ' ', textColor(palette.text), { align: 'center' });
-      typedLayer = createTextLayer(typedData, { positionPx: { x: 0, y: SLOT_AREA_TOP + CELL_H + GAP } });
+      typedData = createDefaultTextData(font, WORD_FONT, ' ', textColor(palette.text));
+      typedLayer = createTextLayer(typedData, { positionPx: { x: areaX, y: slotAreaTop } });
       addTextRendererLayer(textRenderer, typedLayer);
       relayoutTyped();
     }
@@ -640,58 +706,24 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   function relayoutTyped() {
     if (!typedLayer || !typedData) return;
     const [W] = canvasSize();
-    typedLayer.positionPx = { x: (W - typedData.width) / 2, y: SLOT_AREA_TOP + CELL_H + GAP };
+    typedLayer.positionPx = { x: (W - typedData.width) / 2, y: slotBottomY + 20 };
   }
 
   // Re-position everything for the current puzzle on resize.
   function relayout() {
-    if (!verse || !puzzle) return;
-    const [W, H] = canvasSize();
-    const areaX = MARGIN;
-    const areaW = W - 2 * MARGIN;
-
-    if (bgSprite) {
-      updateSprite2D(bgSprite, {
-        positionPx: [W / 2, H / 2],
-        sizePx: [W, H],
-        color: spriteColor(palette.background, 1),
-      });
-    }
-
-    if (headerLayer && headerData) {
-      headerLayer.positionPx = { x: (W - headerData.width) / 2, y: HEADER_Y };
-    }
-    if (promptLayer && promptData) {
-      promptLayer.positionPx = { x: (W - promptData.width) / 2, y: HEADER_Y + 52 };
-    }
-
-    const slotWidths = slots.map((s) => s.w);
-    const slotPos = wrapLayout(slotWidths, areaX, areaW, SLOT_AREA_TOP, CELL_H);
-    slots.forEach((s, i) => {
-      const pos = slotPos[i];
-      s.x = pos.x; s.y = pos.y;
-      const color = s.preFilled ? spriteColor(palette.tile, 0.7) : spriteColor(palette.slot, 0.35);
-      placeSprite(s.sprite, s.x, s.y, s.w, s.h, color);
-      placeSlotBorders(s);
-      if (s.textLayer && s.textData) placeText(s.textLayer, s.textData, s.x, s.y, s.w, s.h);
-    });
-
-    if (tiles.length > 0) {
-      const tileWidths = tiles.map((t) => t.w);
-      const bankTop = H - BANK_BOTTOM_PAD - CELL_H;
-      const tilePos = wrapLayout(tileWidths, areaX, areaW, bankTop, CELL_H);
-      tiles.forEach((t, i) => {
-        t.homeX = tilePos[i].x;
-        t.homeY = tilePos[i].y;
-        if (t.placedSlotIndex != null) {
-          const sv = slots[t.placedSlotIndex];
-          setTilePos(t, sv.x, sv.y);
-        } else if (t !== dragging) {
-          setTilePos(t, t.homeX, t.homeY);
+    if (verse) {
+      const savedPlaced = tiles.map((t) => ({ id: t.id, slot: t.placedSlotIndex }));
+      buildPuzzle(verse);
+      for (const p of savedPlaced) {
+        if (p.slot == null) continue;
+        const t = tiles.find((tt) => tt.id === p.id);
+        const s = slots.find((ss) => ss.index === p.slot);
+        if (t && s) {
+          t.placedSlotIndex = s.index;
+          setTilePos(t, s.x, s.y);
         }
-      });
+      }
     }
-    relayoutTyped();
   }
 
   // =========================================================================

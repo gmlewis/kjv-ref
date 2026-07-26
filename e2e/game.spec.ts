@@ -117,4 +117,34 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     const peekCardText = await peekVerseEl.innerText();
     expect(peekCardText.length).toBeGreaterThan(10);
   });
+
+  test('D-6: Responsive layout rendering on Pixel 10XL portrait device (412x915)', async ({ page }) => {
+    // Set viewport to Pixel 10XL portrait resolution (412x915)
+    await page.setViewportSize({ width: 412, height: 915 });
+
+    await openApp(page, '/kjv-ref/practice');
+
+    const card = page.locator('text=Lamp of the Path');
+    await card.scrollIntoViewIfNeeded();
+    await card.click();
+    await page.waitForURL('**/practice/game');
+
+    // Wait for game engine canvas to render
+    const canvas = page.locator('canvas');
+    await expect(canvas).toBeVisible();
+
+    // Verify canvas size matches mobile viewport bounds without horizontal scroll
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeLessThanOrEqual(412);
+
+    // Verify top controls (Peek, Exit) are fully visible without right edge overflow
+    const peekBtn = page.locator('button[aria-label="Peek verse text"]');
+    const exitBtn = page.locator('button[aria-label="Exit"]');
+    await expect(peekBtn).toBeVisible();
+    await expect(exitBtn).toBeVisible();
+
+    const exitBox = await exitBtn.boundingBox();
+    expect(exitBox!.x + exitBox!.width).toBeLessThanOrEqual(412);
+  });
 });

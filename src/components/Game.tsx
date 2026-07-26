@@ -207,20 +207,20 @@ export default function Game() {
       <canvas ref={canvasRef} className="w-full h-screen block touch-none" />
 
       {/* Slim overlay HUD */}
-      <div className="absolute top-4 right-4 z-10 flex items-center gap-3">
+      <div className="absolute top-2.5 right-2.5 sm:top-4 sm:right-4 z-10 flex items-center gap-1.5 sm:gap-3">
         <button
           type="button"
           onClick={() => setShowPeek((prev) => !prev)}
           aria-label={showPeek ? 'Hide verse text' : 'Peek verse text'}
           title={showPeek ? 'Hide full verse text' : 'Peek full verse text'}
-          className="glassmorphism rounded-full px-3.5 py-1.5 shadow-lg hover:bg-white/20 transition-colors flex items-center gap-2"
+          className="glassmorphism rounded-full px-2.5 sm:px-3.5 py-1 sm:py-1.5 shadow-lg hover:bg-white/20 transition-colors flex items-center gap-1 sm:gap-2"
         >
           {showPeek ? (
-            <EyeOff className="w-5 h-5 text-indigo-400" />
+            <EyeOff className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-400" />
           ) : (
-            <Eye className="w-5 h-5 text-indigo-400" />
+            <Eye className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-400" />
           )}
-          <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+          <span className="text-[11px] sm:text-xs font-semibold text-gray-700 dark:text-gray-200">
             {showPeek ? 'Hide' : 'Peek'}
           </span>
         </button>
@@ -229,21 +229,22 @@ export default function Game() {
           onClick={toggleSound}
           aria-label={soundEnabled ? 'Mute sound' : 'Unmute sound'}
           title={soundEnabled ? 'Sound is on — click to mute' : 'Sound is muted — click to enable'}
-          className="glassmorphism rounded-full p-2 shadow-lg hover:bg-white/20 transition-colors"
+          className="glassmorphism rounded-full p-1.5 sm:p-2 shadow-lg hover:bg-white/20 transition-colors"
         >
           {soundEnabled ? (
-            <Volume2 className="w-6 h-6 text-amber-500 dark:text-amber-400" />
+            <Volume2 className="w-5 h-5 sm:w-6 sm:h-6 text-amber-500 dark:text-amber-400" />
           ) : (
-            <VolumeX className="w-6 h-6 text-gray-500 dark:text-gray-400" />
+            <VolumeX className="w-5 h-5 sm:w-6 sm:h-6 text-gray-500 dark:text-gray-400" />
           )}
         </button>
         <button
           type="button"
           onClick={handleExit}
           aria-label="Exit"
-          className="glassmorphism rounded-full p-2 shadow-lg hover:bg-white/20 transition-colors"
+          title="Exit game"
+          className="glassmorphism rounded-full p-1.5 sm:p-2 shadow-lg hover:bg-white/20 transition-colors"
         >
-          <X className="w-6 h-6 text-gray-700 dark:text-gray-100" />
+          <X className="w-5 h-5 sm:w-6 sm:h-6 text-gray-700 dark:text-gray-200" />
         </button>
       </div>
 
