@@ -375,6 +375,21 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     const areaX = MARGIN;
     const areaW = W - 2 * MARGIN;
 
+    if (!bgSprite) {
+      bgSprite = addSprite2D(spriteLayer, {
+        positionPx: [W / 2, H / 2],
+        sizePx: [W, H],
+        color: spriteColor(palette.background, 1),
+        frame: 0,
+      });
+    } else {
+      updateSprite2D(bgSprite, {
+        positionPx: [W / 2, H / 2],
+        sizePx: [W, H],
+        color: spriteColor(palette.background, 1),
+      });
+    }
+
     // Header (reference) + prompt.
     headerData = createDefaultTextData(font, HEADER_FONT, v.reference, textColor(palette.text), {
       align: 'center',
@@ -497,6 +512,14 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     const [W, H] = canvasSize();
     const areaX = MARGIN;
     const areaW = W - 2 * MARGIN;
+
+    if (bgSprite) {
+      updateSprite2D(bgSprite, {
+        positionPx: [W / 2, H / 2],
+        sizePx: [W, H],
+        color: spriteColor(palette.background, 1),
+      });
+    }
 
     if (headerLayer && headerData) {
       headerLayer.positionPx = { x: (W - headerData.width) / 2, y: HEADER_Y };
