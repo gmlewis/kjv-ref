@@ -10,7 +10,7 @@ import { getKJVChapter, getKJVChapterList, getKJVChapterVerseCount, type KJVVers
 import { searchKJV, type SearchResult } from '../data/kjv-search';
 import { searchBibleQuery, hasSpecialSyntax, type BibleSearchResult } from '../utils/bibleQueryEval';
 import { searchBibleReferences, type BibleRefMatch } from '../utils/bibleRefSearch';
-import { verseAnchorId, buildChapterUrl, parseVerseHash, buildVerseHash, type VerseRange } from '../utils/urlHelpers';
+import { verseAnchorId, buildChapterUrl, buildChapterUrlRange, parseVerseHash, buildVerseHash, type VerseRange } from '../utils/urlHelpers';
 import { getVerseWordData, type StrongsEntry } from '../data/strongs';
 import { getInterlinearChapter, getInterlinearWordBook, type WordEntry } from '../data/interlinear';
 import { bibleHubInterlinearUrl, stepBibleUrl } from '../utils/studyLinks';
@@ -153,8 +153,11 @@ function SearchPanel({ onNavigateAway, initialQuery = '' }: { onNavigateAway: ()
                 const m = refMatches[selectedRefIndex];
                 if (m) {
                   e.preventDefault();
-                  _pendingScrollTarget = { start: m.verse, end: m.verse };
-                  navigate(buildChapterUrl(m.book, m.chapter, m.verse));
+                  // Preserve a verse range (e.g. "ps23:1-6" → v1-6), not just
+                  // the start verse.
+                  const range = { start: m.verse, end: m.verseEnd ?? m.verse };
+                  _pendingScrollTarget = range;
+                  navigate(buildChapterUrlRange(m.book, m.chapter, range));
                   onNavigateAway();
                 }
               }
@@ -212,13 +215,13 @@ function SearchPanel({ onNavigateAway, initialQuery = '' }: { onNavigateAway: ()
           {refMatches.map((m, i) => (
             <Link
               key={m.reference}
-              to={buildChapterUrl(m.book, m.chapter, m.verse)}
+              to={buildChapterUrlRange(m.book, m.chapter, { start: m.verse, end: m.verseEnd ?? m.verse })}
             >
               <div
                 className={`glassmorphism rounded-2xl p-4 shadow-md cursor-pointer hover:shadow-lg border-2 transition-all flex items-center gap-3 ${
                   i === selectedRefIndex ? 'border-purple-400 bg-purple-50' : 'border-transparent hover:border-purple-200'
                 }`}
-                onClick={() => { _pendingScrollTarget = { start: m.verse, end: m.verse }; onNavigateAway(); }}
+                onClick={() => { _pendingScrollTarget = { start: m.verse, end: m.verseEnd ?? m.verse }; onNavigateAway(); }}
               >
                 <BookOpen className="w-5 h-5 text-purple-500 flex-shrink-0" />
                 <span className="font-bold text-purple-600 text-lg">{m.reference}</span>
@@ -296,6 +299,16 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
   const [copiedVerse, setCopiedVerse] = useState<number | null>(null);
   // Track the highlight fade timer so we can cancel it on rapid navigation
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cancel the pending highlight fade on unmount. Without this, the 600 ms
+  // timer fires after the component (and, in tests, the jsdom environment) is
+  // gone, calling setState on an unmounted component and raising
+  // "ReferenceError: window is not defined" from React's event-priority probe.
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    };
+  }, []);
 
   // Currently-selected verse range (persistent glow). Tracks the URL hash so the
   // glow survives re-renders and stays in sync with arrow-key / click navigation.

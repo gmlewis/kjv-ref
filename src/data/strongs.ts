@@ -1,4 +1,4 @@
-import { BOOK_ABBR_MAP } from './kjv-bible';
+import { BOOK_ABBR_MAP, normalizeBookName } from './kjv-bible';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 export type StrongsLanguage = 'hebrew' | 'greek';
@@ -29,7 +29,7 @@ export function parseStrongsNumber(s: string): { language: StrongsLanguage; numb
 }
 
 export function getVerseKey(bookName: string, chapter: number, verse: number): string | null {
-  const abbr = FULL_NAME_TO_ABBR.get(bookName);
+  const abbr = FULL_NAME_TO_ABBR.get(normalizeBookName(bookName));
   if (!abbr) return null;
   return `${abbr}.${chapter}.${verse}`;
 }
@@ -76,7 +76,8 @@ export async function getWordIndex(): Promise<Record<string, string[]>> {
     // Fetch from public folder
     _wordIndexLoading = fetch(`${import.meta.env.BASE_URL}strongs/word-index.json`)
       .then(r => r.json())
-      .then(d => { _wordIndex = d; return d; });
+      .then(d => { _wordIndex = d; return d; })
+      .catch(err => { _wordIndexLoading = null; throw err; });
   }
   return _wordIndexLoading;
 }
@@ -87,7 +88,8 @@ export async function getHebrewLexicon(): Promise<Record<string, any>> {
     // Fetch from public folder
     _hebrewLoading = fetch(`${import.meta.env.BASE_URL}strongs/hebrew.json`)
       .then(r => r.json())
-      .then(d => { _hebrewLexicon = d; return d; });
+      .then(d => { _hebrewLexicon = d; return d; })
+      .catch(err => { _hebrewLoading = null; throw err; });
   }
   return _hebrewLoading;
 }
@@ -98,7 +100,8 @@ export async function getGreekLexicon(): Promise<Record<string, any>> {
     // Fetch from public folder
     _greekLoading = fetch(`${import.meta.env.BASE_URL}strongs/greek.json`)
       .then(r => r.json())
-      .then(d => { _greekLexicon = d; return d; });
+      .then(d => { _greekLexicon = d; return d; })
+      .catch(err => { _greekLoading = null; throw err; });
   }
   return _greekLoading;
 }

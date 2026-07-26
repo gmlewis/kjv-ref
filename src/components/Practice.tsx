@@ -15,6 +15,7 @@ const BOOK_ORDER = new Map(BIBLE_BOOKS.map((b, i) => [b.name, i]));
 import { KJV_VERSES, type KJVVerse } from '../data/kjv-verses';
 import { getKJVVerse } from '../data/kjv-bible';
 import { extractKeywords, assessDifficulty } from '../utils/spacedRepetition';
+import { getDailyGoal } from '../storage';
 import {
   buildWordBank, checkWordBankAnswer,
   toFirstLetters,
@@ -930,12 +931,18 @@ function PracticeSession({
   const progress = ((idx) / verses.length) * 100;
 
   const recordResult = useCallback((correct: boolean) => {
+    // Record at most once per verse. The Skip button is only shown after the
+    // verse has been revealed (i.e. already recorded), so without this guard
+    // clicking Skip would call recordResult(false) a second time and
+    // double-count the verse (inflating the running total and adding a spurious
+    // wrong result). The same guard also protects against double-clicks.
+    if (revealed) return;
     const rating: PerformanceRating = correct ? 'excellent' : 'poor';
     setTotal(t => t + 1);
     if (correct) setScore(s => s + 1);
     setResults(r => [...r, { verse, correct, rating }]);
     setRevealed(true);
-  }, [verse]);
+  }, [verse, revealed]);
 
   const advance = useCallback(() => {
     if (idx + 1 >= verses.length) {
@@ -1481,10 +1488,16 @@ function Practice() {
         await doUpsertReviewSchedule({ reference: result.verse.reference, correct: result.correct, streak, accuracy }).catch(() => {});
       }
 
-      // Update daily goal
+      // Update daily goal. The goal is day-scoped: getDailyGoal() resets the
+      // counters when the day has rolled over, so its completedVerses is the
+      // running total for TODAY (not the all-time recitation count). Adding
+      // this session's correct verses to that base keeps the daily goal
+      // accurate across multiple sessions in the same day and prevents a
+      // previously-completed goal from re-completing every subsequent day.
       const totalCorrect = results.filter(r => r.correct).length;
-      const prevCorrect = (progressData ?? []).reduce((sum: number, p: any) => sum + (p?.timesRecited ?? 0), 0);
-      await doUpdateDailyGoal({ completedVerses: prevCorrect + totalCorrect }).catch(() => {});
+      const goal = getDailyGoal();
+      const baseToday = goal?.completedVerses ?? 0;
+      await doUpdateDailyGoal({ completedVerses: baseToday + totalCorrect }).catch(() => {});
 
       // Check achievements
       const correctCount = results.filter(r => r.correct).length;

@@ -42,6 +42,27 @@ describe('hasSpecialSyntax', () => {
   it('returns true for exclude -', () => {
     expect(hasSpecialSyntax('love -hate')).toBe(true);
   });
+
+  it('returns false for a mid-word hyphen (hyphenated word)', () => {
+    // "well-beloved" is a real KJV word. The unfixed code treated any hyphen
+    // as special syntax, routing the query to the exact-match parser — which
+    // keeps the hyphen in the query term while verseWords() splits on hyphens,
+    // so the search returned zero results. A mid-word hyphen is not the exclude
+    // operator and should fall back to fuzzy search.
+    expect(hasSpecialSyntax('well-beloved')).toBe(false);
+    expect(hasSpecialSyntax('well-known')).toBe(false);
+    expect(hasSpecialSyntax('two-edged')).toBe(false);
+  });
+
+  it('still treats a leading hyphen as the exclude operator', () => {
+    expect(hasSpecialSyntax('-hate')).toBe(true);
+  });
+
+  it('detects the exclude operator alongside a mid-word hyphen', () => {
+    // A real exclude (-hate) must still be detected even when another term has
+    // a mid-word hyphen that should be ignored.
+    expect(hasSpecialSyntax('well-beloved -hate')).toBe(true);
+  });
 });
 
 describe('searchBibleQuery', () => {

@@ -88,3 +88,4 @@ Automatic on push to `master` via `.github/workflows/deploy.yml` (runs
 - Do not run `npm install` or commit `node_modules`.
 - Do not commit `dist/` or `e2e/report/`.
 - Do not add external backend dependencies — all data is served statically.
+- Do not forget to add a trailing newline to all source code and Markdown files.

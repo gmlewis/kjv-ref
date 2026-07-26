@@ -140,7 +140,11 @@ async function getBible(): Promise<BibleMap> {
     .then(text => {
       _bible = parseKJVBible(text);
       return _bible;
-    });
+    })
+    // A transient fetch failure must not permanently poison the cache: clear
+    // the loading slot so the next call retries instead of returning the
+    // same rejected promise forever.
+    .catch(err => { _loading = null; throw err; });
   return _loading;
 }
 
@@ -160,7 +164,7 @@ export async function getKJVVerse(reference: string): Promise<KJVVerseEntry | nu
   if (!m) return null;
   const [, book, chapStr, verseStr] = m;
   const bible = await getBible();
-  return bible.get(book)?.get(parseInt(chapStr, 10))?.find(v => v.verse === parseInt(verseStr, 10)) ?? null;
+  return bible.get(normalizeBookName(book))?.get(parseInt(chapStr, 10))?.find(v => v.verse === parseInt(verseStr, 10)) ?? null;
 }
 
 /** For testing: inject pre-parsed data so fetch is not needed */
@@ -185,4 +189,21 @@ export function getAllBookNames(): string[] {
   return Object.values(BOOK_ABBR_MAP)
     .sort((a, b) => a.order - b.order)
     .map(b => b.name);
+}
+
+/**
+ * Normalize a book name to its canonical form.
+ *
+ * Individual psalms are conventionally referenced as "Psalm 23:1" (singular),
+ * but the book itself is "Psalms" (plural) — which is the key used by the
+ * bible map and BOOK_ABBR_MAP. Without normalization, any lookup keyed on the
+ * canonical name silently fails for the singular form (which is what
+ * KJV_VERSES.reference and bookmark references use). Add any future
+ * singular/plural or alias mismatches here.
+ */
+const BOOK_NAME_ALIASES: Record<string, string> = {
+  Psalm: 'Psalms',
+};
+export function normalizeBookName(book: string): string {
+  return BOOK_NAME_ALIASES[book] ?? book;
 }

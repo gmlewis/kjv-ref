@@ -111,6 +111,17 @@ describe('spacedRepetition utilities', () => {
       const keywords = extractKeywords(text, 5);
       expect(keywords.length).toBeLessThanOrEqual(5);
     });
+
+    it('deduplicates before applying maxCount so later unique keywords are not crowded out', () => {
+      // Eleven "love" tokens then a unique "grace". The unfixed code slices to
+      // maxCount BEFORE deduping, so the slice is all "love" and "grace" is
+      // dropped entirely — even though it is a distinct keyword.
+      const text = 'love love love love love love love love love love love grace';
+      const keywords = extractKeywords(text, 5);
+      expect(keywords).toContain('love');
+      expect(keywords).toContain('grace');
+      expect(keywords.length).toBeLessThanOrEqual(5);
+    });
   });
 
   describe('assessDifficulty', () => {
@@ -127,6 +138,19 @@ describe('spacedRepetition utilities', () => {
     it('classifies medium verse as medium', () => {
       const text = 'I can do all things through Christ which strengtheneth me';
       expect(assessDifficulty(text)).toBe('medium');
+    });
+
+    it('does not let leading/trailing whitespace inflate the word count', () => {
+      // A single 5-letter word has average word length 5 (> 4.5), so it is NOT
+      // easy. The unfixed code counted the empty tokens produced by
+      // split(/\s+/) on padded input, diluting the average and misclassifying
+      // the verse as easy.
+      expect(assessDifficulty(' hello ')).toBe('medium');
+    });
+
+    it('handles empty and whitespace-only input without crashing', () => {
+      expect(['easy', 'medium', 'hard']).toContain(assessDifficulty(''));
+      expect(['easy', 'medium', 'hard']).toContain(assessDifficulty('   '));
     });
   });
 
@@ -155,6 +179,23 @@ describe('spacedRepetition utilities', () => {
         new Date(today.getTime() - 86400000 * 3),
       ];
       expect(calculateStreak(dates)).toBe(1);
+    });
+
+    it('returns 0 when the most recent practice is stale', () => {
+      // A streak is only "current" if the most recent practice was today or
+      // yesterday. The unfixed code returned 1 for any non-empty array, so a
+      // user who last practiced a week ago was shown a phantom 1-day streak.
+      const today = new Date();
+      today.setHours(12, 0, 0, 0);
+      const stale = new Date(today.getTime() - 86400000 * 7);
+      expect(calculateStreak([stale])).toBe(0);
+    });
+
+    it('keeps a 1-day grace for yesterday', () => {
+      const today = new Date();
+      today.setHours(12, 0, 0, 0);
+      const yesterday = new Date(today.getTime() - 86400000);
+      expect(calculateStreak([yesterday])).toBe(1);
     });
   });
 

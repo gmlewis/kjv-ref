@@ -184,5 +184,12 @@ export async function searchBibleQuery(
  * If not, the caller can fall back to the existing MiniSearch (fuzzy) search.
  */
 export function hasSpecialSyntax(query: string): boolean {
-  return /["|*?\[\]-]/.test(query);
+  if (/["|*?\[\]]/.test(query)) return true;
+  // A hyphen is only special syntax when it is the exclude operator, i.e. when
+  // it is NOT mid-word. "well-beloved" / "two-edged" are real KJV words; if
+  // they were treated as special syntax they would be routed to the exact-match
+  // parser, which keeps the hyphen in the query term while verseWords() splits
+  // on hyphens — yielding zero results. A hyphen flanked by word characters on
+  // both sides is part of a word, not the exclude operator.
+  return /(?<!\w)-|-(?!\w)/.test(query);
 }

@@ -59,6 +59,15 @@ describe('searchKJV', () => {
     }
   });
 
+  // Regression: the singular "Psalm" (as used in reference strings) must be
+  // accepted as a book filter equivalent to the canonical "Psalms".
+  it('treats book filter "Psalm" the same as "Psalms"', async () => {
+    const singular = await searchKJV('shepherd', { book: 'Psalm' });
+    const plural = await searchKJV('shepherd', { book: 'Psalms' });
+    expect(singular.length).toBeGreaterThan(0);
+    expect(singular.map(r => r.reference)).toEqual(plural.map(r => r.reference));
+  });
+
   // 1.2.9
   it('each result has the correct shape', async () => {
     const results = await searchKJV('shepherd', {});

@@ -102,6 +102,35 @@ test.describe('Books — verse search', () => {
     expect(marks.length).toBeGreaterThanOrEqual(3);
     expect(marks).toEqual(expect.arrayContaining(['depart', 'from', 'me']));
   });
+
+  test('quick-jump to a verse range preserves the whole range, not just the start', async ({ page }) => {
+    const frame = await openApp(page);
+    await navigateTo(frame, 'Books', 'Browse Bible Books');
+    await frame.locator('button:has-text("Search")').first().click();
+    await expect(frame.locator('text=Search Verses')).toBeVisible({ timeout: 10_000 });
+
+    const input = frame.locator('input[placeholder*="Search verses"]');
+    await input.fill('ps23:1-6');
+
+    // The Quick Jump suggestion should show the full range reference.
+    await expect(frame.locator('text=Quick Jump')).toBeVisible({ timeout: 10_000 });
+    await expect(frame.locator('text=Psalms 23:1-6').first()).toBeVisible({ timeout: 10_000 });
+
+    // Click the quick-jump match.
+    await frame.locator('text=Psalms 23:1-6').first().click();
+
+    // The chapter view should load.
+    await expect(frame.locator('text=Chapter 23').first()).toBeVisible({ timeout: 10_000 });
+
+    // The URL hash must carry the full range (#v1-6), not just the start
+    // verse (#v1). Before the fix, the quick-jump used the single-verse URL
+    // builder and dropped the range end.
+    await expect(page).toHaveURL(/#v1-6$/);
+
+    // A multi-verse selection shows a "Practice range" button — confirming the
+    // range end (v6) was preserved. Before the fix only v1 was selected.
+    await expect(frame.locator('button:has-text("Practice range")').first()).toBeVisible({ timeout: 10_000 });
+  });
 });
 
 test.describe('Books — book detail view', () => {

@@ -135,6 +135,18 @@ describe('getKJVChapter / getKJVVerse (live data)', () => {
     expect(verse!.text).toContain('God so loved');
   });
 
+  // Regression: reference strings use the singular "Psalm" (e.g. "Psalm 23:1")
+  // while the bible map keys on the plural "Psalms". The singular form must
+  // still resolve to the verse, not silently return null.
+  it('resolves the singular "Psalm" reference to the same verse as "Psalms"', async () => {
+    const singular = await getKJVVerse('Psalm 23:1');
+    const plural = await getKJVVerse('Psalms 23:1');
+    expect(singular).not.toBeNull();
+    expect(plural).not.toBeNull();
+    expect(singular).toEqual(plural);
+    expect(singular!.text).toContain('shepherd');
+  });
+
   it('returns null for unknown reference', async () => {
     expect(await getKJVVerse('Unknown 99:99')).toBeNull();
   });

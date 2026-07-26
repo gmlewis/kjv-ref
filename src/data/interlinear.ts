@@ -1,4 +1,4 @@
-import { BOOK_ABBR_MAP } from './kjv-bible';
+import { BOOK_ABBR_MAP, normalizeBookName } from './kjv-bible';
 
 // ─── Word-level data types ────────────────────────────────────────────────────
 // Compact tuple: [word, strongs, translit, gloss, parsing]
@@ -23,7 +23,8 @@ export async function getInterlinearHebrew(): Promise<Record<string, string>> {
     // Fetch from public folder
     _hebrewLoading = fetch(`${import.meta.env.BASE_URL}interlinear/hebrew.json`)
       .then(r => r.json())
-      .then(d => { _hebrew = d; return d; });
+      .then(d => { _hebrew = d; return d; })
+      .catch(err => { _hebrewLoading = null; throw err; });
   }
   return _hebrewLoading;
 }
@@ -34,7 +35,8 @@ export async function getInterlinearGreek(): Promise<Record<string, string>> {
     // Fetch from public folder
     _greekLoading = fetch(`${import.meta.env.BASE_URL}interlinear/greek.json`)
       .then(r => r.json())
-      .then(d => { _greek = d; return d; });
+      .then(d => { _greek = d; return d; })
+      .catch(err => { _greekLoading = null; throw err; });
   }
   return _greekLoading;
 }
@@ -61,7 +63,7 @@ export async function getInterlinearVerse(
   chapter: number,
   verse: number
 ): Promise<string | null> {
-  const abbr = FULL_NAME_TO_ABBR.get(bookName);
+  const abbr = FULL_NAME_TO_ABBR.get(normalizeBookName(bookName));
   if (!abbr) return null;
   const testament = BOOK_ABBR_MAP[abbr]?.testament;
   const key = `${abbr}.${chapter}.${verse}`;
@@ -83,7 +85,7 @@ export async function getInterlinearChapter(
   chapter: number,
   verseNums: number[]
 ): Promise<Map<number, string>> {
-  const abbr = FULL_NAME_TO_ABBR.get(bookName);
+  const abbr = FULL_NAME_TO_ABBR.get(normalizeBookName(bookName));
   const result = new Map<number, string>();
   if (!abbr) return result;
   const testament = BOOK_ABBR_MAP[abbr]?.testament;

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getInterlinearWordBook, _wordCache, _wordLoading } from './interlinear';
+import { getInterlinearWordBook, getInterlinearVerse, _wordCache, _wordLoading } from './interlinear';
 
 beforeEach(() => {
   _wordCache.clear();
@@ -62,5 +62,27 @@ describe('getInterlinearWordBook', () => {
     const result = await getInterlinearWordBook('Psa');
     expect(result).toEqual(goodData); // served from cache, no re-fetch
     expect(failFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('getInterlinearVerse', () => {
+  // Regression + first coverage: the singular "Psalm" (used in reference
+  // strings) must resolve to the same original-language verse as "Psalms".
+  it('resolves "Psalm" (singular) the same as "Psalms" for an OT verse', async () => {
+    const hebrewData = { 'Psa.23.1': 'יְהוָה רֹעִי' };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => hebrewData,
+    }));
+
+    const singular = await getInterlinearVerse('Psalm', 23, 1);
+    const plural = await getInterlinearVerse('Psalms', 23, 1);
+    expect(singular).toBe('יְהוָה רֹעִי');
+    expect(plural).toBe(singular);
+  });
+
+  it('returns null for an unknown book', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+    expect(await getInterlinearVerse('NotABook', 1, 1)).toBeNull();
   });
 });

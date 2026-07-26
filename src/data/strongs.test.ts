@@ -55,6 +55,13 @@ describe('getVerseKey', () => {
     expect(getVerseKey('Psalms', 23, 1)).toBe('Psa.23.1');
   });
 
+  // Regression: the singular form "Psalm" (used in reference strings like
+  // "Psalm 23:1") must resolve to the same key as the canonical "Psalms".
+  it('Psalm (singular) 23:1 → Psa.23.1, same as Psalms', () => {
+    expect(getVerseKey('Psalm', 23, 1)).toBe('Psa.23.1');
+    expect(getVerseKey('Psalm', 23, 1)).toBe(getVerseKey('Psalms', 23, 1));
+  });
+
   it('returns null for unknown book', () => {
     expect(getVerseKey('NotABook', 1, 1)).toBeNull();
   });

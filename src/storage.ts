@@ -123,7 +123,22 @@ export function removeBookmarkByReference(reference: string): void {
 export function getDailyGoal(): any {
   if (typeof window === 'undefined') return null;
   const data = localStorage.getItem(STORAGE_KEYS.DAILY_GOAL);
-  return data ? JSON.parse(data) : null;
+  if (!data) return null;
+  const goal = JSON.parse(data);
+  if (!goal || typeof goal !== 'object') return null;
+  // The daily goal is day-scoped: a goal completed yesterday must not still
+  // show as completed today. When the stored date is stale (or missing, e.g.
+  // from an imported settings file), reset the day-scoped counters while
+  // preserving the user's chosen targetVerses, and persist the reset so the
+  // Dashboard and practice flow see a consistent value.
+  const today = new Date().toISOString().split('T')[0];
+  if (goal.date !== today) {
+    goal.date = today;
+    goal.completedVerses = 0;
+    goal.completed = false;
+    updateDailyGoal(goal);
+  }
+  return goal;
 }
 
 // Update daily goal

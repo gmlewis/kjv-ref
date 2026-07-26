@@ -2,13 +2,7 @@ import { Link } from 'react-router-dom';
 import { BookOpen, TrendingUp, Calendar, Target, Sparkles, Flame, Star, Heart, Crown, Dumbbell } from 'lucide-react';
 import { useMyProgress, useMySessions, useMyAchievements, useMyBookmarks } from '../hooks';
 import { KJV_VERSES } from '../data/kjv-verses';
-
-function getDailyGoal() {
-  try {
-    const data = localStorage.getItem('kjv-memorize-daily-goal');
-    return data ? JSON.parse(data) : null;
-  } catch { return null; }
-}
+import { getDailyGoal } from '../storage';
 
 const FEATURED_VERSES = [
   { reference: 'John 3:16', theme: 'salvation', difficulty: 'medium' as const },

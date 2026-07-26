@@ -5,6 +5,8 @@ import {
   toFirstLetters,
   getVanishingClozeLevel,
   applyVanishingCloze,
+  diffWords,
+  diffScore,
 } from './practiceHelpers';
 
 // ── Word Bank ──────────────────────────────────────────────────────────────────
@@ -159,5 +161,86 @@ describe('applyVanishingCloze', () => {
     }
     // We should see at least 2 different selections in 20 draws.
     expect(results.size).toBeGreaterThan(1);
+  });
+});
+
+// ── Word-by-word diff (diffWords / diffScore) ──────────────────────────────────
+
+describe('diffWords', () => {
+  it('marks every matching word as correct', () => {
+    const diff = diffWords('for god so loved', 'for god so loved');
+    expect(diff).toEqual([
+      { type: 'correct', word: 'for' },
+      { type: 'correct', word: 'god' },
+      { type: 'correct', word: 'so' },
+      { type: 'correct', word: 'loved' },
+    ]);
+  });
+
+  it('marks a skipped target word as missing', () => {
+    const diff = diffWords('for god loved', 'for god so loved');
+    expect(diff).toEqual([
+      { type: 'correct', word: 'for' },
+      { type: 'correct', word: 'god' },
+      { type: 'missing', expected: 'so' },
+      { type: 'correct', word: 'loved' },
+    ]);
+  });
+
+  it('pairs a stray user word with the missing slot as a wrong substitution', () => {
+    const diff = diffWords('for god truly loved', 'for god so loved');
+    expect(diff).toEqual([
+      { type: 'correct', word: 'for' },
+      { type: 'correct', word: 'god' },
+      { type: 'wrong', word: 'truly', expected: 'so' },
+      { type: 'correct', word: 'loved' },
+    ]);
+  });
+
+  it('appends unpaired extra user words at the end', () => {
+    const diff = diffWords('for god so loved extra', 'for god so loved');
+    expect(diff).toEqual([
+      { type: 'correct', word: 'for' },
+      { type: 'correct', word: 'god' },
+      { type: 'correct', word: 'so' },
+      { type: 'correct', word: 'loved' },
+      { type: 'extra', word: 'extra' },
+    ]);
+  });
+
+  it('keeps every unpaired duplicate extra word (regression: duplicates were dropped)', () => {
+    // User typed "a x x c" against target "a b c": one "x" pairs with the
+    // missing "b" as a wrong substitution, the second "x" is a genuine extra
+    // and must NOT be silently dropped.
+    const diff = diffWords('a x x c', 'a b c');
+    expect(diff).toEqual([
+      { type: 'correct', word: 'a' },
+      { type: 'wrong', word: 'x', expected: 'b' },
+      { type: 'correct', word: 'c' },
+      { type: 'extra', word: 'x' },
+    ]);
+  });
+
+  it('keeps all unpaired copies when a duplicate word is repeated many times', () => {
+    const diff = diffWords('a x x x c', 'a b c');
+    // One "x" pairs with missing "b"; the other two "x"s stay as extras.
+    const extras = diff.filter(t => t.type === 'extra');
+    expect(extras).toEqual([
+      { type: 'extra', word: 'x' },
+      { type: 'extra', word: 'x' },
+    ]);
+    expect(diff.length).toBe(5);
+  });
+});
+
+describe('diffScore', () => {
+  it('counts correct vs total target words', () => {
+    const diff = diffWords('for god loved', 'for god so loved');
+    expect(diffScore(diff)).toEqual({ correct: 3, total: 4 });
+  });
+
+  it('does not count extra user words in the total', () => {
+    const diff = diffWords('for god so loved extra', 'for god so loved');
+    expect(diffScore(diff)).toEqual({ correct: 4, total: 4 });
   });
 });

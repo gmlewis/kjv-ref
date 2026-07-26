@@ -224,11 +224,10 @@ export function diffWords(userText: string, targetText: string): DiffToken[] {
       result.push({ type: 'missing', expected: targetWords[a.targetIdx] });
     }
   }
-  // Append extras (user words with no target counterpart) at the end.
+  // Collect extras (user words with no target counterpart), in order.
   const alignedUserIdx = new Set(aligned.filter(a => a.userIdx !== null).map(a => a.userIdx!));
   const extras: string[] = [];
   for (let k = 0; k < n; k++) if (!alignedUserIdx.has(k)) extras.push(userWords[k]);
-  for (const w of extras) result.push({ type: 'extra', word: w });
 
   // Pair up missing+extra tokens into "wrong" substitutions: a missing target
   // word paired with an extra user word means the user typed a wrong word
@@ -248,14 +247,13 @@ export function diffWords(userText: string, targetText: string): DiffToken[] {
     }
   }
 
-  // Drop extras that were paired into "wrong" tokens.
-  return result.filter(t => {
-    if (t.type !== 'extra') return true;
-    const idx = extras.indexOf(t.word);
-    // Keep only if its slot wasn't consumed
-    // (if any unused extra matches this word, keep one copy)
-    return !extraUsed[idx];
-  });
+  // Append only the extras that were NOT paired into a "wrong" token. We
+  // iterate by slot index (not by word) so duplicate extra words are kept
+  // independently — pairing one copy must not drop the others.
+  for (let e = 0; e < extras.length; e++) {
+    if (!extraUsed[e]) result.push({ type: 'extra', word: extras[e] });
+  }
+  return result;
 }
 
 /** Count correct vs total target words for scoring. */

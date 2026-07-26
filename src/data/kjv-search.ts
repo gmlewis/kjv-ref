@@ -1,5 +1,5 @@
 import MiniSearch from 'minisearch';
-import { getKJVBible, BOOK_ABBR_MAP } from './kjv-bible';
+import { getKJVBible, BOOK_ABBR_MAP, normalizeBookName } from './kjv-bible';
 
 // 1.3.1 — SearchResult interface
 export interface SearchResult {
@@ -95,7 +95,8 @@ export async function searchKJV(query: string, options: SearchOptions): Promise<
     filtered = filtered.filter(r => r.testament === options.testament);
   }
   if (options.book) {
-    filtered = filtered.filter(r => r.book === options.book);
+    const bookFilter = normalizeBookName(options.book);
+    filtered = filtered.filter(r => r.book === bookFilter);
   }
 
   // Sort by descending score (MiniSearch already returns them sorted, but re-sort after filtering)

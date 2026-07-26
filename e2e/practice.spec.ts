@@ -673,6 +673,27 @@ test.describe('Practice — Multiple Choice mode', () => {
       await expect(options.nth(i)).toBeDisabled();
     }
   });
+
+  test('Skip after answering does not double-count the verse', async ({ page }) => {
+    const frame = await openPractice(page);
+    await selectMode(frame, 'Multiple Choice');
+    const options = frame.locator('button').filter({ has: frame.locator('span:text-matches("^[ABCD]$")') });
+    await options.first().click();
+
+    // Answering records the verse once → running total is 1 ("score/1 correct").
+    await expect(frame.getByText(/\/1 correct/).first()).toBeVisible({ timeout: 5_000 });
+
+    // The Skip button only appears after revealing (answering). Clicking it
+    // must NOT record the verse a second time. Before the fix, skipVerse
+    // called recordResult(false) again, inflating the total to 2.
+    await frame.locator('button:has-text("Skip")').click();
+    await expect(frame.locator('text=Verse 2 of').first()).toBeVisible({ timeout: 5_000 });
+
+    // On verse 2 the running total must still be 1 — the skip did not add a
+    // second record for verse 1.
+    await expect(frame.getByText(/\/1 correct/).first()).toBeVisible({ timeout: 5_000 });
+    await expect(frame.getByText(/\/2 correct/)).toHaveCount(0);
+  });
 });
 
 // ─── Reference Match Mode ─────────────────────────────────────────────────────

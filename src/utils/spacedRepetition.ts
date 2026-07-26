@@ -80,17 +80,23 @@ export function extractKeywords(text: string, maxCount = 10): string[] {
   
   const words = text.replace(/[.,;:!?'"()]/g, '').split(/\s+/);
   const keywords = words
-    .filter(word => word.length > 2 && !commonWords.has(word.toLowerCase()))
-    .slice(0, maxCount);
-  
-  return [...new Set(keywords)];
+    .filter(word => word.length > 2 && !commonWords.has(word.toLowerCase()));
+  // Dedup BEFORE slicing to maxCount — otherwise repeated early keywords
+  // crowd out later unique keywords (e.g. "love ... love grace" with a small
+  // maxCount would drop "grace" entirely).
+  return [...new Set(keywords)].slice(0, maxCount);
 }
 
 export function assessDifficulty(text: string): 'easy' | 'medium' | 'hard' {
-  const wordCount = text.split(/\s+/).length;
+  // Trim and drop empty tokens so leading/trailing/extra whitespace does not
+  // inflate the word count (which would dilute the average word length and
+  // misclassify a single long word as "easy"). Empty input is trivially easy.
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const wordCount = words.length;
+  if (wordCount === 0) return 'easy';
   const avgWordLength = text.replace(/[^a-z]/gi, '').length / wordCount;
-  const uniqueWords = new Set(text.toLowerCase().split(/\s+/)).size;
-  
+  const uniqueWords = new Set(words.map(w => w.toLowerCase())).size;
+
   if (wordCount < 15 && avgWordLength < 4.5) return 'easy';
   if (wordCount > 30 || avgWordLength > 6 || uniqueWords > 15) return 'hard';
   return 'medium';
@@ -98,10 +104,21 @@ export function assessDifficulty(text: string): 'easy' | 'medium' | 'hard' {
 
 export function calculateStreak(lastPracticedDates: Date[]): number {
   if (lastPracticedDates.length === 0) return 0;
-  
+
   const sorted = [...lastPracticedDates].sort((a, b) => b.getTime() - a.getTime());
+
+  // A streak is only "current" if the most recent practice was today or
+  // yesterday (a one-day grace so a streak earned yesterday is not broken
+  // until the day actually ends). Without this check, any non-empty history
+  // — even a single practice from weeks ago — reported a phantom 1-day streak.
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const mostRecent = new Date(sorted[0]);
+  mostRecent.setHours(0, 0, 0, 0);
+  if (differenceInDays(today, mostRecent) > 1) return 0;
+
   let streak = 1;
-  
+
   for (let i = 1; i < sorted.length; i++) {
     const diff = differenceInDays(sorted[i - 1], sorted[i]);
     if (diff === 1) {
@@ -110,7 +127,7 @@ export function calculateStreak(lastPracticedDates: Date[]): number {
       break;
     }
   }
-  
+
   return streak;
 }
 
