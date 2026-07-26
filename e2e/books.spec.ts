@@ -77,6 +77,33 @@ test.describe('Books — grid view', () => {
   });
 });
 
+test.describe('Books — verse search', () => {
+  test('exact phrase search highlights every word in the phrase', async ({ page }) => {
+    const frame = await openApp(page);
+    await navigateTo(frame, 'Books', 'Browse Bible Books');
+
+    // Switch from the book grid to the verse Search tab.
+    await frame.locator('button:has-text("Search")').first().click();
+    await expect(frame.locator('text=Search Verses')).toBeVisible({ timeout: 10_000 });
+
+    // An "exact" (quoted) phrase search. Before the fix, the surrounding
+    // quote characters stayed glued to the first and last words, so only the
+    // middle word ("from") matched verse text and got highlighted.
+    const input = frame.locator('input[placeholder*="Search verses"]');
+    await input.fill('"Depart from me"');
+
+    // Wait for debounced search (300 ms) + query to return verses.
+    await expect(frame.locator('p.verse-text mark').first()).toBeVisible({ timeout: 15_000 });
+
+    // Every result verse contains the consecutive phrase "depart from me",
+    // so the first result must highlight all three words — not just one.
+    const firstVerse = frame.locator('p.verse-text').filter({ has: frame.locator('mark') }).first();
+    const marks = (await firstVerse.locator('mark').allTextContents()).map(m => m.toLowerCase());
+    expect(marks.length).toBeGreaterThanOrEqual(3);
+    expect(marks).toEqual(expect.arrayContaining(['depart', 'from', 'me']));
+  });
+});
+
 test.describe('Books — book detail view', () => {
   test('shows chapter grid for Genesis', async ({ page }) => {
     const frame = await openApp(page);

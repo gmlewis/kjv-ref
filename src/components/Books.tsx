@@ -30,15 +30,38 @@ export function setPendingScrollTarget(range: VerseRange) {
 }
 
 // ─── Highlight helper ────────────────────────────────────────────────────────
+
+/**
+ * Extract the literal words from a search query that should be highlighted in
+ * result verses. This mirrors the search syntax enough to surface the words the
+ * user typed while dropping the operator characters:
+ *  - `"exact phrase"` → each word inside the quotes highlights
+ *  - `love|charity`    → both OR alternatives highlight
+ *  - `-exclude`        → excluded terms are NOT highlighted
+ *  - wildcard terms (`lov*`, `l?ve`, `l[ai]ve`) can't be highlighted as a
+ *    literal, so they are skipped
+ */
+function extractHighlightTerms(query: string): string[] {
+  return query
+    .replace(/"/g, ' ')   // phrase quotes → word separators
+    .replace(/\|/g, ' ')  // OR pipes → word separators
+    .split(/\s+/)
+    .map(t => t.trim())
+    .filter(t => t.length > 0 && !t.startsWith('-') && !/[*?[\]]/.test(t));
+}
+
 function highlightText(text: string, query: string): React.ReactNode {
-  if (!query.trim()) return text;
-  const terms = query.trim().split(/\s+/).filter(Boolean);
-  // Build a regex from all query terms
+  const terms = extractHighlightTerms(query);
+  if (terms.length === 0) return text;
   const escaped = terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  const re = new RegExp(`(${escaped.join('|')})`, 'gi');
-  const parts = text.split(re);
+  // Split on a global regex, but test each part with a *non-global* regex so
+  // that lastIndex state doesn't leak between parts (a global regex's test()
+  // is stateful, which can cause later matches to be skipped).
+  const splitRe = new RegExp(`(${escaped.join('|')})`, 'gi');
+  const testRe = new RegExp(`(${escaped.join('|')})`, 'i');
+  const parts = text.split(splitRe);
   return parts.map((part, i) =>
-    re.test(part) ? <mark key={i} className="bg-yellow-200 text-yellow-900 rounded px-0.5">{part}</mark> : part
+    testRe.test(part) ? <mark key={i} className="bg-yellow-200 text-yellow-900 rounded px-0.5">{part}</mark> : part
   );
 }
 

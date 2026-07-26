@@ -28,8 +28,10 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: './e2e',
 
-  /* Run tests sequentially against the local preview server */
-  workers: 1,
+  /* Run tests in parallel locally for speed; keep CI sequential for stable
+     logs. The preview server is stateless (static files) and each test gets
+     its own isolated browser context, so parallel workers are safe. */
+  workers: process.env.CI ? 1 : 4,
   fullyParallel: false,
 
   /* Retry once on flakiness */
