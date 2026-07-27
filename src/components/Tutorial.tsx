@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   X, ChevronRight, ChevronLeft, Layers, AlignLeft, Eye, Award,
   BookOpen, Target, Search, Star, Download, Upload, Keyboard,
-  ArrowRight, ArrowLeft, Sun, Moon, Home as HomeIcon,
+  ArrowRight, ArrowLeft, Sun, Moon, Home as HomeIcon, Flame,
 } from 'lucide-react';
 import { setPendingScrollTarget } from './Books';
 
@@ -470,9 +470,34 @@ function buildSteps(): TutorialStep[] {
       placement: 'center',
     },
 
+    // ─── 21. Lamp of the Path (game) ───────────────────────────────────────────
+    {
+      title: 'Lamp of the Path — Game Mode',
+      navigateTo: '/practice',
+      content: (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Flame className="w-6 h-6 text-amber-500" />
+            <span className="font-bold text-amber-600 text-lg">Lamp of the Path — Tap the Words</span>
+          </div>
+          <p><strong>How it works:</strong> From the practice mode selector, the <strong>Lamp of the Path</strong>
+          card opens a full-page game. It's <em>tap-only</em> — no typing. Each session lights a fresh set of
+          lamps (verses). Read the verse, then tap the words back in order. As you progress, the game adds
+          <strong> decoy (wrong) words</strong> to the mix, scaling the challenge across 6 stages (0–5).</p>
+          <p><strong>What it's great for:</strong> A low-friction, gamified way to revisit verses — verses due
+          for review are prioritised first, so playing the game also keeps your spaced-repetition schedule
+          current. You can tap the stage chips to jump to any stage (or Auto) for the current verse.</p>
+          <p className="text-sm text-gray-500">Tip: Use the <strong>Peek</strong> button if you need a quick
+          look at the full verse, and the <strong>Exit</strong> button to leave the game at any time.</p>
+        </div>
+      ),
+      target: 'main',
+      placement: 'top',
+    },
+
     // ═══════════════════════════════════════════════════════════════════════════
 
-    // ─── 21. Settings export ──────────────────────────────────────────────────
+    // ─── 22. Settings export ──────────────────────────────────────────────────
     {
       title: 'Backup and Share Your Data',
       content: (
@@ -486,8 +511,11 @@ function buildSteps(): TutorialStep[] {
             <li>Share your favorite verses with a friend</li>
           </ul>
           <p>The <Upload className="w-4 h-4 inline text-purple-500" /> upload button imports a settings file
-          and <strong>non-destructively merges</strong> favorites — your existing bookmarks are preserved,
-          and only new ones from the file are added.</p>
+          and <strong>restores the full snapshot</strong> — your per-verse progress, review schedule, sessions,
+          achievements, game progress, and settings are replaced with the data from the file, so you can pick up
+          on another device exactly where you left off. Your favorites are <strong>merged</strong>, not replaced:
+          existing favorites are kept and new ones from the file are added, so you can also hand-edit the file to
+          share a curated list of verses with a friend. You'll be asked to confirm before anything is overwritten.</p>
           <p className="text-sm text-gray-500">The exported file is human-readable JSON, so you can even
           edit it manually to curate your favorite verses list.</p>
         </div>
@@ -496,7 +524,7 @@ function buildSteps(): TutorialStep[] {
       placement: 'bottom-right',
     },
 
-    // ─── 22. Done! ────────────────────────────────────────────────────────────
+    // ─── 23. Done! ────────────────────────────────────────────────────────────
     {
       title: "You're All Set!",
       navigateTo: '/',

@@ -18,13 +18,11 @@ function setLocalStorage(key: string, value: string) {
 }
 
 /** Build an export JSON string with native JSON types (not stringified) */
-function makeExportedSettings(bookmarks: string[]): string {
+function makeExportedSettings(keys: Record<string, unknown>): string {
   const data: ExportedSettings = {
     version: 1,
     exportedAt: '2026-07-18T12:00:00.000Z',
-    keys: {
-      'kjv-memorize-bookmarks': bookmarks,
-    },
+    keys,
   };
   return JSON.stringify(data, null, 2);
 }
@@ -44,8 +42,8 @@ function makeBookmarkObjects(refs: Array<{ reference: string; addedAt?: string }
 // ─── ALL_KJV_STORAGE_KEYS ─────────────────────────────────────────────────────
 
 describe('ALL_KJV_STORAGE_KEYS', () => {
-  it('includes all 10 known localStorage keys', () => {
-    expect(ALL_KJV_STORAGE_KEYS).toHaveLength(10);
+  it('includes all 11 known localStorage keys', () => {
+    expect(ALL_KJV_STORAGE_KEYS).toHaveLength(11);
   });
 
   it('includes kjv-theme', () => {
@@ -86,6 +84,10 @@ describe('ALL_KJV_STORAGE_KEYS', () => {
 
   it('includes kjv-memorize-review-schedule', () => {
     expect(ALL_KJV_STORAGE_KEYS).toContain('kjv-memorize-review-schedule');
+  });
+
+  it('includes kjv-game-state', () => {
+    expect(ALL_KJV_STORAGE_KEYS).toContain('kjv-game-state');
   });
 });
 
@@ -206,6 +208,15 @@ describe('collectSettings', () => {
     expect(data.keys['kjv-strongs-enabled']).toBe(1);
   });
 
+  it('collects the game-state key as a native JSON object', () => {
+    setLocalStorage('kjv-game-state', JSON.stringify({
+      xp: 1200, level: 4, comboBest: 7, unlockedRegionIds: ['r1'], builtRoads: [], settings: { sound: true, motion: true },
+    }));
+    const data = collectSettings();
+    const gs = data.keys['kjv-game-state'] as { xp: number };
+    expect(gs.xp).toBe(1200);
+  });
+
   it('converts bookmark objects to a sorted array of reference strings', () => {
     setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([
       { reference: 'John 3:16' },
@@ -243,12 +254,12 @@ describe('collectSettings', () => {
     expect(Object.keys(data.keys)).toHaveLength(0);
   });
 
-  it('collects all 10 keys when all are set', () => {
+  it('collects all 11 keys when all are set', () => {
     for (const key of ALL_KJV_STORAGE_KEYS) {
       setLocalStorage(key, 'test-value');
     }
     const data = collectSettings();
-    expect(Object.keys(data.keys)).toHaveLength(10);
+    expect(Object.keys(data.keys)).toHaveLength(11);
   });
 
   it('exports empty bookmarks as "[]"', () => {
@@ -320,6 +331,37 @@ describe('downloadSettings', () => {
       ...URL,
       createObjectURL: vi.fn().mockReturnValue('blob:mock-url'),
       revokeObjectURL: vi.fn(),
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('creates an anchor element and triggers download', () => {
+    setLocalStorage('kjv-theme', 'dark');
+    downloadSettings();
+    expect(URL.createObjectURL).toHaveBeenCalled();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+  });
+
+  it('generates a download filename matching the YYYYMMDD pattern', () => {
+    setLocalStorage('kjv-theme', 'dark');
+    let capturedDownload = '';
+    const origCreate = document.createElement.bind(document);
+    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const el = origCreate(tag);
+      if (tag === 'a') {
+        Object.defineProperty(el, 'download', {
+          set(v: string) { capturedDownload = v; },
+          get() { return capturedDownload; },
+        });
+      }
+      return el;
+    });
+
+    downloadSettings();
+    expect(capturedDownload).toMatch(/^kjv-ref-\d{8}\.json$/);
   });
 });
 
@@ -367,111 +409,13 @@ describe('correctMisspelling', () => {
   });
 });
 
-describe('importSettings with misspelling corrections', () => {
-  beforeEach(() => { localStorage.clear(); });
+// ─── importSettings: bookmarks MERGE (additive) ──────────────────────────────
 
-  it('imports "Galations 2:20" as "Galatians 2:20"', () => {
-    const json = makeExportedSettings(['Galations 2:20']);
-    const result = importSettings(json);
-    expect(result.addedBookmarks).toBe(1);
-    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
-    expect(stored[0].reference).toBe('Galatians 2:20');
-  });
-
-  it('imports "Psalm 51:7" as "Psalms 51:7"', () => {
-    const json = makeExportedSettings(['Psalm 51:7']);
-    const result = importSettings(json);
-    expect(result.addedBookmarks).toBe(1);
-    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
-    expect(stored[0].reference).toBe('Psalms 51:7');
-  });
-
-  it('imports multiple misspelled references with corrections', () => {
-    const json = makeExportedSettings([
-      'Galations 2:20',
-      'Galations 3:1-5',
-      'Psalm 51:7',
-      'Psalm 107:2',
-    ]);
-    const result = importSettings(json);
-    expect(result.addedBookmarks).toBe(4);
-    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
-    expect(stored.map((b: any) => b.reference).sort()).toEqual([
-      'Galatians 2:20',
-      'Galatians 3:1-5',
-      'Psalms 107:2',
-      'Psalms 51:7',
-    ]);
-  });
-
-  it('deduplicates after misspelling correction', () => {
-    // If both "Galations 2:20" and "Galatians 2:20" are in the file,
-    // they should be deduplicated after correction
-    const json = makeExportedSettings(['Galations 2:20', 'Galatians 2:20']);
-    const result = importSettings(json);
-    expect(result.addedBookmarks).toBe(1);
-    expect(result.skippedDuplicates).toBe(1);
-  });
-
-  it('corrected misspelling matches existing bookmark', () => {
-    // If "Galatians 2:20" already exists, importing "Galations 2:20" should skip it
-    setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([
-      { reference: 'Galatians 2:20' },
-    ]));
-    const json = makeExportedSettings(['Galations 2:20']);
-    const result = importSettings(json);
-    expect(result.addedBookmarks).toBe(0);
-    expect(result.skippedDuplicates).toBe(1);
-  });
-
-  it('imports correctly spelled references unchanged', () => {
-    const json = makeExportedSettings(['Galatians 2:20', 'Psalms 51:7']);
-    const result = importSettings(json);
-    expect(result.addedBookmarks).toBe(2);
-    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
-    expect(stored.map((b: any) => b.reference).sort()).toEqual(['Galatians 2:20', 'Psalms 51:7']);
-  });
-});
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
-  });
-
-  it('creates an anchor element and triggers download', () => {
-    setLocalStorage('kjv-theme', 'dark');
-    downloadSettings();
-    expect(URL.createObjectURL).toHaveBeenCalled();
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
-  });
-
-  it('generates a download filename matching the YYYYMMDD pattern', () => {
-    setLocalStorage('kjv-theme', 'dark');
-    let capturedDownload = '';
-    const origCreate = document.createElement.bind(document);
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
-      const el = origCreate(tag);
-      if (tag === 'a') {
-        Object.defineProperty(el, 'download', {
-          set(v: string) { capturedDownload = v; },
-          get() { return capturedDownload; },
-        });
-      }
-      return el;
-    });
-
-    downloadSettings();
-    expect(capturedDownload).toMatch(/^kjv-ref-\d{8}\.json$/);
-  });
-});
-
-// ─── importSettings ──────────────────────────────────────────────────────────
-
-describe('importSettings', () => {
+describe('importSettings: favorites (bookmarks) are merged, not replaced', () => {
   beforeEach(() => { localStorage.clear(); });
 
   it('imports new bookmarks (string array format) that do not exist locally', () => {
-    const json = makeExportedSettings(['John 3:16', 'Psalms 23:1']);
+    const json = makeExportedSettings({ 'kjv-memorize-bookmarks': ['John 3:16', 'Psalms 23:1'] });
     const result = importSettings(json);
     expect(result.addedBookmarks).toBe(2);
     expect(result.skippedDuplicates).toBe(0);
@@ -483,8 +427,7 @@ describe('importSettings', () => {
   });
 
   it('generates internal bookmark objects with id/timestamps on import', () => {
-    const json = makeExportedSettings(['John 3:16']);
-    importSettings(json);
+    importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': ['John 3:16'] }));
 
     const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
     expect(stored[0]).toHaveProperty('id');
@@ -495,13 +438,12 @@ describe('importSettings', () => {
     expect(stored[0]).toHaveProperty('updatedAt');
   });
 
-  it('skips bookmarks that already exist locally', () => {
+  it('skips bookmarks that already exist locally (no overwrite of existing)', () => {
     setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([
       { reference: 'John 3:16' },
     ]));
 
-    const json = makeExportedSettings(['John 3:16', 'Psalms 23:1']);
-    const result = importSettings(json);
+    const result = importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': ['John 3:16', 'Psalms 23:1'] }));
     expect(result.addedBookmarks).toBe(1);
     expect(result.skippedDuplicates).toBe(1);
   });
@@ -512,35 +454,32 @@ describe('importSettings', () => {
       { reference: 'Psalms 23:1' },
     ]));
 
-    const json = makeExportedSettings(['John 3:16', 'Psalms 23:1']);
-    const result = importSettings(json);
+    const result = importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': ['John 3:16', 'Psalms 23:1'] }));
     expect(result.addedBookmarks).toBe(0);
     expect(result.skippedDuplicates).toBe(2);
   });
 
   it('imports all bookmarks when localStorage is empty', () => {
-    const json = makeExportedSettings(['Genesis 1:1', 'John 3:16', 'Romans 8:28']);
-    const result = importSettings(json);
+    const result = importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': ['Genesis 1:1', 'John 3:16', 'Romans 8:28'] }));
     expect(result.addedBookmarks).toBe(3);
     expect(result.skippedDuplicates).toBe(0);
   });
 
-  it('returns zeros when file has no bookmarks key', () => {
-    const data: ExportedSettings = {
-      version: 1,
-      exportedAt: '2026-07-18T12:00:00.000Z',
-      keys: {},
-    };
-    const result = importSettings(JSON.stringify(data));
-    expect(result.addedBookmarks).toBe(0);
-    expect(result.skippedDuplicates).toBe(0);
-  });
+  it('preserves existing bookmarks and appends new ones (does NOT replace)', () => {
+    setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([
+      { reference: 'John 3:16' },
+    ]));
 
-  it('returns zeros when bookmarks array is empty', () => {
-    const json = makeExportedSettings([]);
-    const result = importSettings(json);
-    expect(result.addedBookmarks).toBe(0);
-    expect(result.skippedDuplicates).toBe(0);
+    const result = importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': ['Psalms 23:1', 'Romans 8:28'] }));
+    expect(result.addedBookmarks).toBe(2);
+
+    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
+    expect(stored).toHaveLength(3);
+    expect(stored.map((b: any) => b.reference).sort()).toEqual([
+      'John 3:16',  // pre-existing favorite is preserved
+      'Psalms 23:1',
+      'Romans 8:28',
+    ]);
   });
 
   it('does not modify localStorage when no new bookmarks to add', () => {
@@ -549,9 +488,7 @@ describe('importSettings', () => {
     ]));
     const original = localStorage.getItem('kjv-memorize-bookmarks');
 
-    const json = makeExportedSettings(['John 3:16']);
-    importSettings(json);
-
+    importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': ['John 3:16'] }));
     expect(localStorage.getItem('kjv-memorize-bookmarks')).toBe(original);
   });
 
@@ -559,8 +496,7 @@ describe('importSettings', () => {
     const eventSpy = vi.fn();
     window.addEventListener('kjv-storage-change', eventSpy);
 
-    const json = makeExportedSettings(['John 3:16']);
-    importSettings(json);
+    importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': ['John 3:16'] }));
 
     expect(eventSpy).toHaveBeenCalledTimes(1);
     const event = eventSpy.mock.calls[0][0] as CustomEvent;
@@ -572,43 +508,119 @@ describe('importSettings', () => {
     const eventSpy = vi.fn();
     window.addEventListener('kjv-storage-change', eventSpy);
 
-    const json = makeExportedSettings([]);
-    importSettings(json);
-
+    importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': [] }));
     expect(eventSpy).not.toHaveBeenCalled();
     window.removeEventListener('kjv-storage-change', eventSpy);
   });
 
-  it('preserves existing bookmarks and appends new ones', () => {
-    setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([
-      { reference: 'John 3:16' },
-    ]));
-
-    const json = makeExportedSettings(['Psalms 23:1', 'Romans 8:28']);
-    importSettings(json);
-
-    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
-    expect(stored).toHaveLength(3);
-    expect(stored.map((b: any) => b.reference).sort()).toEqual([
-      'John 3:16',
-      'Psalms 23:1',
-      'Romans 8:28',
-    ]);
-  });
-
   it('skips invalid entries (non-string elements)', () => {
-    const data: ExportedSettings = {
-      version: 1,
-      exportedAt: '2026-07-18T00:00:00.000Z',
-      keys: {
-        'kjv-memorize-bookmarks': ['John 3:16', 123, null, '', 'Psalms 23:1'] as unknown as string[],
-      },
-    };
-    const result = importSettings(JSON.stringify(data));
+    const result = importSettings(makeExportedSettings({
+      'kjv-memorize-bookmarks': ['John 3:16', 123, null, '', 'Psalms 23:1'] as unknown as string[],
+    }));
     // Only valid string entries are counted; invalid ones are skipped
     expect(result.addedBookmarks).toBe(2);
     expect(result.skippedDuplicates).toBe(3);
   });
+
+  it('handles large numbers of bookmarks', () => {
+    const refs: string[] = [];
+    for (let i = 1; i <= 100; i++) refs.push(`Book ${i}:1`);
+    const result = importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': refs }));
+    expect(result.addedBookmarks).toBe(100);
+    expect(result.skippedDuplicates).toBe(0);
+  });
+
+  it('handles duplicate references in the imported file', () => {
+    const result = importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': ['John 3:16', 'John 3:16', 'Psalms 23:1'] }));
+    expect(result.addedBookmarks).toBe(2);
+    expect(result.skippedDuplicates).toBe(1);
+    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
+    expect(stored).toHaveLength(2);
+  });
+
+  it('generates unique IDs for imported bookmarks', () => {
+    importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': ['John 3:16', 'Psalms 23:1'] }));
+    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
+    const ids = stored.map((b: any) => b.id);
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  // ── Misspelling correction on import ──
+
+  it('imports "Galations 2:20" as "Galatians 2:20"', () => {
+    const result = importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': ['Galations 2:20'] }));
+    expect(result.addedBookmarks).toBe(1);
+    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
+    expect(stored[0].reference).toBe('Galatians 2:20');
+  });
+
+  it('imports "Psalm 51:7" as "Psalms 51:7"', () => {
+    const result = importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': ['Psalm 51:7'] }));
+    expect(result.addedBookmarks).toBe(1);
+    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
+    expect(stored[0].reference).toBe('Psalms 51:7');
+  });
+
+  it('imports multiple misspelled references with corrections', () => {
+    const result = importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': [
+      'Galations 2:20', 'Galations 3:1-5', 'Psalm 51:7', 'Psalm 107:2',
+    ]}));
+    expect(result.addedBookmarks).toBe(4);
+    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
+    expect(stored.map((b: any) => b.reference).sort()).toEqual([
+      'Galatians 2:20', 'Galatians 3:1-5', 'Psalms 107:2', 'Psalms 51:7',
+    ]);
+  });
+
+  it('deduplicates after misspelling correction', () => {
+    const result = importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': ['Galations 2:20', 'Galatians 2:20'] }));
+    expect(result.addedBookmarks).toBe(1);
+    expect(result.skippedDuplicates).toBe(1);
+  });
+
+  it('corrected misspelling matches existing bookmark', () => {
+    setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([{ reference: 'Galatians 2:20' }]));
+    const result = importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': ['Galations 2:20'] }));
+    expect(result.addedBookmarks).toBe(0);
+    expect(result.skippedDuplicates).toBe(1);
+  });
+
+  it('imports correctly spelled references unchanged', () => {
+    const result = importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': ['Galatians 2:20', 'Psalms 51:7'] }));
+    expect(result.addedBookmarks).toBe(2);
+    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
+    expect(stored.map((b: any) => b.reference).sort()).toEqual(['Galatians 2:20', 'Psalms 51:7']);
+  });
+
+  // ── Group bookmarks (verse ranges) ──
+
+  it('imports group bookmarks from a settings file', () => {
+    const result = importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': ['Psalms 23:1-6', 'John 3:16'] }));
+    expect(result.addedBookmarks).toBe(2);
+    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
+    expect(stored.map((b: any) => b.reference).sort()).toEqual(['John 3:16', 'Psalms 23:1-6']);
+  });
+
+  it('imports group bookmarks without duplicating existing ones', () => {
+    setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([{ reference: 'Psalms 23:1-6' }]));
+    const result = importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': ['Psalms 23:1-6', 'John 3:16'] }));
+    expect(result.addedBookmarks).toBe(1);
+    expect(result.skippedDuplicates).toBe(1);
+    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
+    expect(stored).toHaveLength(2);
+  });
+
+  it('returns zeros when bookmarks array is empty', () => {
+    const result = importSettings(makeExportedSettings({ 'kjv-memorize-bookmarks': [] }));
+    expect(result.addedBookmarks).toBe(0);
+    expect(result.skippedDuplicates).toBe(0);
+  });
+});
+
+// ─── importSettings: progress / schedule / sessions / prefs / game = REPLACE ─
+
+describe('importSettings: progress and stats are replaced (mirrored from file)', () => {
+  beforeEach(() => { localStorage.clear(); });
 
   it('throws on invalid JSON', () => {
     expect(() => importSettings('not valid json')).toThrow();
@@ -618,119 +630,243 @@ describe('importSettings', () => {
     expect(() => importSettings(JSON.stringify({ version: 1 }))).toThrow('missing "keys" field');
   });
 
-  it('does NOT import non-bookmark keys (only bookmarks are imported)', () => {
-    const data: ExportedSettings = {
-      version: 1,
-      exportedAt: '2026-07-18T12:00:00.000Z',
-      keys: {
-        'kjv-theme': 'dark',
-        'kjv-memorize-progress': [{ reference: 'John 3:16', status: 'mastered' }],
-        'kjv-memorize-bookmarks': ['John 3:16'],
-      },
-    };
-    const result = importSettings(JSON.stringify(data));
-    expect(result.addedBookmarks).toBe(1);
-    expect(localStorage.getItem('kjv-theme')).toBeNull();
-    expect(localStorage.getItem('kjv-memorize-progress')).toBeNull();
-    expect(localStorage.getItem('kjv-memorize-bookmarks')).not.toBeNull();
+  it('throws when keys is not an object', () => {
+    expect(() => importSettings(JSON.stringify({ version: 1, keys: 'nope' }))).toThrow('missing "keys" field');
   });
 
-  it('handles large numbers of bookmarks', () => {
-    const refs: string[] = [];
-    for (let i = 1; i <= 100; i++) {
-      refs.push(`Book ${i}:1`);
-    }
-    const json = makeExportedSettings(refs);
-    const result = importSettings(json);
-    expect(result.addedBookmarks).toBe(100);
-    expect(result.skippedDuplicates).toBe(0);
+  it('returns an empty summary when the file has no recognized keys', () => {
+    const result = importSettings(makeExportedSettings({ 'unknown-key': 'whatever' }));
+    expect(result.restoredKeys).toEqual([]);
+    expect(result.progressCount).toBe(0);
+    expect(result.bookmarkCount).toBe(0);
   });
 
-  it('handles duplicate references in the imported file', () => {
-    const json = makeExportedSettings(['John 3:16', 'John 3:16', 'Psalms 23:1']);
-    const result = importSettings(json);
+  it('restores per-verse progress and reports the count', () => {
+    const progress = [
+      { verse: { reference: 'John 3:16' }, status: 'mastered', timesRecited: 10, streak: 9, accuracy: 100, customClozeLevel: 5 },
+      { verse: { reference: 'Genesis 1:1' }, status: 'learning', timesRecited: 2, streak: 1, accuracy: 80, customClozeLevel: 1 },
+    ];
+    const result = importSettings(makeExportedSettings({ 'kjv-memorize-progress': progress }));
+    expect(result.restoredKeys).toContain('kjv-memorize-progress');
+    expect(result.progressCount).toBe(2);
+    expect(JSON.parse(localStorage.getItem('kjv-memorize-progress')!)).toEqual(progress);
+  });
+
+  it('restores the review schedule and reports the count', () => {
+    const schedule = [{ verse: { reference: 'John 3:16' }, dueDate: '2026-08-02T00:00:00.000Z', interval: 3 }];
+    const result = importSettings(makeExportedSettings({ 'kjv-memorize-review-schedule': schedule }));
+    expect(result.scheduleCount).toBe(1);
+    expect(JSON.parse(localStorage.getItem('kjv-memorize-review-schedule')!)).toEqual(schedule);
+  });
+
+  it('restores sessions and reports the count', () => {
+    const sessions = [{ id: 's1', date: '2026-07-26', mode: 'game' }];
+    const result = importSettings(makeExportedSettings({ 'kjv-memorize-sessions': sessions }));
+    expect(result.sessionCount).toBe(1);
+    expect(JSON.parse(localStorage.getItem('kjv-memorize-sessions')!)).toEqual(sessions);
+  });
+
+  it('restores achievements, daily goal, and game state', () => {
+    const result = importSettings(makeExportedSettings({
+      'kjv-memorize-achievements': [{ id: 'a1', unlocked: true }],
+      'kjv-memorize-daily-goal': { date: '2026-07-26', targetVerses: 5, completedVerses: 5, completed: true },
+      'kjv-game-state': { xp: 1500, level: 5, comboBest: 9, unlockedRegionIds: ['r1', 'r2'], builtRoads: [], settings: { sound: true, motion: true } },
+    }));
+    expect(result.restoredKeys).toEqual(expect.arrayContaining([
+      'kjv-memorize-achievements', 'kjv-memorize-daily-goal', 'kjv-game-state',
+    ]));
+    expect(JSON.parse(localStorage.getItem('kjv-memorize-achievements')!)).toEqual([{ id: 'a1', unlocked: true }]);
+    expect(JSON.parse(localStorage.getItem('kjv-game-state')!).xp).toBe(1500);
+  });
+
+  it('restores UI preference keys (theme stored verbatim, numbers stringified)', () => {
+    const result = importSettings(makeExportedSettings({
+      'kjv-theme': 'dark',
+      'kjv-verse-font-size': 1.5,
+      'kjv-strongs-enabled': 1,
+      'kjv-interlinear-enabled': 0,
+    }));
+    expect(result.restoredKeys).toEqual(expect.arrayContaining([
+      'kjv-theme', 'kjv-verse-font-size', 'kjv-strongs-enabled', 'kjv-interlinear-enabled',
+    ]));
+    // Theme is a plain string, stored verbatim (NOT JSON-stringified to '"dark"').
+    expect(localStorage.getItem('kjv-theme')).toBe('dark');
+    // Numbers are JSON-stringified back to their localStorage form.
+    expect(localStorage.getItem('kjv-verse-font-size')).toBe('1.5');
+    expect(localStorage.getItem('kjv-strongs-enabled')).toBe('1');
+    expect(localStorage.getItem('kjv-interlinear-enabled')).toBe('0');
+  });
+
+  it('ignores unknown keys in the file (does not pollute localStorage)', () => {
+    importSettings(makeExportedSettings({ 'kjv-theme': 'dark', 'some-unknown-key': 'malicious' }));
+    expect(localStorage.getItem('kjv-theme')).toBe('dark');
+    expect(localStorage.getItem('some-unknown-key')).toBeNull();
+  });
+
+  it('dispatches a storage-change event for each replaced (non-bookmark) key', () => {
+    const eventSpy = vi.fn();
+    window.addEventListener('kjv-storage-change', eventSpy);
+
+    importSettings(makeExportedSettings({
+      'kjv-theme': 'dark',
+      'kjv-memorize-progress': [{ verse: { reference: 'John 3:16' }, status: 'mastered' }],
+    }));
+
+    expect(eventSpy).toHaveBeenCalledTimes(2);
+    const keys = eventSpy.mock.calls.map((c: any[]) => (c[0] as CustomEvent).detail.key);
+    expect(keys).toEqual(expect.arrayContaining(['kjv-theme', 'kjv-memorize-progress']));
+    window.removeEventListener('kjv-storage-change', eventSpy);
+  });
+
+  it('overwrites (replaces) pre-existing local progress with the imported snapshot', () => {
+    // Local device has different progress that must be fully replaced.
+    setLocalStorage('kjv-memorize-progress', JSON.stringify([
+      { verse: { reference: 'Romans 8:28' }, status: 'reviewing', timesRecited: 4 },
+    ]));
+
+    const result = importSettings(makeExportedSettings({
+      'kjv-memorize-progress': [
+        { verse: { reference: 'John 3:16' }, status: 'mastered', timesRecited: 10 },
+      ],
+    }));
+
+    expect(result.progressCount).toBe(1);
+    const stored = JSON.parse(localStorage.getItem('kjv-memorize-progress')!);
+    expect(stored).toHaveLength(1);
+    expect(stored[0].verse.reference).toBe('John 3:16');
+    // The local-only progress is gone (replace, not merge).
+    expect(stored.find((e: any) => e.verse.reference === 'Romans 8:28')).toBeUndefined();
+  });
+
+  it('handles a full snapshot with all keys at once', () => {
+    const result = importSettings(makeExportedSettings({
+      'kjv-theme': 'dark',
+      'kjv-verse-font-size': 1.25,
+      'kjv-strongs-enabled': 1,
+      'kjv-interlinear-enabled': 0,
+      'kjv-memorize-progress': [{ verse: { reference: 'John 3:16' }, status: 'mastered', timesRecited: 10, streak: 9, accuracy: 100, customClozeLevel: 5 }],
+      'kjv-memorize-sessions': [{ id: 's1' }],
+      'kjv-memorize-achievements': [{ id: 'a1' }],
+      'kjv-memorize-bookmarks': ['John 3:16', 'Genesis 1:1'],
+      'kjv-memorize-daily-goal': { date: '2026-07-26', completed: true },
+      'kjv-memorize-review-schedule': [{ verse: { reference: 'John 3:16' }, dueDate: '2026-08-02T00:00:00.000Z', interval: 3 }],
+      'kjv-game-state': { xp: 2000, level: 6, comboBest: 12, unlockedRegionIds: [], builtRoads: [], settings: { sound: false, motion: true } },
+    }));
+
+    expect(result.restoredKeys).toHaveLength(11);
+    expect(result.progressCount).toBe(1);
+    expect(result.bookmarkCount).toBe(2);
     expect(result.addedBookmarks).toBe(2);
-    expect(result.skippedDuplicates).toBe(1);
-
-    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
-    expect(stored).toHaveLength(2);
-  });
-
-  it('generates unique IDs for imported bookmarks', () => {
-    const json = makeExportedSettings(['John 3:16', 'Psalms 23:1']);
-    importSettings(json);
-
-    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
-    const ids = stored.map((b: any) => b.id);
-    expect(new Set(ids).size).toBe(2);
+    expect(result.scheduleCount).toBe(1);
+    expect(result.sessionCount).toBe(1);
+    // Every recognized key is present in localStorage now.
+    for (const key of ALL_KJV_STORAGE_KEYS) {
+      expect(localStorage.getItem(key)).not.toBeNull();
+    }
   });
 });
 
-// ─── Round-trip tests ─────────────────────────────────────────────────────────
+// ─── Round-trip tests (export → clear → import) ──────────────────────────────
 
 describe('Export → Import round-trip', () => {
   beforeEach(() => { localStorage.clear(); });
 
-  it('exported file can be re-imported to restore bookmarks on a fresh browser', () => {
-    // Set up bookmarks with full object format
+  it('exporting then importing into a fresh browser restores everything', () => {
+    setLocalStorage('kjv-theme', 'dark');
+    setLocalStorage('kjv-verse-font-size', '1.5');
+    setLocalStorage('kjv-strongs-enabled', '1');
+    setLocalStorage('kjv-memorize-progress', JSON.stringify([
+      { verse: { reference: 'John 3:16' }, status: 'mastered', timesRecited: 10, streak: 9, accuracy: 100, customClozeLevel: 5 },
+      { verse: { reference: 'Genesis 1:1' }, status: 'learning', timesRecited: 2, streak: 1, accuracy: 80, customClozeLevel: 1 },
+    ]));
+    setLocalStorage('kjv-memorize-review-schedule', JSON.stringify([
+      { verse: { reference: 'John 3:16' }, dueDate: '2026-08-02T00:00:00.000Z', interval: 3 },
+    ]));
+    setLocalStorage('kjv-memorize-sessions', JSON.stringify([{ id: 's1', date: '2026-07-26' }]));
+    setLocalStorage('kjv-game-state', JSON.stringify({ xp: 2000, level: 6, comboBest: 12, unlockedRegionIds: ['r1'], builtRoads: [], settings: { sound: true, motion: true } }));
     setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([
       { reference: 'John 3:16' },
       { reference: 'Psalms 23:1' },
     ]));
-    setLocalStorage('kjv-theme', 'dark');
 
     // Export
     const exported = collectSettings();
     const json = JSON.stringify(exported);
 
-    // Verify the exported bookmarks are reference strings, not objects
+    // Verify the exported bookmarks are reference strings, sorted in Bible order.
     const exportedRefs = exported.keys['kjv-memorize-bookmarks'] as string[];
     expect(exportedRefs).toEqual(['Psalms 23:1', 'John 3:16']);
     expect(exportedRefs.every((s: unknown) => typeof s === 'string')).toBe(true);
 
-    // Clear localStorage (simulate fresh browser)
+    // Simulate a fresh browser.
     localStorage.clear();
 
     // Import
     const result = importSettings(json);
+    expect(result.restoredKeys.length).toBeGreaterThan(0);
+    expect(result.progressCount).toBe(2);
     expect(result.addedBookmarks).toBe(2);
+    expect(result.scheduleCount).toBe(1);
+    expect(result.sessionCount).toBe(1);
 
+    // Progress is fully restored with all training stats intact.
+    const progress = JSON.parse(localStorage.getItem('kjv-memorize-progress')!);
+    expect(progress).toHaveLength(2);
+    const john = progress.find((e: any) => e.verse.reference === 'John 3:16');
+    expect(john.status).toBe('mastered');
+    expect(john.timesRecited).toBe(10);
+    expect(john.streak).toBe(9);
+    expect(john.accuracy).toBe(100);
+    expect(john.customClozeLevel).toBe(5);
+
+    // Review schedule restored.
+    const schedule = JSON.parse(localStorage.getItem('kjv-memorize-review-schedule')!);
+    expect(schedule[0].verse.reference).toBe('John 3:16');
+    expect(schedule[0].dueDate).toBe('2026-08-02T00:00:00.000Z');
+
+    // Game state restored.
+    const gs = JSON.parse(localStorage.getItem('kjv-game-state')!);
+    expect(gs.xp).toBe(2000);
+    expect(gs.unlockedRegionIds).toEqual(['r1']);
+
+    // Bookmarks restored (fresh browser → all added by merge).
     const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
-    expect(stored).toHaveLength(2);
     expect(stored.map((b: any) => b.reference).sort()).toEqual(['John 3:16', 'Psalms 23:1']);
   });
 
-  it('imported bookmarks merge with existing ones without duplicates', () => {
-    // Browser A has bookmarks
-    setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([
-      { reference: 'John 3:16' },
-      { reference: 'Genesis 1:1' },
+  it('importing a new snapshot onto a device with different data replaces progress but MERGES favorites', () => {
+    // Browser A (desktop) snapshot.
+    setLocalStorage('kjv-memorize-progress', JSON.stringify([
+      { verse: { reference: 'John 3:16' }, status: 'mastered', timesRecited: 10 },
     ]));
+    setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([{ reference: 'John 3:16' }]));
     const exported = collectSettings();
     const json = JSON.stringify(exported);
 
-    // Browser B already has one of the same bookmarks plus a different one
+    // Browser B (mobile) already has different progress + a different favorite.
     localStorage.clear();
-    setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([
-      { reference: 'John 3:16' },
-      { reference: 'Romans 8:28' },
+    setLocalStorage('kjv-memorize-progress', JSON.stringify([
+      { verse: { reference: 'Romans 8:28' }, status: 'reviewing', timesRecited: 4 },
     ]));
+    setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([{ reference: 'Romans 8:28' }]));
 
     const result = importSettings(json);
-    expect(result.addedBookmarks).toBe(1); // only Genesis 1:1 is new
-    expect(result.skippedDuplicates).toBe(1); // John 3:16 already exists
+    expect(result.progressCount).toBe(1);
+    expect(result.addedBookmarks).toBe(1); // John 3:16 is new on mobile
+    expect(result.skippedDuplicates).toBe(0);
 
+    // Progress is REPLACED: Romans 8:28 gone, John 3:16 present.
+    const progress = JSON.parse(localStorage.getItem('kjv-memorize-progress')!);
+    expect(progress).toHaveLength(1);
+    expect(progress[0].verse.reference).toBe('John 3:16');
+    expect(progress.find((e: any) => e.verse.reference === 'Romans 8:28')).toBeUndefined();
+
+    // Favorites are MERGED: the mobile's Romans 8:28 is kept, desktop's John 3:16 added.
     const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
-    expect(stored).toHaveLength(3);
-    expect(stored.map((b: any) => b.reference).sort()).toEqual([
-      'Genesis 1:1',
-      'John 3:16',
-      'Romans 8:28',
-    ]);
+    expect(stored.map((b: any) => b.reference).sort()).toEqual(['John 3:16', 'Romans 8:28']);
   });
 
   it('exported file with deduplicated bookmarks imports cleanly', () => {
-    // Start with duplicates in localStorage
     setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([
       { reference: 'Isaiah 26:3' },
       { reference: 'Isaiah 26:4' },
@@ -738,25 +874,22 @@ describe('Export → Import round-trip', () => {
       { reference: 'Isaiah 26:4' }, // duplicate
     ]));
 
-    // Export should deduplicate
     const exported = collectSettings();
     const exportedRefs = exported.keys['kjv-memorize-bookmarks'] as string[];
     expect(exportedRefs).toEqual(['Isaiah 26:3', 'Isaiah 26:4']);
 
-    // Import into fresh browser
     localStorage.clear();
     const result = importSettings(JSON.stringify(exported));
     expect(result.addedBookmarks).toBe(2);
 
     const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
-    expect(stored).toHaveLength(2);
     expect(stored.map((b: any) => b.reference).sort()).toEqual(['Isaiah 26:3', 'Isaiah 26:4']);
   });
 });
 
-// ─── Group bookmark (verse range) tests ──────────────────────────────────────
+// ─── Group bookmark (verse range) export tests ───────────────────────────────
 
-describe('Group bookmarks (verse ranges)', () => {
+describe('Group bookmarks (verse ranges) export', () => {
   beforeEach(() => { localStorage.clear(); });
 
   it('exports group bookmarks as reference strings like "Psalms 23:1-6"', () => {
@@ -792,29 +925,6 @@ describe('Group bookmarks (verse ranges)', () => {
     const data = collectSettings();
     const refs = data.keys['kjv-memorize-bookmarks'] as string[];
     expect(refs).toEqual(['Psalms 23:1-6']);
-  });
-
-  it('imports group bookmarks from a settings file', () => {
-    const json = makeExportedSettings(['Psalms 23:1-6', 'John 3:16']);
-    const result = importSettings(json);
-    expect(result.addedBookmarks).toBe(2);
-
-    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
-    expect(stored.map((b: any) => b.reference).sort()).toEqual(['John 3:16', 'Psalms 23:1-6']);
-  });
-
-  it('imports group bookmarks without duplicating existing ones', () => {
-    setLocalStorage('kjv-memorize-bookmarks', makeBookmarkObjects([
-      { reference: 'Psalms 23:1-6' },
-    ]));
-
-    const json = makeExportedSettings(['Psalms 23:1-6', 'John 3:16']);
-    const result = importSettings(json);
-    expect(result.addedBookmarks).toBe(1);
-    expect(result.skippedDuplicates).toBe(1);
-
-    const stored = JSON.parse(localStorage.getItem('kjv-memorize-bookmarks')!);
-    expect(stored).toHaveLength(2);
   });
 
   it('group and single-verse bookmarks for the same chapter coexist', () => {

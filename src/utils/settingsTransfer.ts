@@ -7,9 +7,21 @@
 // of reference strings (e.g. ["Genesis 1:1", "John 3:16", ...]) in Bible book
 // order, deduplicated, so the exported file is easy to manually edit and share.
 //
-// Import: reads an imported JSON file and NON-DESTRUCTIVELY merges bookmarks
-// (favorites) into the browser's localStorage. Existing bookmarks are preserved;
-// imported bookmarks that are not already present are added.
+// Import: reads an imported JSON file and restores it into the browser's
+// localStorage. Per-verse training stats, review schedule, sessions,
+// achievements, daily goal, game progress, and UI preferences are REPLACED
+// (mirrored from the file) so a user can copy their full progress from one
+// browser (e.g. desktop) to another (e.g. mobile) for uninterrupted practice.
+//
+// Favorites (bookmarks) are the exception: they are MERGED, not replaced —
+// existing local favorites are preserved, and only new (non-duplicate)
+// references from the file are added (with common misspelling correction). This
+// keeps the exported file useful as a shareable, hand-editable list of favorite
+// verses (e.g. curating a list to share with a friend) without clobbering the
+// user's existing favorites on import.
+//
+// After writing each changed key a 'kjv-storage-change' event is dispatched so
+// any live hooks refetch from localStorage without a page reload.
 
 import { BIBLE_BOOKS } from './bibleBooks';
 
@@ -26,6 +38,7 @@ export const ALL_KJV_STORAGE_KEYS = [
   'kjv-memorize-bookmarks',
   'kjv-memorize-daily-goal',
   'kjv-memorize-review-schedule',
+  'kjv-game-state',
 ] as const;
 
 // ─── Bible book order map for sorting references ─────────────────────────────
@@ -163,49 +176,57 @@ function correctMisspelling(ref: string): string {
 // ─── Import ──────────────────────────────────────────────────────────────────
 
 export interface ImportResult {
+  /** Recognized keys handled (present) from the file. */
+  restoredKeys: string[];
+  /** Number of per-verse progress entries replaced. */
+  progressCount: number;
+  /** Total favorites present locally after merging. */
+  bookmarkCount: number;
+  /** Favorites newly added by the merge. */
   addedBookmarks: number;
+  /** Imported favorites skipped (already present locally, or invalid). */
   skippedDuplicates: number;
+  /** Number of review-schedule entries replaced. */
+  scheduleCount: number;
+  /** Number of session-history entries replaced. */
+  sessionCount: number;
 }
 
+type BookmarkObject = {
+  id: string;
+  user: { id: string };
+  reference: string;
+  addedAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 /**
- * Parse a settings JSON file and NON-DESTRUCTIVELY merge bookmarks into
- * the browser's localStorage. Only bookmarks (favorites) are imported —
- * existing bookmarks are preserved, and only new (non-duplicate) bookmarks
- * from the file are added.
+ * Merge an imported list of reference strings into the local favorites,
+ * NON-DESTRUCTIVELY: existing local favorites are preserved, and only
+ * references not already present are appended (after common misspelling
+ * correction and deduplication). Returns the merged object array (in the app's
+ * internal storage format) and counts of added / skipped entries.
  *
- * The imported bookmarks field is expected to be a JSON array of reference
- * strings (e.g. ["John 3:16", "Psalms 23:1"]). The stored bookmark objects
- * are generated with id/timestamps matching the app's internal format.
- *
- * Returns the count of added and skipped bookmarks.
+ * This deliberately keeps favorites additive so the exported JSON remains a
+ * shareable, hand-editable list of verses — importing a friend's favorites adds
+ * them without wiping your own, and manually adding verses to the file works the
+ * same way.
  */
-export function importSettings(jsonString: string): ImportResult {
-  const data = JSON.parse(jsonString) as ExportedSettings;
-  if (!data || typeof data !== 'object' || !data.keys) {
-    throw new Error('Invalid settings file: missing "keys" field');
-  }
-
-  const importedBookmarks = data.keys['kjv-memorize-bookmarks'];
-  if (!importedBookmarks) {
-    return { addedBookmarks: 0, skippedDuplicates: 0 };
-  }
-
-  // With the new format, bookmarks is a native JSON array of strings
-  const importedRefs = importedBookmarks as string[];
-  if (!Array.isArray(importedRefs)) {
-    return { addedBookmarks: 0, skippedDuplicates: 0 };
-  }
-
-  // Read existing bookmarks
+function mergeBookmarks(refs: unknown[]): { objects: BookmarkObject[]; added: number; skipped: number } {
   const existingRaw = localStorage.getItem('kjv-memorize-bookmarks');
-  const existing: Array<{ id: string; user: { id: string }; reference: string; addedAt: string; createdAt: string; updatedAt: string }> = existingRaw
-    ? JSON.parse(existingRaw)
-    : [];
+  let existing: BookmarkObject[] = [];
+  if (existingRaw) {
+    try {
+      const parsed = JSON.parse(existingRaw);
+      if (Array.isArray(parsed)) existing = parsed as BookmarkObject[];
+    } catch { existing = []; }
+  }
   const existingRefs = new Set(existing.map(b => b.reference));
 
   let added = 0;
   let skipped = 0;
-  for (const ref of importedRefs) {
+  for (const ref of refs) {
     if (!ref || typeof ref !== 'string') { skipped++; continue; }
     // Correct common misspellings (e.g. "Galations" → "Galatians", "Psalm" → "Psalms")
     const corrected = correctMisspelling(ref);
@@ -225,13 +246,81 @@ export function importSettings(jsonString: string): ImportResult {
       added++;
     }
   }
+  return { objects: existing, added, skipped };
+}
 
-  if (added > 0) {
-    localStorage.setItem('kjv-memorize-bookmarks', JSON.stringify(existing));
-    window.dispatchEvent(new CustomEvent('kjv-storage-change', { detail: { key: 'kjv-memorize-bookmarks' } }));
+/**
+ * Parse a settings JSON file and restore it into the browser's localStorage.
+ *
+ * Per-verse progress, review schedule, sessions, achievements, daily goal, game
+ * progress, and UI preferences are REPLACED with the file's values (a full
+ * mirror) so a user can copy their complete training progress from one browser
+ * to another for uninterrupted practice.
+ *
+ * Favorites (bookmarks) are MERGED, not replaced: existing local favorites are
+ * kept, and only new (non-duplicate, misspelling-corrected) references from the
+ * file are added — so the exported JSON remains a shareable, hand-editable list
+ * of favorite verses.
+ *
+ * Only recognized keys (ALL_KJV_STORAGE_KEYS) are written; unknown keys in the
+ * file are ignored so a crafted file cannot pollute arbitrary localStorage.
+ *
+ * String values (e.g. theme "dark") are stored verbatim; objects/arrays/numbers
+ * are JSON-stringified, matching how the app stores them.
+ *
+ * A 'kjv-storage-change' CustomEvent is dispatched for each replaced key, and
+ * for bookmarks when at least one new favorite was added, so live hooks refetch
+ * without a page reload.
+ *
+ * Returns a summary of what was restored / merged.
+ */
+export function importSettings(jsonString: string): ImportResult {
+  const data = JSON.parse(jsonString) as ExportedSettings;
+  if (!data || typeof data !== 'object' || !data.keys || typeof data.keys !== 'object') {
+    throw new Error('Invalid settings file: missing "keys" field');
   }
 
-  return { addedBookmarks: added, skippedDuplicates: skipped };
+  const knownKeys = new Set<string>(ALL_KJV_STORAGE_KEYS);
+
+  const restoredKeys: string[] = [];
+  let progressCount = 0;
+  let bookmarkCount = 0;
+  let addedBookmarks = 0;
+  let skippedDuplicates = 0;
+  let scheduleCount = 0;
+  let sessionCount = 0;
+
+  for (const key of Object.keys(data.keys)) {
+    if (!knownKeys.has(key)) continue; // only handle recognized keys
+    const value = data.keys[key];
+    restoredKeys.push(key);
+
+    if (key === 'kjv-memorize-bookmarks') {
+      const refs: unknown[] = Array.isArray(value) ? value : [];
+      const { objects, added, skipped } = mergeBookmarks(refs);
+      bookmarkCount = objects.length;
+      addedBookmarks = added;
+      skippedDuplicates = skipped;
+      if (added > 0) {
+        localStorage.setItem(key, JSON.stringify(objects));
+        window.dispatchEvent(new CustomEvent('kjv-storage-change', { detail: { key } }));
+      }
+      continue;
+    }
+
+    // String values (e.g. theme "dark") are stored verbatim; everything else
+    // (objects/arrays/numbers) is JSON-stringified, matching the app's storage.
+    const stored = typeof value === 'string' ? value : JSON.stringify(value);
+    if (Array.isArray(value)) {
+      if (key === 'kjv-memorize-progress') progressCount = value.length;
+      else if (key === 'kjv-memorize-review-schedule') scheduleCount = value.length;
+      else if (key === 'kjv-memorize-sessions') sessionCount = value.length;
+    }
+    localStorage.setItem(key, stored);
+    window.dispatchEvent(new CustomEvent('kjv-storage-change', { detail: { key } }));
+  }
+
+  return { restoredKeys, progressCount, bookmarkCount, addedBookmarks, skippedDuplicates, scheduleCount, sessionCount };
 }
 
 // ─── Exported for testing ────────────────────────────────────────────────────

@@ -5,7 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { BookOpen, Dumbbell, BarChart3, Trophy, Menu, X, LayoutDashboard, Moon, Sun, ArrowUp, Download, Upload, Star } from 'lucide-react';
 import { ShortcutsModal, SearchModal } from './KeyboardModals';
 import Tutorial from './Tutorial';
-import { downloadSettings, importSettings, type ImportResult } from '../utils/settingsTransfer';
+import { downloadSettings, importSettings } from '../utils/settingsTransfer';
 
 function Navigation() {
   const [isOpen, setIsOpen] = useState(false);
@@ -33,19 +33,53 @@ function Navigation() {
   const handleImportFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    // Import replaces all local progress/stats/settings (a full restore) but
+    // merges favorites, so confirm before applying it.
+    if (!window.confirm(
+      'Importing this file will REPLACE your current progress, review schedule, sessions, and settings on this device with the data in the file. Your existing favorites will be kept (new ones from the file are added). Continue?'
+    )) {
+      e.target.value = '';
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const result = importSettings(String(reader.result));
-        setImportToast(
-          result.addedBookmarks > 0
-            ? `Imported ${result.addedBookmarks} favorite${result.addedBookmarks !== 1 ? 's' : ''} (${result.skippedDuplicates} already present)`
-            : `No new favorites to import (${result.skippedDuplicates} already present)`,
-        );
+        const r = importSettings(String(reader.result));
+        if (r.restoredKeys.length === 0) {
+          setImportToast('No settings found in file to restore.');
+        } else {
+          const restoredParts: string[] = [];
+          if (r.progressCount > 0) restoredParts.push(`${r.progressCount} verse${r.progressCount !== 1 ? 's' : ''} of progress`);
+          if (r.scheduleCount > 0) restoredParts.push('review schedule');
+          if (r.sessionCount > 0) restoredParts.push(`${r.sessionCount} session${r.sessionCount !== 1 ? 's' : ''}`);
+          if (r.restoredKeys.includes('kjv-game-state')) restoredParts.push('game progress');
+          if (r.restoredKeys.includes('kjv-memorize-achievements')) restoredParts.push('achievements');
+          if (r.restoredKeys.includes('kjv-memorize-daily-goal')) restoredParts.push('daily goal');
+          const prefs = r.restoredKeys.filter(k => k === 'kjv-theme' || k === 'kjv-verse-font-size' || k === 'kjv-strongs-enabled' || k === 'kjv-interlinear-enabled');
+          if (prefs.length > 0) restoredParts.push('settings');
+
+          const hasBookmarks = r.restoredKeys.includes('kjv-memorize-bookmarks');
+          const bookmarkMsg = hasBookmarks
+            ? (r.addedBookmarks > 0
+                ? `Added ${r.addedBookmarks} favorite${r.addedBookmarks !== 1 ? 's' : ''} (${r.skippedDuplicates} already present)`
+                : `No new favorites to add (${r.skippedDuplicates} already present)`)
+            : null;
+
+          let msg: string;
+          if (restoredParts.length === 0 && !bookmarkMsg) {
+            msg = 'No settings found in file to restore.';
+          } else {
+            const sentences: string[] = [];
+            if (restoredParts.length > 0) sentences.push(`Restored ${restoredParts.join(', ')}`);
+            if (bookmarkMsg) sentences.push(bookmarkMsg);
+            msg = sentences.join('. ') + '.';
+          }
+          setImportToast(msg);
+        }
       } catch (err) {
         setImportToast(`Import failed: ${(err as Error).message}`);
       }
-      setTimeout(() => setImportToast(null), 4000);
+      setTimeout(() => setImportToast(null), 5000);
     };
     reader.readAsText(file);
     e.target.value = '';

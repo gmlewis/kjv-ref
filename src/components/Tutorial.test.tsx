@@ -41,14 +41,14 @@ describe('Tutorial', () => {
     expect(document.querySelector('.modal-title')?.textContent).toBe('Welcome to KJV Memorize!');
   });
 
-  it('shows step counter "Step 1 of 22"', () => {
+  it('shows step counter "Step 1 of 23"', () => {
     renderTutorial();
-    expect(document.body.textContent).toContain('Step 1 of 22');
+    expect(document.body.textContent).toContain('Step 1 of 23');
   });
 
-  it('has 22 steps total', () => {
+  it('has 23 steps total', () => {
     renderTutorial();
-    expect(document.body.textContent).toContain('of 22');
+    expect(document.body.textContent).toContain('of 23');
   });
 
   it('shows Next button on first step', () => {
@@ -86,7 +86,7 @@ describe('Tutorial', () => {
   it('Space advances to next step', () => {
     renderTutorial();
     pressKey(' ');
-    expect(document.body.textContent).toContain('Step 2 of 22');
+    expect(document.body.textContent).toContain('Step 2 of 23');
   });
 
   it('ArrowLeft goes back to previous step', () => {
@@ -99,7 +99,7 @@ describe('Tutorial', () => {
   it('ArrowLeft does nothing on step 1 (no negative index)', () => {
     renderTutorial();
     pressKey('ArrowLeft');
-    expect(document.body.textContent).toContain('Step 1 of 22');
+    expect(document.body.textContent).toContain('Step 1 of 23');
   });
 
   it('navigates to / when step requires it', () => {
@@ -131,14 +131,14 @@ describe('Tutorial', () => {
     renderTutorial();
     // Advance to step 13 (Practice overview)
     for (let i = 0; i < 12; i++) pressKey('ArrowRight');
-    expect(document.body.textContent).toContain('Step 13 of 22');
+    expect(document.body.textContent).toContain('Step 13 of 23');
     expect(navigateSpy).toHaveBeenCalledWith('/practice');
   });
 
   it('shows Done button on the last step', () => {
     renderTutorial();
-    // Advance to the last step (21)
-    for (let i = 0; i < 21; i++) pressKey('ArrowRight');
+    // Advance to the last step (22 ArrowRight presses → step 23 of 23)
+    for (let i = 0; i < 22; i++) pressKey('ArrowRight');
     expect(document.body.textContent).toContain("You're All Set!");
     const buttons = Array.from(document.querySelectorAll('button'));
     const hasDone = buttons.some(b => b.textContent?.includes('Done!'));
@@ -153,8 +153,8 @@ describe('Tutorial', () => {
       </MemoryRouter>
     );
     unmountFn = result.unmount;
-    // Advance to the last step
-    for (let i = 0; i < 21; i++) pressKey('ArrowRight');
+    // Advance to the last step (step 23 of 23)
+    for (let i = 0; i < 22; i++) pressKey('ArrowRight');
     // Click Done
     const doneBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('Done!'));
     expect(doneBtn).toBeDefined();
@@ -167,7 +167,7 @@ describe('Tutorial', () => {
     const nextBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('Next'));
     expect(nextBtn).toBeDefined();
     act(() => { fireEvent.click(nextBtn!); });
-    expect(document.body.textContent).toContain('Step 2 of 22');
+    expect(document.body.textContent).toContain('Step 2 of 23');
   });
 
   it('Back button goes to previous step', () => {
@@ -176,7 +176,7 @@ describe('Tutorial', () => {
     const backBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('Back'));
     expect(backBtn).toBeDefined();
     act(() => { fireEvent.click(backBtn!); });
-    expect(document.body.textContent).toContain('Step 1 of 22');
+    expect(document.body.textContent).toContain('Step 1 of 23');
   });
 
   it('renders practice mode descriptions', () => {
@@ -237,25 +237,25 @@ describe('Tutorial', () => {
 
   it('renders settings export/import description', () => {
     renderTutorial();
-    for (let i = 0; i < 20; i++) pressKey('ArrowRight');
+    for (let i = 0; i < 21; i++) pressKey('ArrowRight');
     expect(document.body.textContent).toContain('Backup and Share');
     expect(document.body.textContent).toContain('download');
   });
 
   it('renders final step with recap', () => {
     renderTutorial();
-    for (let i = 0; i < 21; i++) pressKey('ArrowRight');
+    for (let i = 0; i < 22; i++) pressKey('ArrowRight');
     expect(document.body.textContent).toContain("You're All Set!");
     expect(document.body.textContent).toContain('Happy memorizing');
   });
 
   it('can navigate backward through all steps without error', () => {
     renderTutorial();
-    // Go to step 21
-    for (let i = 0; i < 21; i++) pressKey('ArrowRight');
+    // Go to the last step (23 of 23)
+    for (let i = 0; i < 22; i++) pressKey('ArrowRight');
     // Go back to step 1
-    for (let i = 0; i < 21; i++) pressKey('ArrowLeft');
-    expect(document.body.textContent).toContain('Step 1 of 22');
+    for (let i = 0; i < 22; i++) pressKey('ArrowLeft');
+    expect(document.body.textContent).toContain('Step 1 of 23');
   });
 
   it('renders kbd elements for keyboard shortcut hints', () => {
