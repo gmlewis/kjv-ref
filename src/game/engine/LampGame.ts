@@ -83,7 +83,7 @@ export interface LampGameCallbacks {
   onResolve: (result: LampResolveResult) => void;
   /** Called when the active verse (and its scaffold stage) changes so the host
    *  UI can sync state (Peek feature, stage indicator/selector). */
-  onVerseChange?: (verse: KJVVerse, stage: ScaffoldLayer) => void;
+  onVerseChange?: (verse: KJVVerse, stage: ScaffoldLayer, prompt: string) => void;
   /** Called when all lamps in the session queue are lit. */
   onSessionComplete?: (stats: { totalXp: number; lampsLit: number; bestCombo: number }) => void;
 }
@@ -475,15 +475,21 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     const timesRecited = sessionRecited.get(v.reference) ?? boot?.timesRecited ?? 0;
     // A live override (from setStage) wins; otherwise the auto stage is computed
     // from this session's recitations + the persisted override + mastered status.
-    // A live override (from setStage) wins; otherwise the auto stage is computed
-    // from this session's recitations + the persisted override + mastered status.
     // When the player chose "Auto" (setStage(null)) the persisted override is
     // deliberately ignored so the verse reverts to a pure recitation-based stage.
     const customForAuto = ignorePersistedOverride ? null : (boot?.customClozeLevel ?? null);
     const stage: ScaffoldLayer =
       stageOverride ?? getGameLayer(timesRecited, customForAuto as any, boot?.status);
     puzzle = buildTilePuzzle(v, stage, queueIndex + 1, decoyPool);
-    opts.callbacks.onVerseChange?.(v, stage);
+    // The stage instruction is rendered by the host as a DOM row (paired with the
+    // stage-control chips), NOT on the canvas, so the chips can sit beside it.
+    const isStudy = puzzle.bank.length === 0;
+    const promptText = isStudy
+      ? 'Stage 0 — Read the verse, then tap to continue'
+      : puzzle.decoyCount > 0
+        ? `Stage ${puzzle.layer} — Tap the words in order (${puzzle.decoyCount} wrong words mixed in)`
+        : `Stage ${puzzle.layer} — Tap the words in order`;
+    opts.callbacks.onVerseChange?.(v, stage, promptText);
 
     const [W, H] = canvasSize();
     const {
@@ -526,29 +532,18 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     headerLayer = createTextLayer(headerData, { positionPx: { x: (W - headerData.width) / 2, y: headerY } });
     addTextRendererLayer(textRenderer, headerLayer);
 
-    const isStudy = puzzle.bank.length === 0; // stage 0 read-along: full verse pre-placed
-    // Per-stage instruction. Every stage clearly tells the player what to do and
-    // (for stages ≥ 2) how many decoy words are mixed into the bank.
-    const promptText = isStudy
-      ? 'Stage 0 — Read the verse, then tap to continue'
-      : puzzle.decoyCount > 0
-        ? `Stage ${puzzle.layer} — Tap the words in order (${puzzle.decoyCount} wrong words mixed in)`
-        : `Stage ${puzzle.layer} — Tap the words in order`;
-    promptData = createDefaultTextData(font, promptFont, promptText, textColor(palette.accent), {
-      align: 'center',
-    });
-    promptLayer = createTextLayer(promptData, {
-      positionPx: { x: (W - promptData.width) / 2, y: headerY + (isMobile ? 32 : 44) },
-    });
-    addTextRendererLayer(textRenderer, promptLayer);
+    // The per-stage instruction is rendered by the host as a DOM row paired with
+    // the stage-control chips (see onVerseChange), so it is NOT drawn on the canvas.
+    // (`isStudy` is declared above near the prompt text and gates the tile path.)
 
-    // HUD summary (Level, XP, Combo, Stage) — formatted compactly on narrow mobile viewports
+    // HUD summary (Level, XP, Combo). Stage is shown in the host's chip row, so it
+    // is omitted here to avoid duplication. Nudged below the DOM prompt+chips row.
     const hudText = isMobile
-      ? `Lvl ${gameState.level} • ${gameState.xp} XP • Combo x${combo} • Stage ${puzzle.layer}`
-      : `Level ${gameState.level}  •  ${gameState.xp} XP  •  Combo x${combo}  •  Stage ${puzzle.layer}`;
+      ? `Lvl ${gameState.level} • ${gameState.xp} XP • Combo x${combo}`
+      : `Level ${gameState.level}  •  ${gameState.xp} XP  •  Combo x${combo}`;
     hudData = createDefaultTextData(font, hudFont, hudText, textColor(palette.text, 0.8), { align: 'center' });
     hudLayer = createTextLayer(hudData, {
-      positionPx: { x: (W - hudData.width) / 2, y: headerY + (isMobile ? 52 : 72) },
+      positionPx: { x: (W - hudData.width) / 2, y: headerY + (isMobile ? 92 : 100) },
     });
     addTextRendererLayer(textRenderer, hudLayer);
 

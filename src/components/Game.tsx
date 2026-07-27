@@ -54,6 +54,9 @@ export default function Game() {
   // Whether the current verse has a persisted stage override (so the "Auto"
   // chip can show as active when no override is set).
   const [stageOverride, setStageOverride] = useState<ScaffoldLayer | null>(null);
+  // The current verse's on-screen instruction (e.g. "Stage 2 — Tap the words in
+  // order (2 wrong words mixed in)"). Rendered as DOM alongside the stage chips.
+  const [activePrompt, setActivePrompt] = useState<string>('');
   // Session summary shown when onSessionComplete fires.
   const [summary, setSummary] = useState<{ totalXp: number; lampsLit: number; bestCombo: number } | null>(null);
 
@@ -85,6 +88,12 @@ export default function Game() {
   // --- Refs that hold the latest data so callbacks never read a stale closure -
   const progressRef = useRef<any[]>(progress ?? []);
   progressRef.current = progress ?? [];
+  // dueReviews is a plain state value; the boot effect would otherwise capture
+  // the first-render (still-loading, null) value and pass `due: []` to the
+  // engine — which means due verses would never be sorted to the front of the
+  // queue and would never get practiced/cleared. Mirror the progressRef fix.
+  const dueRef = useRef<any[]>(dueReviews ?? []);
+  dueRef.current = dueReviews ?? [];
 
   // Session accumulators (mutated inside onResolve / Exit, not via state).
   const versesPracticedRef = useRef<Set<string>>(new Set());
@@ -127,18 +136,19 @@ export default function Game() {
           reducedMotion,
           pool,
           progress: progressRef.current,
-          due: dueReviews ?? [],
+          due: dueRef.current,
           dailyGoalCompleted,
           callbacks: {
             onResolve: (result: LampResolveResult) => {
               handleResolve(result, pool);
             },
-            onVerseChange: (v: any, stage: ScaffoldLayer) => {
+            onVerseChange: (v: any, stage: ScaffoldLayer, prompt: string) => {
               if (v?.reference && v?.text) {
                 setActiveRef(v.reference);
                 setActiveText(v.text);
               }
               setActiveStage(stage);
+              setActivePrompt(prompt ?? '');
               // Reflect whether this verse has a persisted override.
               const entry = progressRef.current.find(
                 (p: any) => p?.verse?.reference === v?.reference,
@@ -321,42 +331,50 @@ export default function Game() {
         </div>
       )}
 
-      {/* Stage control — pin the current verse to any stage (0–5) or Auto. */}
-      {status === 'ready' && !summary && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 sm:left-3 sm:translate-x-0 z-10 flex flex-wrap items-center justify-center gap-1 sm:gap-1.5 glassmorphism rounded-full px-2.5 sm:px-3 py-1.5 shadow-lg max-w-[94vw]">
-          <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mr-0.5">
-            Stage
+      {/* Stage instruction + stage-control chips, as one wrapping row at the top.
+          Wide: chips sit to the right of the prompt. Narrow: chips wrap to a
+          centered line below the prompt. Pin the current verse to any stage
+          (0–5) or Auto (recitation-based). Persisted via customClozeLevel. */}
+      {status === 'ready' && !summary && !showPeek && activePrompt && (
+        <div className="absolute top-[88px] left-1/2 -translate-x-1/2 z-10 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 max-w-[94vw] px-2">
+          <span className="text-[13px] sm:text-base font-semibold text-amber-600 dark:text-amber-400 text-center">
+            {activePrompt}
           </span>
-          {([0, 1, 2, 3, 4, 5] as ScaffoldLayer[]).map((s) => {
-            const isActive = stageOverride === s || (stageOverride === null && activeStage === s);
-            return (
-              <button
-                key={s}
-                type="button"
-                onClick={() => handleStageChange(s)}
-                title={`Stage ${s}${s === 0 ? ' — read along' : s === 1 ? ' — order, no decoys' : ` — order + ${[0, 0, 2, 4, 6, 8][s]} decoys`}`}
-                className={`min-w-[1.5rem] rounded-full px-1.5 sm:px-2 py-0.5 text-[11px] sm:text-xs font-bold transition-colors ${
-                  isActive
-                    ? 'bg-amber-500 text-white shadow'
-                    : 'text-gray-600 dark:text-gray-300 hover:bg-white/20'
-                }`}
-              >
-                {s}
-              </button>
-            );
-          })}
-          <button
-            type="button"
-            onClick={() => handleStageChange(null)}
-            title="Auto — let the stage advance with recitation count"
-            className={`rounded-full px-2 sm:px-2.5 py-0.5 text-[11px] sm:text-xs font-bold transition-colors ${
-              stageOverride === null
-                ? 'bg-indigo-500 text-white shadow'
-                : 'text-gray-600 dark:text-gray-300 hover:bg-white/20'
-            }`}
-          >
-            Auto
-          </button>
+          <div className="flex flex-wrap items-center justify-center gap-1 sm:gap-1.5 glassmorphism rounded-full px-2.5 sm:px-3 py-1 shadow-lg">
+            <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mr-0.5">
+              Stage
+            </span>
+            {([0, 1, 2, 3, 4, 5] as ScaffoldLayer[]).map((s) => {
+              const isActive = stageOverride === s || (stageOverride === null && activeStage === s);
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => handleStageChange(s)}
+                  title={`Stage ${s}${s === 0 ? ' — read along' : s === 1 ? ' — order, no decoys' : ` — order + ${[0, 0, 2, 4, 6, 8][s]} decoys`}`}
+                  className={`min-w-[1.5rem] rounded-full px-1.5 sm:px-2 py-0.5 text-[11px] sm:text-xs font-bold transition-colors ${
+                    isActive
+                      ? 'bg-amber-500 text-white shadow'
+                      : 'text-gray-600 dark:text-gray-300 hover:bg-white/20'
+                  }`}
+                >
+                  {s}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => handleStageChange(null)}
+              title="Auto — let the stage advance with recitation count"
+              className={`rounded-full px-2 sm:px-2.5 py-0.5 text-[11px] sm:text-xs font-bold transition-colors ${
+                stageOverride === null
+                  ? 'bg-indigo-500 text-white shadow'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-white/20'
+              }`}
+            >
+              Auto
+            </button>
+          </div>
         </div>
       )}
 
