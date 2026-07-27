@@ -194,4 +194,54 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
       expect(d.length).toBeGreaterThan(1);
     }
   });
+
+  test('D-8: due verse is practiced first and its review schedule advances', async ({ page }) => {
+    await openApp(page, '/kjv-ref/practice');
+    // Seed John 1:1 (easy starter verse, unlocked) as due, at stage 0 so a tap resolves.
+    await page.evaluate(() => {
+      const pastDate = new Date(Date.now() - 86400000).toISOString();
+      localStorage.setItem('kjv-memorize-progress', JSON.stringify([
+        { verse: { reference: 'John 1:1' }, status: 'reviewing', timesRecited: 3, streak: 2, accuracy: 100, customClozeLevel: 0 },
+      ]));
+      localStorage.setItem('kjv-memorize-review-schedule', JSON.stringify([
+        { verse: { reference: 'John 1:1' }, dueDate: pastDate, interval: 1 },
+      ]));
+    });
+
+    const before = await page.evaluate(() => {
+      const s = JSON.parse(localStorage.getItem('kjv-memorize-review-schedule') || '[]');
+      return s.find((e: any) => e?.verse?.reference === 'John 1:1')?.dueDate ?? null;
+    });
+    expect(before).not.toBeNull();
+
+    await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => typeof (window as any).__lampGamePuzzle === 'function', { timeout: 15000 });
+    await page.waitForTimeout(500);
+
+    // The due verse should be first in the queue (due-first sorting).
+    const puzzle = await page.evaluate(() => (window as any).__lampGamePuzzle?.());
+    expect(puzzle?.reference).toBe('John 1:1');
+    expect(puzzle?.layer).toBe(0);
+
+    // Stage 0 is the read-along study layer — the DOM stage row shows the study prompt.
+    await expect(page.locator('text=/Stage 0 — Read the verse/')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Auto' })).toBeVisible();
+
+    // Tap to advance past the study layer, which resolves the verse and advances the schedule.
+    await page.locator('canvas').click();
+    await page.waitForTimeout(2500);
+
+    const after = await page.evaluate(() => {
+      const s = JSON.parse(localStorage.getItem('kjv-memorize-review-schedule') || '[]');
+      return s.find((e: any) => e?.verse?.reference === 'John 1:1')?.dueDate ?? null;
+    });
+    expect(after).not.toBeNull();
+    // The schedule advanced: new dueDate is later than the seeded one.
+    expect(new Date(after as string).getTime()).toBeGreaterThan(new Date(before as string).getTime());
+    // And it is now in the future relative to today (no longer due).
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    expect(new Date(after as string) >= today).toBe(true);
+    expect(new Date(after as string).getTime()).toBeGreaterThan(Date.now() - 1000);
+  });
 });
