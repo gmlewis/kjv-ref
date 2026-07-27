@@ -279,7 +279,7 @@ export default function Game() {
       <canvas ref={canvasRef} className="w-full h-screen block touch-none" />
 
       {/* Slim overlay HUD */}
-      <div className="absolute top-2.5 right-2.5 sm:top-4 sm:right-4 z-10 flex items-center gap-1.5 sm:gap-3">
+      <div className="absolute top-2 sm:top-3 right-2.5 sm:right-4 z-10 flex items-center gap-1.5 sm:gap-3">
         <button
           type="button"
           onClick={() => setShowPeek((prev) => !prev)}
@@ -321,7 +321,7 @@ export default function Game() {
       </div>
 
       {showPeek && activeText && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 max-w-lg w-11/12 glassmorphism rounded-2xl p-4 shadow-2xl border border-purple-500/30 text-center animate-fadeIn">
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-20 max-w-lg w-11/12 glassmorphism rounded-2xl p-4 shadow-2xl border border-purple-500/30 text-center animate-fadeIn">
           <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-1">
             {activeRef}
           </p>
@@ -336,12 +336,12 @@ export default function Game() {
           centered line below the prompt. Pin the current verse to any stage
           (0–5) or Auto (recitation-based). Persisted via customClozeLevel. */}
       {status === 'ready' && !summary && !showPeek && activePrompt && (
-        <div className="absolute top-[88px] left-1/2 -translate-x-1/2 z-10 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 max-w-[94vw] px-2">
-          <span className="text-[13px] sm:text-base font-semibold text-amber-600 dark:text-amber-400 text-center">
+        <div className="absolute top-[44px] sm:top-[50px] left-1/2 -translate-x-1/2 z-10 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 max-w-[96vw] px-1.5">
+          <span className="text-[11px] sm:text-sm font-semibold text-amber-600 dark:text-amber-400 text-center">
             {activePrompt}
           </span>
-          <div className="flex flex-wrap items-center justify-center gap-1 sm:gap-1.5 glassmorphism rounded-full px-2.5 sm:px-3 py-1 shadow-lg">
-            <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mr-0.5">
+          <div className="flex flex-wrap items-center justify-center gap-1 sm:gap-1.5 glassmorphism rounded-full px-2 sm:px-3 py-0.5 sm:py-1 shadow-lg">
+            <span className="text-[9px] sm:text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mr-0.5">
               Stage
             </span>
             {([0, 1, 2, 3, 4, 5] as ScaffoldLayer[]).map((s) => {
@@ -352,7 +352,7 @@ export default function Game() {
                   type="button"
                   onClick={() => handleStageChange(s)}
                   title={`Stage ${s}${s === 0 ? ' — read along' : s === 1 ? ' — order, no decoys' : ` — order + ${[0, 0, 2, 4, 6, 8][s]} decoys`}`}
-                  className={`min-w-[1.5rem] rounded-full px-1.5 sm:px-2 py-0.5 text-[11px] sm:text-xs font-bold transition-colors ${
+                  className={`min-w-[1.25rem] sm:min-w-[1.5rem] rounded-full px-1.5 sm:px-2 py-0.5 text-[10px] sm:text-xs font-bold transition-colors ${
                     isActive
                       ? 'bg-amber-500 text-white shadow'
                       : 'text-gray-600 dark:text-gray-300 hover:bg-white/20'
@@ -366,7 +366,7 @@ export default function Game() {
               type="button"
               onClick={() => handleStageChange(null)}
               title="Auto — let the stage advance with recitation count"
-              className={`rounded-full px-2 sm:px-2.5 py-0.5 text-[11px] sm:text-xs font-bold transition-colors ${
+              className={`rounded-full px-1.5 sm:px-2.5 py-0.5 text-[10px] sm:text-xs font-bold transition-colors ${
                 stageOverride === null
                   ? 'bg-indigo-500 text-white shadow'
                   : 'text-gray-600 dark:text-gray-300 hover:bg-white/20'

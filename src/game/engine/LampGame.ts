@@ -294,20 +294,20 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   }
 
   function getResponsiveMetrics(W: number, H: number) {
-    const isMobile = W < 560 || H < 600;
-    const isTiny = W < 400;
+    const isMobile = W < 560 || H < 650;
+    const isTiny = W < 380 || H < 580;
 
     const margin = isMobile ? 12 : 24;
     const wordFont = isTiny ? 14 : isMobile ? 16 : 22;
-    const headerFont = isTiny ? 20 : isMobile ? 22 : 34;
-    const promptFont = isTiny ? 13 : isMobile ? 14 : 18;
-    const hudFont = isTiny ? 11 : isMobile ? 12 : 14;
-    const cellH = isTiny ? 30 : isMobile ? 36 : 48;
-    const minCellW = isTiny ? 54 : isMobile ? 68 : 84;
+    const headerFont = isTiny ? 17 : isMobile ? 20 : 30;
+    const promptFont = isTiny ? 12 : isMobile ? 13 : 18;
+    const hudFont = isTiny ? 10 : isMobile ? 11 : 14;
+    const cellH = isTiny ? 32 : isMobile ? 36 : 48;
+    const minCellW = isTiny ? 48 : isMobile ? 58 : 84;
     const cellPad = isMobile ? 8 : 12;
-    const gap = isMobile ? 6 : 10;
-    const headerY = isMobile ? 62 : 60;
-    const slotAreaTop = isMobile ? 148 : 175;
+    const gap = isMobile ? 5 : 10;
+    const headerY = isMobile ? 22 : 28;
+    const slotAreaTop = isMobile ? 118 : 124;
 
     return {
       isMobile,
@@ -485,10 +485,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // stage-control chips), NOT on the canvas, so the chips can sit beside it.
     const isStudy = puzzle.bank.length === 0;
     const promptText = isStudy
-      ? 'Verse Stage 0 — Read the verse, then tap to continue'
+      ? 'Stage 0 — Read verse, tap to continue'
       : puzzle.decoyCount > 0
-        ? `Verse Stage ${puzzle.layer} — Tap the words in order (${puzzle.decoyCount} wrong words mixed in)`
-        : `Verse Stage ${puzzle.layer} — Tap the words in order`;
+        ? `Stage ${puzzle.layer} — Tap words in order (${puzzle.decoyCount} decoys)`
+        : `Stage ${puzzle.layer} — Tap words in order`;
     opts.callbacks.onVerseChange?.(v, stage, promptText);
 
     const [W, H] = canvasSize();
@@ -529,7 +529,9 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     headerData = createDefaultTextData(font, headerFont, v.reference, textColor(palette.text), {
       align: 'center',
     });
-    headerLayer = createTextLayer(headerData, { positionPx: { x: (W - headerData.width) / 2, y: headerY } });
+    headerLayer = createTextLayer(headerData, {
+      positionPx: { x: (W - headerData.width) / 2, y: headerY + headerFont * 0.65 },
+    });
     addTextRendererLayer(textRenderer, headerLayer);
 
     // The per-stage instruction is rendered by the host as a DOM row paired with
@@ -539,11 +541,12 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // HUD summary (Level, XP, Combo). Stage is shown in the host's chip row, so it
     // is omitted here to avoid duplication. Nudged below the DOM prompt+chips row.
     const hudText = isMobile
-      ? `Game Stats: Lvl ${gameState.level} • ${gameState.xp} XP • Session Combos: x${combo}`
+      ? `Lvl ${gameState.level} • ${gameState.xp} XP • Combos: x${combo}`
       : `Game Stats: Level ${gameState.level}  •  ${gameState.xp} XP  •  Session Combos: x${combo}`;
     hudData = createDefaultTextData(font, hudFont, hudText, textColor(palette.text, 0.8), { align: 'center' });
+    const hudY = isMobile ? 96 : 94;
     hudLayer = createTextLayer(hudData, {
-      positionPx: { x: (W - hudData.width) / 2, y: headerY + (isMobile ? 92 : 100) },
+      positionPx: { x: (W - hudData.width) / 2, y: hudY + hudFont * 0.65 },
     });
     addTextRendererLayer(textRenderer, hudLayer);
 
@@ -591,24 +594,13 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       lampSprites.push(lSprite);
     }
 
-    // Measure the longest word block in the verse puzzle so all slot and tile boxes are uniformly sized.
-    let maxCellW = minCellW;
-    for (const s of puzzle.slots) {
+    // Slots: calculate per-word width based on natural text length
+    const slotWidths = puzzle.slots.map((s) => {
       const data = createDefaultTextData(font, wordFont, s.word, textColor(palette.text));
-      const w = data.width + 2 * cellPad;
-      if (w > maxCellW) maxCellW = w;
+      const w = Math.min(areaW, Math.max(minCellW, data.width + 2 * cellPad));
       disposeDefaultTextData(data);
-    }
-    for (const t of puzzle.bank) {
-      const data = createDefaultTextData(font, wordFont, t.display, textColor(palette.text));
-      const w = data.width + 2 * cellPad;
-      if (w > maxCellW) maxCellW = w;
-      disposeDefaultTextData(data);
-    }
-    maxCellW = Math.min(areaW, maxCellW);
-
-    // Slots: a background sprite per slot; pre-filled slots also show their word.
-    const slotWidths = puzzle.slots.map(() => maxCellW);
+      return w;
+    });
     const slotPos = wrapLayout(slotWidths, areaX, areaW, slotAreaTop, cellH, gap);
     const maxSlotY = slotPos.length > 0 ? Math.max(...slotPos.map((p) => p.y)) : slotAreaTop;
     slotBottomY = maxSlotY + cellH;
@@ -658,7 +650,12 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
     // Tiles (bank) — only for tile stages (stage 0 read-along has no bank).
     if (!isStudy) {
-      const tileWidths = puzzle.bank.map(() => maxCellW);
+      const tileWidths = puzzle.bank.map((t) => {
+        const data = createDefaultTextData(font, wordFont, t.display, textColor(palette.text));
+        const w = Math.min(areaW, Math.max(minCellW, data.width + 2 * cellPad));
+        disposeDefaultTextData(data);
+        return w;
+      });
 
       // Determine number of wrapped rows for bank tiles:
       let rowCount = 1;
@@ -672,10 +669,11 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
         }
       }
       const totalBankH = rowCount * cellH + (rowCount - 1) * gap;
-      // Light path line is at pathY = H - 36.
-      // Bottom of lowest bank tile row must end at or above H - 54 (18px clearance above light path line & lamps).
-      const maxBankBottomY = H - (isMobile ? 50 : 65);
-      bankTopY = maxBankBottomY - totalBankH;
+      const maxBankBottomY = H - (isMobile ? 48 : 65);
+      const idealBankTopY = slotBottomY + (isMobile ? 54 : 64);
+      const maxBankTopY = maxBankBottomY - totalBankH;
+      bankTopY = Math.min(idealBankTopY, maxBankTopY);
+      bankTopY = Math.max(slotBottomY + (isMobile ? 48 : 56), bankTopY);
       const tilePos = wrapLayout(tileWidths, areaX, areaW, bankTopY, cellH, gap);
       tiles = puzzle.bank.map((t, i) => {
         const pos = tilePos[i];
@@ -979,12 +977,14 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       feedbackBgSprite = null;
     }
 
-    feedbackData = createDefaultTextData(font, 22, bannerMsg, bannerTextColor, { align: 'center' });
+    const { isMobile } = getResponsiveMetrics(W, canvasSize()[1]);
+    const feedbackFontSize = isMobile ? 16 : 22;
+    feedbackData = createDefaultTextData(font, feedbackFontSize, bannerMsg, bannerTextColor, { align: 'center' });
 
     // Position toast banner cleanly in the clear space below the last slot row:
-    const bannerCenterY = slotBottomY + 42;
-    const pillW = feedbackData.width + 40;
-    const pillH = 38;
+    const bannerCenterY = slotBottomY + (isMobile ? 26 : 34);
+    const pillW = feedbackData.width + (isMobile ? 28 : 40);
+    const pillH = isMobile ? 32 : 38;
     const pillBgCol = correct ? spriteColor('#047857', 0.95) : spriteColor('#b91c1c', 0.95);
 
     feedbackBgSprite = addSprite2D(spriteLayer, {
@@ -995,7 +995,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     });
 
     feedbackLayer = createTextLayer(feedbackData, {});
-    placeText(feedbackLayer, feedbackData, (W - pillW) / 2, bannerCenterY - pillH / 2, pillW, pillH, 22);
+    placeText(feedbackLayer, feedbackData, (W - pillW) / 2, bannerCenterY - pillH / 2, pillW, pillH, feedbackFontSize);
     addTextRendererLayer(textRenderer, feedbackLayer);
 
     if (correct || wasStudy) {
