@@ -109,6 +109,7 @@ describe('buildTilePuzzle', () => {
 describe('buildMultiVersePuzzle', () => {
   const v1: KJVVerse = { reference: 'Psalm 23:1', book: 'Psalms', chapter: 23, verse: 1, text: 'The LORD is my shepherd; I shall not want.', keywords: ['shepherd'], difficulty: 'easy', theme: 'faith' };
   const v2: KJVVerse = { reference: 'Psalm 23:2', book: 'Psalms', chapter: 23, verse: 2, text: 'He maketh me to lie down in green pastures: he leadeth me beside the still waters.', keywords: ['pastures'], difficulty: 'easy', theme: 'faith' };
+  const v3: KJVVerse = { reference: 'Psalm 23:3', book: 'Psalms', chapter: 23, verse: 3, text: `He restoreth my soul: he leadeth me in the paths of righteousness for his name's sake.`, keywords: ['soul'], difficulty: 'easy', theme: 'faith' };
 
   it('combines consecutive verses into a single multi-verse passage puzzle', () => {
     const p = buildMultiVersePuzzle([v1, v2], 1, 42, POOL);
@@ -116,5 +117,35 @@ describe('buildMultiVersePuzzle', () => {
     const combinedLength = v1.text.split(' ').length + v2.text.split(' ').length;
     expect(p.slots.length).toBe(combinedLength);
     expect(p.bank.length).toBe(combinedLength);
+  });
+
+  it('handles three or more verses in a chain', () => {
+    const p = buildMultiVersePuzzle([v1, v2, v3], 2, 42, POOL);
+    expect(p.reference).toBe('Psalm 23:1–3');
+    const combinedLength = v1.text.split(' ').length + v2.text.split(' ').length + v3.text.split(' ').length;
+    expect(p.slots.length).toBe(combinedLength);
+    expect(p.bank.length).toBe(combinedLength + 2); // stage 2 adds 2 decoys
+  });
+
+  it('returns single verse puzzle for one verse', () => {
+    const p = buildMultiVersePuzzle([v1], 1, 42, POOL);
+    expect(p.reference).toBe('Psalm 23:1');
+    expect(p.slots.length).toBe(v1.text.split(' ').length);
+  });
+
+  it('returns empty puzzle for no verses', () => {
+    const p = buildMultiVersePuzzle([], 1, 42, POOL);
+    expect(p.reference).toBe('');
+    expect(p.slots.length).toBe(0);
+    expect(p.bank.length).toBe(0);
+  });
+
+  it('applies decoys based on stage for multi-verse puzzles', () => {
+    const p0 = buildMultiVersePuzzle([v1, v2], 0, 42, POOL);
+    const p3 = buildMultiVersePuzzle([v1, v2], 3, 42, POOL);
+    const p5 = buildMultiVersePuzzle([v1, v2], 5, 42, POOL);
+    expect(p0.decoyCount).toBe(0);
+    expect(p3.decoyCount).toBe(4);
+    expect(p5.decoyCount).toBe(8);
   });
 });

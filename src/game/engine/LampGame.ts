@@ -58,7 +58,7 @@ import type {
 import type { KJVVerse } from '../../data/kjv-verses';
 import type { ProgressEntry, DueEntry, TilePuzzle, ScaffoldLayer } from '../types';
 import { selectNextLamps } from '../selection';
-import { getGameLayer, buildTilePuzzle } from '../scaffold';
+import { getGameLayer, buildTilePuzzle, buildMultiVersePuzzle } from '../scaffold';
 import { scoreTilePuzzle, performanceRating, computeXp, applyCombo, levelForXp } from '../scoring';
 import { loadGameState, saveGameState } from '../state';
 import { playTileSnapSound, playTileErrorSound, playLampLitSound } from './audio';
@@ -626,7 +626,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     awaitingRetryTap = false;
   }
 
-  function buildPuzzle(v: KJVVerse) {
+  function buildPuzzle(v: KJVVerse, chainVerses: KJVVerse[] | null = null) {
     teardownPuzzle();
     verse = v;
 
@@ -639,15 +639,26 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     const customForAuto = ignorePersistedOverride ? null : (boot?.customClozeLevel ?? null);
     const stage: ScaffoldLayer =
       stageOverride ?? getGameLayer(timesRecited, customForAuto as any, boot?.status);
-    puzzle = buildTilePuzzle(v, stage, queueIndex + 1, decoyPool);
+
+    // Task C-6: Multi-verse chain reconstruction
+    puzzle = chainVerses && chainVerses.length > 1
+      ? buildMultiVersePuzzle(chainVerses, stage, queueIndex + 1, decoyPool)
+      : buildTilePuzzle(v, stage, queueIndex + 1, decoyPool);
+
     // The stage instruction is rendered by the host as a DOM row (paired with the
     // stage-control chips), NOT on the canvas, so the chips can sit beside it.
     const isStudy = puzzle.bank.length === 0;
     const promptText = isStudy
-      ? 'Verse Stage 0 — Read the verse, then tap to continue'
+      ? (chainVerses && chainVerses.length > 1
+          ? `Passage Stage 0 — Read ${chainVerses.length} verses, then tap to continue`
+          : 'Verse Stage 0 — Read the verse, then tap to continue')
       : puzzle.decoyCount > 0
-        ? `Verse Stage ${puzzle.layer} — Tap the words in order (${puzzle.decoyCount} wrong words mixed in)`
-        : `Verse Stage ${puzzle.layer} — Tap the words in order`;
+        ? (chainVerses && chainVerses.length > 1
+            ? `Passage Stage ${puzzle.layer} — Tap the words in order (${puzzle.decoyCount} wrong words mixed in)`
+            : `Verse Stage ${puzzle.layer} — Tap the words in order (${puzzle.decoyCount} wrong words mixed in)`)
+        : (chainVerses && chainVerses.length > 1
+            ? `Passage Stage ${puzzle.layer} — Tap the words in order (${chainVerses.length} verses chained)`
+            : `Verse Stage ${puzzle.layer} — Tap the words in order`);
     opts.callbacks.onVerseChange?.(v, stage, promptText);
 
     const [W, H] = canvasSize();
@@ -1604,6 +1615,46 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     sessionRecited.set(verse.reference, prev + 1);
   }
 
+  /**
+   * Task C-6: Multi-verse chain reconstruction
+   * Returns 1-3 consecutive verses to chain together for increased difficulty.
+   * Chain detection: at stage 5 (or override), group consecutive verses from same chapter.
+   */
+  function getChainVerses(q: KJVVerse[], startIndex: number, override: ScaffoldLayer | null): KJVVerse[] {
+    // Only chain at stage 5 (hardest difficulty)
+    const effectiveStage = override ?? 5;
+    if (effectiveStage < 5) {
+      return [q[startIndex]];
+    }
+
+    // Chain 2-3 consecutive verses from the same chapter
+    const v1 = q[startIndex];
+    if (!v1) return [];
+
+    const [book1, chapter1] = v1.reference.split(':').map(s => s.trim());
+    const verseNum1 = parseInt(v1.verse.toString(), 10);
+
+    // Check if next verse is consecutive (same book, same chapter, verse+1)
+    const v2 = q[startIndex + 1];
+    if (v2) {
+      const [book2, chapter2] = v2.reference.split(':').map(s => s.trim());
+      const verseNum2 = parseInt(v2.verse.toString(), 10);
+      if (book1 === book2 && chapter1 === chapter2 && verseNum2 === verseNum1 + 1) {
+        // Check for a third consecutive verse
+        const v3 = q[startIndex + 2];
+        if (v3) {
+          const [book3, chapter3] = v3.reference.split(':').map(s => s.trim());
+          const verseNum3 = parseInt(v3.verse.toString(), 10);
+          if (book1 === book3 && chapter1 === chapter3 && verseNum3 === verseNum1 + 2) {
+            return [v1, v2, v3]; // Chain of 3
+          }
+        }
+        return [v1, v2]; // Chain of 2
+      }
+    }
+    return [v1]; // No consecutive verses found
+  }
+
   function nextPuzzle() {
     if (queue.length === 0) {
       // Nothing to practice — show a static message.
@@ -1636,8 +1687,12 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       return;
     }
 
-    const v = queue[queueIndex];
-    queueIndex++;
+    // Task C-6: Multi-verse chain reconstruction
+    // At stage 5, chain 2-3 consecutive verses together for increased difficulty
+    const chainVerses = getChainVerses(queue, queueIndex, stageOverride);
+    const v = chainVerses[0];
+    queueIndex += chainVerses.length;
+
     // Task C-4: Parallax camera scroll offset tracking verse progression
     const [W, H] = canvasSize();
     const { isMobile } = getResponsiveMetrics(W, H);
@@ -1647,7 +1702,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // applied to the previous verse via setStage.
     stageOverride = null;
     ignorePersistedOverride = false;
-    buildPuzzle(v);
+    buildPuzzle(v, chainVerses.length > 1 ? chainVerses : null);
 
     // Expose window debug handles for E2E proof assertions
     (window as any).__lampGameSpriteAtlas = atlas;
