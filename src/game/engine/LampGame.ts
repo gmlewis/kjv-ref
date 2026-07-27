@@ -266,8 +266,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let pathSprite: Sprite2DHandle | null = null;
   let skyStarSprites: Sprite2DHandle[] = [];
   let lampSprites: Sprite2DHandle[] = [];
+  let lighthouseSprites: Sprite2DHandle[] = [];
   let lampHaloSprites: Sprite2DHandle[] = [];
   let lampFlameSprites: Sprite2DHandle[] = [];
+  let beaconBeamSprites: Sprite2DHandle[] = [];
   let gameState = loadGameState();
   const sessionLitRefs = new Set<string>();
   let combo = 0;
@@ -530,8 +532,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       feedbackBgSprite = null;
     }
     for (const ls of lampSprites) removeSprite2D(ls);
+    for (const lhs of lighthouseSprites) removeSprite2D(lhs);
     for (const lhs of lampHaloSprites) removeSprite2D(lhs);
     for (const lfs of lampFlameSprites) removeSprite2D(lfs);
+    for (const bbs of beaconBeamSprites) removeSprite2D(bbs);
     for (const ss of skyStarSprites) removeSprite2D(ss);
     if (skyGradientSprite) {
       removeSprite2D(skyGradientSprite);
@@ -757,7 +761,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     });
     addTextRendererLayer(textRenderer, hudLayer);
 
-    // Render SVG oil lamp markers along the path with ambient light halos
+    // Render Majestic Coastal Lighthouses & Radiant Beacons along the path
     const lampCount = queue.length;
     const lampStep = (W - 4 * margin) / Math.max(1, lampCount - 1);
     const activeIndex = Math.max(0, queueIndex - 1);
@@ -767,40 +771,44 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       const isSessionLit = sessionLitRefs.has(qv.reference) || i < activeIndex;
 
       const lx = 2 * margin + i * lampStep;
-      const size = isCurrent ? 36 : 28;
+
+      // Responsive lighthouse tower dimensions (tall & impressive on desktop!)
+      const lw = isMobile ? (isCurrent ? 36 : 28) : (isCurrent ? 52 : 40);
+      const lh = isMobile ? (isCurrent ? 72 : 56) : (isCurrent ? 104 : 80);
+      const lanternCenterY = pathY - lh + (isMobile ? 12 : 18);
 
       if (isSessionLit || isCurrent) {
-        // Ambient Radial Light Glow Halo behind lit/active lamp
-        const haloSize = isCurrent ? 84 : 64;
+        // Radiant Beacon Light Halo around top lantern room
+        const haloSize = isCurrent ? (isMobile ? 84 : 120) : (isMobile ? 64 : 88);
         const haloSprite = addSprite2D(spriteLayer, {
-          positionPx: [lx, pathY - 6],
+          positionPx: [lx, lanternCenterY],
           sizePx: [haloSize, haloSize],
-          color: isCurrent ? [1, 0.8, 0.2, 0.9] : [0.95, 0.7, 0.2, 0.6],
+          color: isCurrent ? [1, 0.85, 0.2, 0.95] : [0.95, 0.75, 0.2, 0.65],
           frame: frameIndex('glow_halo'),
         });
         lampHaloSprites.push(haloSprite);
-      }
 
-      // Base Oil Lamp Sprite
-      const lampFrame = isSessionLit || isCurrent ? frameIndex('lamp_lit') : frameIndex('lamp_unlit');
-      const lSprite = addSprite2D(spriteLayer, {
-        positionPx: [lx, pathY - 14],
-        sizePx: [size, size],
-        color: [1, 1, 1, 1],
-        frame: lampFrame,
-      });
-      lampSprites.push(lSprite);
-
-      if (isSessionLit || isCurrent) {
-        // Golden Flame Core Tip
-        const flameSprite = addSprite2D(spriteLayer, {
-          positionPx: [lx, pathY - 28],
-          sizePx: [14, 14],
-          color: [1, 1, 1, 1],
-          frame: frameIndex('flame'),
+        // Sweeping Beacon Light Beam extending into the sky
+        const beamW = isCurrent ? (isMobile ? 96 : 140) : (isMobile ? 72 : 100);
+        const beamH = isCurrent ? (isMobile ? 48 : 70) : (isMobile ? 36 : 50);
+        const beamSprite = addSprite2D(spriteLayer, {
+          positionPx: [lx + beamW / 2 - 4, lanternCenterY - 4],
+          sizePx: [beamW, beamH],
+          color: isCurrent ? [1, 0.95, 0.5, 0.9] : [1, 0.85, 0.3, 0.6],
+          frame: frameIndex('beacon_beam'),
         });
-        lampFlameSprites.push(flameSprite);
+        beaconBeamSprites.push(beamSprite);
       }
+
+      // Base Coastal Lighthouse Tower Sprite
+      const houseFrame = isSessionLit || isCurrent ? frameIndex('lighthouse_lit') : frameIndex('lighthouse_unlit');
+      const lhSprite = addSprite2D(spriteLayer, {
+        positionPx: [lx, pathY - lh / 2 + 6],
+        sizePx: [lw, lh],
+        color: [1, 1, 1, 1],
+        frame: houseFrame,
+      });
+      lighthouseSprites.push(lhSprite);
     }
 
     // Slots: calculate per-word width based on natural text length

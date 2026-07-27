@@ -14,6 +14,9 @@ describe('createGameSpriteFrames', () => {
     expect(names).toContain('w');
     expect(names).toContain('lamp_unlit');
     expect(names).toContain('lamp_lit');
+    expect(names).toContain('lighthouse_unlit');
+    expect(names).toContain('lighthouse_lit');
+    expect(names).toContain('beacon_beam');
     expect(names).toContain('flame');
     expect(names).toContain('glow_halo');
     expect(names).toContain('star');
