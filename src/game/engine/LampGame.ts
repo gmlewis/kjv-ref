@@ -1193,8 +1193,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   function frameLoop() {
     if (disposed) return;
 
-    if (Math.abs(targetCameraScrollX - cameraScrollX) > 0.05) {
-      cameraScrollX += (targetCameraScrollX - cameraScrollX) * 0.1;
+    // Smooth camera pan between verses (~0.5s transition)
+    // Lerp factor 0.025 at 60fps gives ~120 frames = ~0.5s for most of the motion
+    if (Math.abs(targetCameraScrollX - cameraScrollX) > 0.5) {
+      cameraScrollX += (targetCameraScrollX - cameraScrollX) * 0.025;
       updateParallaxPositions();
       (window as any).__lampGameCameraScrollX = cameraScrollX;
     }
