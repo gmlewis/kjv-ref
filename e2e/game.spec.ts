@@ -129,9 +129,11 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     await card.click();
     await page.waitForURL('**/practice/game');
 
-    // Wait for game engine canvas to render
+    // Wait for game engine canvas to render and puzzle to be ready
     const canvas = page.locator('canvas');
     await expect(canvas).toBeVisible();
+    await expect(page.locator('text=/Verse Stage/')).toBeVisible({ timeout: 30000 });
+    await page.waitForTimeout(500);
 
     // Verify canvas size matches mobile viewport bounds without horizontal scroll
     const box = await canvas.boundingBox();
@@ -146,6 +148,8 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
 
     const exitBox = await exitBtn.boundingBox();
     expect(exitBox!.x + exitBox!.width).toBeLessThanOrEqual(412);
+
+    await page.screenshot({ path: '/Users/glenn/.gemini/antigravity-cli/brain/a559c2dc-ae76-4a1e-83d3-eb6ca3eb9d95/mobile_preview.png' });
   });
 
   test('D-7: Bank tiles display full words across progression stages (regression check)', async ({ page }) => {

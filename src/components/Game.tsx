@@ -392,31 +392,31 @@ export default function Game() {
       <canvas ref={canvasRef} className="w-full h-screen block touch-none" />
 
       {/* Top Left: Sub-mode Selector chips */}
-      <div className="absolute top-2 sm:top-3 left-2.5 sm:left-4 z-10 flex items-center gap-1 sm:gap-2">
+      <div className="absolute top-2 left-2 sm:left-4 z-10 flex items-center gap-1">
         <button
           type="button"
           onClick={startJourney}
           title="Journey Mode — Walk the path and light lamps at your own pace"
-          className={`glassmorphism rounded-full px-2.5 sm:px-3 py-1 text-xs font-bold transition-all flex items-center gap-1 ${
+          className={`glassmorphism rounded-full p-1.5 sm:px-3 sm:py-1 text-xs font-bold transition-all flex items-center gap-1 ${
             subMode === 'journey' ? 'bg-amber-500 text-white shadow-lg' : 'text-gray-700 dark:text-gray-200 hover:bg-white/20'
           }`}
         >
           <Compass className="w-3.5 h-3.5" />
-          <span className="hidden xs:inline">Journey</span>
+          <span className="hidden sm:inline">Journey</span>
         </button>
 
         <button
           type="button"
           onClick={startRace}
           title="Lantern Race — 60-second timed sprint recall"
-          className={`glassmorphism rounded-full px-2.5 sm:px-3 py-1 text-xs font-bold transition-all flex items-center gap-1 ${
+          className={`glassmorphism rounded-full p-1.5 sm:px-3 sm:py-1 text-xs font-bold transition-all flex items-center gap-1 ${
             subMode === 'race' ? 'bg-orange-500 text-white shadow-lg' : 'text-gray-700 dark:text-gray-200 hover:bg-white/20'
           }`}
         >
           <Zap className="w-3.5 h-3.5 text-yellow-300" />
-          <span>Race</span>
+          <span className="hidden sm:inline">Race</span>
           {subMode === 'race' && raceActive && (
-            <span className="ml-1 text-[10px] font-extrabold bg-black/30 rounded-full px-1.5 py-0.2">
+            <span className="text-[10px] font-extrabold bg-black/30 rounded-full px-1 py-0.2">
               {raceSecondsLeft}s
             </span>
           )}
@@ -426,30 +426,30 @@ export default function Game() {
           type="button"
           onClick={() => setShowRoadModal(true)}
           title="Build a Road — Create a custom branch road for any passage"
-          className={`glassmorphism rounded-full px-2.5 sm:px-3 py-1 text-xs font-bold transition-all flex items-center gap-1 ${
+          className={`glassmorphism rounded-full p-1.5 sm:px-3 sm:py-1 text-xs font-bold transition-all flex items-center gap-1 ${
             subMode === 'road' ? 'bg-indigo-500 text-white shadow-lg' : 'text-gray-700 dark:text-gray-200 hover:bg-white/20'
           }`}
         >
           <Plus className="w-3.5 h-3.5" />
-          <span>Road</span>
+          <span className="hidden sm:inline">Road</span>
         </button>
       </div>
 
       {/* Top Right: Controls HUD */}
-      <div className="absolute top-2 sm:top-3 right-2.5 sm:right-4 z-10 flex items-center gap-1.5 sm:gap-3">
+      <div className="absolute top-2 right-2 sm:right-4 z-10 flex items-center gap-1">
         <button
           type="button"
           onClick={() => setShowPeek((prev) => !prev)}
           aria-label={showPeek ? 'Hide verse text' : 'Peek verse text'}
           title={showPeek ? 'Hide full verse text' : 'Peek full verse text'}
-          className="glassmorphism rounded-full px-2.5 sm:px-3.5 py-1 sm:py-1.5 shadow-lg hover:bg-white/20 transition-colors flex items-center gap-1 sm:gap-2"
+          className="glassmorphism rounded-full p-1.5 sm:px-3 sm:py-1 shadow-lg hover:bg-white/20 transition-colors flex items-center gap-1"
         >
           {showPeek ? (
-            <EyeOff className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-400" />
+            <EyeOff className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-400" />
           ) : (
-            <Eye className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-400" />
+            <Eye className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-400" />
           )}
-          <span className="text-[11px] sm:text-xs font-semibold text-gray-700 dark:text-gray-200">
+          <span className="hidden sm:inline text-xs font-semibold text-gray-700 dark:text-gray-200">
             {showPeek ? 'Hide' : 'Peek'}
           </span>
         </button>
@@ -458,12 +458,12 @@ export default function Game() {
           onClick={toggleSound}
           aria-label={soundEnabled ? 'Mute sound' : 'Unmute sound'}
           title={soundEnabled ? 'Sound is on — click to mute' : 'Sound is muted — click to enable'}
-          className="glassmorphism rounded-full p-1.5 sm:p-2 shadow-lg hover:bg-white/20 transition-colors"
+          className="glassmorphism rounded-full p-1.5 shadow-lg hover:bg-white/20 transition-colors"
         >
           {soundEnabled ? (
-            <Volume2 className="w-5 h-5 sm:w-6 sm:h-6 text-amber-500 dark:text-amber-400" />
+            <Volume2 className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-amber-500 dark:text-amber-400" />
           ) : (
-            <VolumeX className="w-5 h-5 sm:w-6 sm:h-6 text-gray-500 dark:text-gray-400" />
+            <VolumeX className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-gray-500 dark:text-gray-400" />
           )}
         </button>
         <button
@@ -471,9 +471,9 @@ export default function Game() {
           onClick={handleExit}
           aria-label="Exit"
           title="Exit game"
-          className="glassmorphism rounded-full p-1.5 sm:p-2 shadow-lg hover:bg-white/20 transition-colors"
+          className="glassmorphism rounded-full p-1.5 shadow-lg hover:bg-white/20 transition-colors"
         >
-          <X className="w-5 h-5 sm:w-6 sm:h-6 text-gray-700 dark:text-gray-200" />
+          <X className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-gray-700 dark:text-gray-200" />
         </button>
       </div>
 
@@ -490,12 +490,12 @@ export default function Game() {
 
       {/* Stage instruction + stage-control chips */}
       {status === 'ready' && !summary && !showPeek && activePrompt && (
-        <div className="absolute top-[44px] sm:top-[50px] left-1/2 -translate-x-1/2 z-10 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 max-w-[96vw] px-1.5">
-          <span className="text-[11px] sm:text-sm font-semibold text-amber-600 dark:text-amber-400 text-center">
+        <div className="absolute top-[42px] sm:top-[50px] left-1/2 -translate-x-1/2 z-10 flex flex-col items-center justify-center gap-0.5 max-w-[96vw] px-1">
+          <span className="text-[11px] sm:text-xs font-bold text-amber-500 dark:text-amber-400 text-center drop-shadow-sm">
             {activePrompt}
           </span>
-          <div className="flex flex-wrap items-center justify-center gap-1 sm:gap-1.5 glassmorphism rounded-full px-2 sm:px-3 py-0.5 sm:py-1 shadow-lg">
-            <span className="text-[9px] sm:text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mr-0.5">
+          <div className="flex flex-wrap items-center justify-center gap-1 sm:gap-1.5 glassmorphism rounded-full px-2 py-0.5 shadow-md border border-white/10">
+            <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-400 mr-0.5">
               Stage
             </span>
             {([0, 1, 2, 3, 4, 5] as ScaffoldLayer[]).map((s) => {
@@ -505,10 +505,10 @@ export default function Game() {
                   key={s}
                   type="button"
                   onClick={() => handleStageChange(s)}
-                  title={`Stage ${s}${s === 0 ? ' — read along' : s === 1 ? ' — order, no decoys' : ` — order + ${[0, 0, 2, 4, 6, 8][s]} decoys`}`}
-                  className={`min-w-[1.25rem] sm:min-w-[1.5rem] rounded-full px-1.5 sm:px-2 py-0.5 text-[10px] sm:text-xs font-bold transition-colors ${
+                  title={`Stage ${s}`}
+                  className={`min-w-[1.15rem] sm:min-w-[1.35rem] rounded-full px-1 py-0.2 text-[10px] sm:text-xs font-extrabold transition-colors ${
                     isActive
-                      ? 'bg-amber-500 text-white shadow'
+                      ? 'bg-amber-500 text-white shadow-sm'
                       : 'text-gray-600 dark:text-gray-300 hover:bg-white/20'
                   }`}
                 >
@@ -520,9 +520,9 @@ export default function Game() {
               type="button"
               onClick={() => handleStageChange(null)}
               title="Auto — let the stage advance with recitation count"
-              className={`rounded-full px-1.5 sm:px-2.5 py-0.5 text-[10px] sm:text-xs font-bold transition-colors ${
+              className={`rounded-full px-1.5 py-0.2 text-[10px] sm:text-xs font-extrabold transition-colors ${
                 stageOverride === null
-                  ? 'bg-indigo-500 text-white shadow'
+                  ? 'bg-indigo-500 text-white shadow-sm'
                   : 'text-gray-600 dark:text-gray-300 hover:bg-white/20'
               }`}
             >

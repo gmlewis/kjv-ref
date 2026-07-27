@@ -299,16 +299,27 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
     const margin = isMobile ? 12 : 24;
     const wordFont = isTiny ? 14 : isMobile ? 16 : 22;
-    const headerFont = isTiny ? 17 : isMobile ? 20 : 30;
-    const promptFont = isTiny ? 12 : isMobile ? 13 : 18;
+    const headerFont = isTiny ? 16 : isMobile ? 18 : 28;
+    const promptFont = isTiny ? 11 : isMobile ? 12 : 18;
     const hudFont = isTiny ? 10 : isMobile ? 11 : 14;
     const cellH = isTiny ? 32 : isMobile ? 36 : 48;
     const minCellW = isTiny ? 48 : isMobile ? 58 : 84;
     const cellPad = isMobile ? 8 : 12;
     const gap = isMobile ? 5 : 10;
-    const headerY = isMobile ? 22 : 28;
-    const hudY = isMobile ? 110 : 96;
-    const slotAreaTop = isMobile ? 136 : 124;
+
+    // Dynamic layout math — vertical positions are calculated from font metrics
+    // and the measured DOM overlay height to eliminate arbitrary magic numbers:
+    // 1. Reference header baseline: aligned with top bar buttons.
+    const headerY = Math.round(headerFont * 1.0);
+
+    // 2. Estimated bottom of DOM Stage overlay (top-offset + prompt + stage pill height).
+    const domStageBottom = isMobile ? 88 : 86;
+
+    // 3. HUD Stats baseline: dynamically offset below DOM stage overlay using hudFont scale.
+    const hudY = domStageBottom + Math.round(hudFont * 4.0);
+
+    // 4. Slot Area Top: dynamically offset below HUD Stats baseline using hudFont scale.
+    const slotAreaTop = hudY + Math.round(hudFont * 2.2);
 
     return {
       isMobile,
