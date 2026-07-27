@@ -262,6 +262,9 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let moonSprite: Sprite2DHandle | null = null;
   let mountainSprite: Sprite2DHandle | null = null;
   let hillsSprite: Sprite2DHandle | null = null;
+  let forestHillsSprite: Sprite2DHandle | null = null;
+  let oceanWaterSprite: Sprite2DHandle | null = null;
+  let waterfallSprite: Sprite2DHandle | null = null;
   let citySprite: Sprite2DHandle | null = null;
   let pathSprite: Sprite2DHandle | null = null;
   let skyStarSprites: Sprite2DHandle[] = [];
@@ -553,6 +556,18 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       removeSprite2D(hillsSprite);
       hillsSprite = null;
     }
+    if (forestHillsSprite) {
+      removeSprite2D(forestHillsSprite);
+      forestHillsSprite = null;
+    }
+    if (oceanWaterSprite) {
+      removeSprite2D(oceanWaterSprite);
+      oceanWaterSprite = null;
+    }
+    if (waterfallSprite) {
+      removeSprite2D(waterfallSprite);
+      waterfallSprite = null;
+    }
     if (citySprite) {
       removeSprite2D(citySprite);
       citySprite = null;
@@ -691,20 +706,37 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       });
     }
 
-    // Midland Green Rolling Hills
-    if (!hillsSprite) {
-      hillsSprite = addSprite2D(spriteLayer, {
+    // Lush Emerald Forest Hillsides
+    if (!forestHillsSprite) {
+      forestHillsSprite = addSprite2D(spriteLayer, {
         positionPx: [W / 2, pathY - 32],
         sizePx: [W, 64],
-        color: isDark ? [1, 1, 1, 0.85] : [1, 1, 1, 0.75],
-        frame: frameIndex('hills'),
+        color: isDark ? [1, 1, 1, 0.95] : [1, 1, 1, 0.85],
+        frame: frameIndex('forest_hills'),
       });
     } else {
-      updateSprite2D(hillsSprite, {
+      updateSprite2D(forestHillsSprite, {
         positionPx: [W / 2, pathY - 32],
         sizePx: [W, 64],
-        color: isDark ? [1, 1, 1, 0.85] : [1, 1, 1, 0.75],
-        frame: frameIndex('hills'),
+        color: isDark ? [1, 1, 1, 0.95] : [1, 1, 1, 0.85],
+        frame: frameIndex('forest_hills'),
+      });
+    }
+
+    // Cascading Waterfall Stream on the Hillside
+    if (!waterfallSprite) {
+      waterfallSprite = addSprite2D(spriteLayer, {
+        positionPx: [W * 0.22, pathY - 22],
+        sizePx: [16, 44],
+        color: [1, 1, 1, 0.95],
+        frame: frameIndex('waterfall'),
+      });
+    } else {
+      updateSprite2D(waterfallSprite, {
+        positionPx: [W * 0.22, pathY - 22],
+        sizePx: [16, 44],
+        color: [1, 1, 1, 0.95],
+        frame: frameIndex('waterfall'),
       });
     }
 
@@ -722,6 +754,23 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
         sizePx: [160, 64],
         color: isDark ? [1, 1, 1, 0.95] : [0.9, 0.9, 1, 0.75],
         frame: frameIndex('city'),
+      });
+    }
+
+    // Shimmering Blue Coastal Ocean Water Body
+    if (!oceanWaterSprite) {
+      oceanWaterSprite = addSprite2D(spriteLayer, {
+        positionPx: [W / 2, pathY + 16],
+        sizePx: [W, 36],
+        color: [1, 1, 1, 0.95],
+        frame: frameIndex('ocean_water'),
+      });
+    } else {
+      updateSprite2D(oceanWaterSprite, {
+        positionPx: [W / 2, pathY + 16],
+        sizePx: [W, 36],
+        color: [1, 1, 1, 0.95],
+        frame: frameIndex('ocean_water'),
       });
     }
 
@@ -813,7 +862,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
     // Slots: calculate per-word width based on natural text length
     const slotWidths = puzzle.slots.map((s) => {
-      const data = createDefaultTextData(font, wordFont, s.word, textColor(palette.text));
+      const data = createDefaultTextData(font, wordFont, s.word, textColor('#0f172a', 1));
       const w = Math.min(areaW, Math.max(minCellW, data.width + 2 * cellPad));
       disposeDefaultTextData(data);
       return w;
@@ -846,11 +895,11 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
         borders: [],
       };
       if (s.preFilled) {
-        const data = createDefaultTextData(font, wordFont, s.word, textColor(palette.text, 0.6));
+        const data = createDefaultTextData(font, wordFont, s.word, textColor('#0f172a', 0.85));
         view.textData = data;
         view.textLayer = createTextLayer(data, {});
         placeText(view.textLayer, data, pos.x, pos.y, w, cellH, wordFont);
-        view.textLayer.opacity = 0.6;
+        view.textLayer.opacity = 0.85;
         addTextRendererLayer(textRenderer, view.textLayer);
       } else {
         // Outline the blank slot so the drop target is obvious.
@@ -868,7 +917,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // Tiles (bank) — only for tile stages (stage 0 read-along has no bank).
     if (!isStudy) {
       const tileWidths = puzzle.bank.map((t) => {
-        const data = createDefaultTextData(font, wordFont, t.display, textColor(palette.text));
+        const data = createDefaultTextData(font, wordFont, t.display, textColor('#0f172a', 1));
         const w = Math.min(areaW, Math.max(minCellW, data.width + 2 * cellPad));
         disposeDefaultTextData(data);
         return w;
@@ -898,7 +947,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       tiles = puzzle.bank.map((t, i) => {
         const pos = tilePos[i];
         const w = tileWidths[i];
-        const data = createDefaultTextData(font, wordFont, t.display, textColor(palette.text));
+        const data = createDefaultTextData(font, wordFont, t.display, textColor('#0f172a', 1));
         const textLayer = createTextLayer(data, {});
         const sprite = addSprite2D(spriteLayer, {
           positionPx: [pos.x + w / 2, pos.y + cellH / 2],

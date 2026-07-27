@@ -87,15 +87,15 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
     pixels: new Uint8Array([255, 255, 255, 255]),
   });
 
-  // 1. 'sky_dark' — 64x128 vibrant twilight gradient (deep royal indigo to purple/amber horizon)
+  // 1. 'sky_dark' — 64x128 serene royal midnight indigo & deep violet gradient (zero red/foreboding)
   {
     const { spec, buf } = createBlankFrame('sky_dark', 64, 128);
     for (let y = 0; y < 128; y++) {
       const t = y / 128;
-      // Top: deep indigo #090d16 (9, 13, 22) -> Mid: twilight violet #3b0764 (59, 7, 100) -> Horizon amber #b45309 (180, 83, 9)
-      let r = 9 + t * 171;
-      let g = 13 + t * 70;
-      let b = 22 + (t < 0.6 ? t * 130 : (1 - t) * 150);
+      // Top: deep midnight navy #020617 (2, 6, 23) -> Mid: royal indigo #1e1b4b (30, 27, 75) -> Horizon violet #3730a3 (55, 48, 163)
+      const r = 2 + t * 53;
+      const g = 6 + t * 42;
+      const b = 23 + t * 140;
       for (let x = 0; x < 64; x++) {
         setPixel(buf, 64, x, y, r, g, b, 255);
       }
@@ -103,15 +103,15 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
     frames.push(spec);
   }
 
-  // 2. 'sky_light' — 64x128 majestic dawn gradient (sky blue to warm peach dawn horizon)
+  // 2. 'sky_light' — 64x128 clear radiant morning sky gradient
   {
     const { spec, buf } = createBlankFrame('sky_light', 64, 128);
     for (let y = 0; y < 128; y++) {
       const t = y / 128;
-      // Top: ocean sky blue #0284c7 (2, 132, 199) -> Bottom: glowing golden rose #f43f5e (244, 63, 94)
-      const r = 2 + t * 242;
-      const g = 132 - t * 69;
-      const b = 199 - t * 105;
+      // Top: ocean sky blue #0284c7 (2, 132, 199) -> Bottom: warm morning sky #e0f2fe (224, 242, 254)
+      const r = 2 + t * 222;
+      const g = 132 + t * 110;
+      const b = 199 + t * 55;
       for (let x = 0; x < 64; x++) {
         setPixel(buf, 64, x, y, r, g, b, 255);
       }
@@ -135,7 +135,66 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
     frames.push(spec);
   }
 
-  // 4. 'lighthouse_unlit' — 48x96 majestic coastal lighthouse tower
+  // 4. 'ocean_water' — 128x32 shimmering blue & cyan coastal water surface
+  {
+    const { spec, buf } = createBlankFrame('ocean_water', 128, 32);
+    for (let y = 0; y < 32; y++) {
+      const t = y / 32;
+      const r = 2 + t * 10;
+      const g = 132 - t * 40;
+      const b = 199 - t * 20;
+      for (let x = 0; x < 128; x++) {
+        setPixel(buf, 128, x, y, r, g, b, 240);
+      }
+    }
+    // Water ripples & sea foam lines
+    for (let x = 0; x < 128; x += 16) {
+      drawRect(buf, 128, 32, x, 4, 8, 2, 224, 242, 254, 200);
+      drawRect(buf, 128, 32, x + 6, 12, 10, 2, 186, 230, 253, 180);
+      drawRect(buf, 128, 32, x + 2, 20, 6, 2, 224, 242, 254, 160);
+    }
+    frames.push(spec);
+  }
+
+  // 5. 'forest_hills' — 128x64 lush emerald green rolling hills with pine trees
+  {
+    const { spec, buf } = createBlankFrame('forest_hills', 128, 64);
+    for (let x = 0; x < 128; x++) {
+      const hillH = 32 + 14 * Math.sin((x / 128) * Math.PI * 2.2);
+      const topY = 64 - Math.floor(hillH);
+      for (let y = topY; y < 64; y++) {
+        const factor = (y - topY) / (64 - topY || 1);
+        const r = Math.floor(5 + factor * 20);
+        const g = Math.floor(150 + factor * 40);
+        const b = Math.floor(105 + factor * 30);
+        setPixel(buf, 128, x, y, r, g, b, 250);
+      }
+      // Pine tree silhouettes along ridge
+      if (x % 14 === 0 && topY > 8) {
+        const tx = x;
+        const ty = topY;
+        for (let i = 0; i < 10; i++) {
+          const tw = Math.max(1, 5 - Math.floor(i / 2));
+          drawRect(buf, 128, 64, tx - Math.floor(tw / 2), ty - i, tw, 1, 4, 120, 87, 255);
+        }
+      }
+    }
+    frames.push(spec);
+  }
+
+  // 6. 'waterfall' — 16x48 cascading white/cyan foam waterfall stream
+  {
+    const { spec, buf } = createBlankFrame('waterfall', 16, 48);
+    for (let y = 0; y < 48; y++) {
+      const wave = Math.floor(2 * Math.sin(y / 4));
+      const wx = 8 + wave;
+      drawRect(buf, 16, 48, wx - 3, y, 6, 1, 240, 253, 244, 240); // bright foam core
+      drawRect(buf, 16, 48, wx - 5, y, 10, 1, 56, 189, 248, 160); // cyan spray
+    }
+    frames.push(spec);
+  }
+
+  // 7. 'lighthouse_unlit' — 48x96 coastal lighthouse tower
   {
     const { spec, buf } = createBlankFrame('lighthouse_unlit', 48, 96);
     // Stone foundation base
@@ -145,7 +204,7 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
     // Tapered tower body (white with crimson bands)
     for (let y = 24; y < 76; y++) {
       const progress = (y - 24) / 52;
-      const wAtY = Math.round(18 + progress * 8); // Taper: 18px wide top -> 26px wide base
+      const wAtY = Math.round(18 + progress * 8);
       const startX = Math.round(24 - wAtY / 2);
 
       const isCrimsonBand = (y >= 32 && y <= 44) || (y >= 56 && y <= 66);
@@ -154,7 +213,6 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
       const cb = isCrimsonBand ? 28 : 249;
 
       for (let x = startX; x < startX + wAtY; x++) {
-        // Shading: lighter on left, darker on right
         const sideFactor = (x - startX) / wAtY;
         const shade = 1 - sideFactor * 0.25;
         setPixel(buf, 48, x, y, cr * shade, cg * shade, cb * shade, 255);
@@ -170,15 +228,15 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
     }
 
     // Lantern room glass & cupola dome roof
-    drawRect(buf, 48, 96, 15, 8, 18, 10, 100, 116, 139); // glass frame
-    drawRect(buf, 48, 96, 17, 9, 14, 8, 148, 163, 184, 180); // glass pane
-    drawCircle(buf, 48, 96, 24, 8, 8, 185, 28, 28); // crimson dome top
-    setPixel(buf, 48, 24, 0, 245, 158, 11); // brass finial tip
+    drawRect(buf, 48, 96, 15, 8, 18, 10, 100, 116, 139);
+    drawRect(buf, 48, 96, 17, 9, 14, 8, 148, 163, 184, 180);
+    drawCircle(buf, 48, 96, 24, 8, 8, 185, 28, 28);
+    setPixel(buf, 48, 24, 0, 245, 158, 11);
     setPixel(buf, 48, 24, 1, 245, 158, 11);
     frames.push(spec);
   }
 
-  // 5. 'lighthouse_lit' — 48x96 lit coastal lighthouse tower with glowing lantern room
+  // 8. 'lighthouse_lit' — 48x96 lit coastal lighthouse tower with glowing lantern room
   {
     const { spec, buf } = createBlankFrame('lighthouse_lit', 48, 96);
     // Stone foundation base
@@ -208,23 +266,22 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
     drawRect(buf, 48, 96, 11, 18, 26, 4, 245, 158, 11);
 
     // Lantern room: BRILLIANT GOLDEN/WHITE GLOWING BEACON
-    drawRect(buf, 48, 96, 15, 8, 18, 10, 245, 158, 11); // golden frame
-    drawRect(buf, 48, 96, 16, 9, 16, 8, 254, 240, 138, 255); // glowing glass
-    drawCircle(buf, 48, 96, 24, 13, 5, 255, 255, 255, 255); // intense white beacon core
+    drawRect(buf, 48, 96, 15, 8, 18, 10, 245, 158, 11);
+    drawRect(buf, 48, 96, 16, 9, 16, 8, 254, 240, 138, 255);
+    drawCircle(buf, 48, 96, 24, 13, 5, 255, 255, 255, 255);
 
     // Crimson dome cupola
     drawCircle(buf, 48, 96, 24, 8, 8, 225, 29, 72);
-    setPixel(buf, 48, 24, 0, 254, 240, 138); // glowing tip
+    setPixel(buf, 48, 24, 0, 254, 240, 138);
     setPixel(buf, 48, 24, 1, 254, 240, 138);
     frames.push(spec);
   }
 
-  // 6. 'beacon_beam' — 128x64 radiant lighthouse light beam
+  // 9. 'beacon_beam' — 128x64 radiant lighthouse light beam
   {
     const { spec, buf } = createBlankFrame('beacon_beam', 128, 64);
     for (let y = 0; y < 64; y++) {
       for (let x = 0; x < 128; x++) {
-        // Diagonal light beam radiating outward from origin (0, 32)
         const angle = Math.atan2(y - 32, x);
         const dist = Math.hypot(x, y - 32);
         if (Math.abs(angle) < 0.35 && dist > 2) {
@@ -238,7 +295,7 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
     frames.push(spec);
   }
 
-  // 7. 'lamp_unlit' & 'lamp_lit' (retained for backward compatibility)
+  // 10. 'lamp_unlit' & 'lamp_lit' (backward compatibility)
   {
     const { spec, buf } = createBlankFrame('lamp_unlit', 32, 32);
     drawCircle(buf, 32, 32, 16, 16, 8, 100, 116, 139);
@@ -250,7 +307,7 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
     frames.push(spec);
   }
 
-  // 8. 'flame' — 16x16 teardrop flame
+  // 11. 'flame' — 16x16 teardrop flame
   {
     const { spec, buf } = createBlankFrame('flame', 16, 16);
     drawCircle(buf, 16, 16, 8, 10, 5, 234, 88, 12, 220);
@@ -260,7 +317,7 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
     frames.push(spec);
   }
 
-  // 9. 'glow_halo' — 96x96 large radiant golden beacon halo
+  // 12. 'glow_halo' — 96x96 large radiant golden beacon halo
   {
     const { spec, buf } = createBlankFrame('glow_halo', 96, 96);
     const cx = 48;
@@ -279,7 +336,7 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
     frames.push(spec);
   }
 
-  // 10. 'star' — 16x16 4-point star
+  // 13. 'star' — 16x16 4-point star
   {
     const { spec, buf } = createBlankFrame('star', 16, 16);
     const cx = 8;
@@ -294,7 +351,7 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
     frames.push(spec);
   }
 
-  // 11. 'mountain' — 128x64 layered mountain peaks
+  // 14. 'mountain' — 128x64 layered mountain peaks
   {
     const { spec, buf } = createBlankFrame('mountain', 128, 64);
     for (let x = 0; x < 128; x++) {
@@ -303,8 +360,8 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
       const peakY = 64 - Math.floor(Math.max(h1, h2));
       for (let y = peakY; y < 64; y++) {
         const factor = (y - peakY) / (64 - peakY || 1);
-        const r = Math.floor(67 + factor * 30);
-        const g = Math.floor(56 + factor * 35);
+        const r = Math.floor(45 + factor * 30);
+        const g = Math.floor(55 + factor * 35);
         const b = Math.floor(120 + factor * 40);
         setPixel(buf, 128, x, y, r, g, b, 245);
       }
@@ -312,7 +369,7 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
     frames.push(spec);
   }
 
-  // 12. 'hills' — 128x64 coastal green rolling hills
+  // 15. 'hills' — 128x64 coastal green rolling hills (alias for forest_hills)
   {
     const { spec, buf } = createBlankFrame('hills', 128, 64);
     for (let x = 0; x < 128; x++) {
@@ -320,16 +377,16 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
       const topY = 64 - Math.floor(hillH);
       for (let y = topY; y < 64; y++) {
         const factor = (y - topY) / (64 - topY || 1);
-        const r = Math.floor(16 + factor * 30);
-        const g = Math.floor(120 + factor * 50);
-        const b = Math.floor(80 + factor * 40);
+        const r = Math.floor(5 + factor * 25);
+        const g = Math.floor(150 + factor * 45);
+        const b = Math.floor(100 + factor * 35);
         setPixel(buf, 128, x, y, r, g, b, 250);
       }
     }
     frames.push(spec);
   }
 
-  // 13. 'city' — 128x64 illuminated City on a Hill citadel skyline
+  // 16. 'city' — 128x64 illuminated City on a Hill citadel skyline
   {
     const { spec, buf } = createBlankFrame('city', 128, 64);
     for (let x = 0; x < 128; x++) {
@@ -371,7 +428,7 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
     frames.push(spec);
   }
 
-  // 14. 'path_stone' — 64x32 rich cobblestone path texture
+  // 17. 'path_stone' — 64x32 rich cobblestone path texture
   {
     const { spec, buf } = createBlankFrame('path_stone', 64, 32);
     drawRect(buf, 64, 32, 0, 0, 64, 32, 120, 113, 108, 255);
@@ -386,7 +443,7 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
     frames.push(spec);
   }
 
-  // 15. 'tile_bg' — 64x32 warm golden parchment word card
+  // 18. 'tile_bg' — 64x32 warm golden parchment word card
   {
     const { spec, buf } = createBlankFrame('tile_bg', 64, 32);
     for (let y = 0; y < 32; y++) {
@@ -401,7 +458,7 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
     frames.push(spec);
   }
 
-  // 16. 'slot_bg' — 64x32 word slot drop target card
+  // 19. 'slot_bg' — 64x32 word slot drop target card
   {
     const { spec, buf } = createBlankFrame('slot_bg', 64, 32);
     for (let y = 0; y < 32; y++) {

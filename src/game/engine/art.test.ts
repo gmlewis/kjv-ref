@@ -23,6 +23,9 @@ describe('createGameSpriteFrames', () => {
     expect(names).toContain('moon');
     expect(names).toContain('mountain');
     expect(names).toContain('hills');
+    expect(names).toContain('forest_hills');
+    expect(names).toContain('ocean_water');
+    expect(names).toContain('waterfall');
     expect(names).toContain('city');
     expect(names).toContain('path_stone');
     expect(names).toContain('tile_bg');
