@@ -307,7 +307,8 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     const cellPad = isMobile ? 8 : 12;
     const gap = isMobile ? 5 : 10;
     const headerY = isMobile ? 22 : 28;
-    const slotAreaTop = isMobile ? 118 : 124;
+    const hudY = isMobile ? 110 : 96;
+    const slotAreaTop = isMobile ? 136 : 124;
 
     return {
       isMobile,
@@ -322,6 +323,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       cellPad,
       gap,
       headerY,
+      hudY,
       slotAreaTop,
     };
   }
@@ -485,15 +487,16 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // stage-control chips), NOT on the canvas, so the chips can sit beside it.
     const isStudy = puzzle.bank.length === 0;
     const promptText = isStudy
-      ? 'Stage 0 — Read verse, tap to continue'
+      ? 'Verse Stage 0 — Read the verse, then tap to continue'
       : puzzle.decoyCount > 0
-        ? `Stage ${puzzle.layer} — Tap words in order (${puzzle.decoyCount} decoys)`
-        : `Stage ${puzzle.layer} — Tap words in order`;
+        ? `Verse Stage ${puzzle.layer} — Tap the words in order (${puzzle.decoyCount} wrong words mixed in)`
+        : `Verse Stage ${puzzle.layer} — Tap the words in order`;
     opts.callbacks.onVerseChange?.(v, stage, promptText);
 
     const [W, H] = canvasSize();
     const {
       isMobile,
+      isTiny,
       margin,
       wordFont,
       headerFont,
@@ -504,6 +507,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       cellPad,
       gap,
       headerY,
+      hudY,
       slotAreaTop,
     } = getResponsiveMetrics(W, H);
 
@@ -538,13 +542,11 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // the stage-control chips (see onVerseChange), so it is NOT drawn on the canvas.
     // (`isStudy` is declared above near the prompt text and gates the tile path.)
 
-    // HUD summary (Level, XP, Combo). Stage is shown in the host's chip row, so it
-    // is omitted here to avoid duplication. Nudged below the DOM prompt+chips row.
-    const hudText = isMobile
+    // HUD summary (Level, XP, Combo).
+    const hudText = isTiny
       ? `Lvl ${gameState.level} • ${gameState.xp} XP • Combos: x${combo}`
-      : `Game Stats: Level ${gameState.level}  •  ${gameState.xp} XP  •  Session Combos: x${combo}`;
+      : `Game Stats: Level ${gameState.level} • ${gameState.xp} XP • Session Combos: x${combo}`;
     hudData = createDefaultTextData(font, hudFont, hudText, textColor(palette.text, 0.8), { align: 'center' });
-    const hudY = isMobile ? 96 : 94;
     hudLayer = createTextLayer(hudData, {
       positionPx: { x: (W - hudData.width) / 2, y: hudY + hudFont * 0.65 },
     });
