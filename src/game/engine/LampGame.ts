@@ -65,6 +65,7 @@ import { playTileSnapSound, playTileErrorSound, playLampLitSound } from './audio
 import type { PerformanceRating } from '../scoring';
 import { paletteFor } from './theme';
 import type { GameTheme } from './theme';
+import { createGameSpriteFrames } from './art';
 
 /** Result of one lamp resolve, reported to the host so it can write progress. */
 export interface LampResolveResult {
@@ -200,13 +201,13 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let palette = paletteFor(theme);
   let disposed = false;
 
-  // A 1x1 white atlas; every tile/slot sprite tints it via its `color`.
-  const atlas = createSpriteAtlasFromFrames(
-    engine,
-    [{ pixels: new Uint8Array([255, 255, 255, 255]), width: 1, height: 1, name: 'w' }],
-    { srgb: true },
-  );
-  const spriteLayer: Sprite2DLayer = createSprite2DLayer(atlas, { capacity: 256, depth: 'none' });
+  // Vector art atlas generated from art.ts frames.
+  const spriteFrames = createGameSpriteFrames();
+  const frameMap = new Map<string, number>(spriteFrames.map((f, i) => [f.name, i]));
+  const frameIndex = (name: string): number => frameMap.get(name) ?? 0;
+
+  const atlas = createSpriteAtlasFromFrames(engine, spriteFrames, { srgb: true });
+  const spriteLayer: Sprite2DLayer = createSprite2DLayer(atlas, { capacity: 512, depth: 'none' });
   const spriteRenderer: SpriteRenderer = createSpriteRenderer(engine, {
     layers: [spriteLayer],
     clear: true,
@@ -258,7 +259,12 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let bankTopY = 500;
   let bgSprite: Sprite2DHandle | null = null;
   let pathSprite: Sprite2DHandle | null = null;
+  let mountainSprite: Sprite2DHandle | null = null;
+  let citySprite: Sprite2DHandle | null = null;
+  let skyStarSprites: Sprite2DHandle[] = [];
   let lampSprites: Sprite2DHandle[] = [];
+  let lampHaloSprites: Sprite2DHandle[] = [];
+  let lampFlameSprites: Sprite2DHandle[] = [];
   let gameState = loadGameState();
   const sessionLitRefs = new Set<string>();
   let combo = 0;
@@ -520,10 +526,22 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       removeSprite2D(feedbackBgSprite);
       feedbackBgSprite = null;
     }
-    for (const ls of lampSprites) {
-      removeSprite2D(ls);
+    for (const ls of lampSprites) removeSprite2D(ls);
+    for (const lhs of lampHaloSprites) removeSprite2D(lhs);
+    for (const lfs of lampFlameSprites) removeSprite2D(lfs);
+    for (const ss of skyStarSprites) removeSprite2D(ss);
+    if (mountainSprite) {
+      removeSprite2D(mountainSprite);
+      mountainSprite = null;
+    }
+    if (citySprite) {
+      removeSprite2D(citySprite);
+      citySprite = null;
     }
     lampSprites = [];
+    lampHaloSprites = [];
+    lampFlameSprites = [];
+    skyStarSprites = [];
     slots = [];
     tiles = [];
     puzzle = null;
@@ -578,18 +596,94 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     const areaX = margin;
     const areaW = W - 2 * margin;
 
+    const isDark = theme === 'dark';
+
     if (!bgSprite) {
       bgSprite = addSprite2D(spriteLayer, {
         positionPx: [W / 2, H / 2],
         sizePx: [W, H],
         color: spriteColor(palette.background, 1),
-        frame: 0,
+        frame: frameIndex('w'),
       });
     } else {
       updateSprite2D(bgSprite, {
         positionPx: [W / 2, H / 2],
         sizePx: [W, H],
         color: spriteColor(palette.background, 1),
+        frame: frameIndex('w'),
+      });
+    }
+
+    // Celestial Starfield (Dark mode sky elements)
+    if (isDark && skyStarSprites.length === 0) {
+      const starPositions = [
+        [0.08, 0.06], [0.22, 0.12], [0.38, 0.05], [0.54, 0.14],
+        [0.68, 0.07], [0.82, 0.13], [0.92, 0.06], [0.15, 0.18],
+        [0.45, 0.19], [0.76, 0.22],
+      ];
+      for (const [rx, ry] of starPositions) {
+        skyStarSprites.push(
+          addSprite2D(spriteLayer, {
+            positionPx: [W * rx, H * ry],
+            sizePx: [12, 12],
+            color: [1, 1, 1, 0.75],
+            frame: frameIndex('star'),
+          }),
+        );
+      }
+    }
+
+    // Path track line across bottom
+    const pathY = isMobile ? H - 64 : H - 36;
+
+    // Distant Mountain Scenery
+    if (!mountainSprite) {
+      mountainSprite = addSprite2D(spriteLayer, {
+        positionPx: [W / 2, pathY - 32],
+        sizePx: [W, 64],
+        color: isDark ? [0.4, 0.5, 0.7, 0.6] : [0.7, 0.8, 0.9, 0.5],
+        frame: frameIndex('mountain'),
+      });
+    } else {
+      updateSprite2D(mountainSprite, {
+        positionPx: [W / 2, pathY - 32],
+        sizePx: [W, 64],
+        color: isDark ? [0.4, 0.5, 0.7, 0.6] : [0.7, 0.8, 0.9, 0.5],
+        frame: frameIndex('mountain'),
+      });
+    }
+
+    // City on a Hill Skyline
+    if (!citySprite) {
+      citySprite = addSprite2D(spriteLayer, {
+        positionPx: [W * 0.78, pathY - 44],
+        sizePx: [128, 48],
+        color: isDark ? [0.9, 0.8, 0.6, 0.85] : [0.5, 0.5, 0.6, 0.6],
+        frame: frameIndex('city'),
+      });
+    } else {
+      updateSprite2D(citySprite, {
+        positionPx: [W * 0.78, pathY - 44],
+        sizePx: [128, 48],
+        color: isDark ? [0.9, 0.8, 0.6, 0.85] : [0.5, 0.5, 0.6, 0.6],
+        frame: frameIndex('city'),
+      });
+    }
+
+    // Textured Cobblestone Path Bar
+    if (!pathSprite) {
+      pathSprite = addSprite2D(spriteLayer, {
+        positionPx: [W / 2, pathY],
+        sizePx: [W - 2 * margin, 14],
+        color: [1, 1, 1, 0.9],
+        frame: frameIndex('path_stone'),
+      });
+    } else {
+      updateSprite2D(pathSprite, {
+        positionPx: [W / 2, pathY],
+        sizePx: [W - 2 * margin, 14],
+        color: [1, 1, 1, 0.9],
+        frame: frameIndex('path_stone'),
       });
     }
 
@@ -602,10 +696,6 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     });
     addTextRendererLayer(textRenderer, headerLayer);
 
-    // The per-stage instruction is rendered by the host as a DOM row paired with
-    // the stage-control chips (see onVerseChange), so it is NOT drawn on the canvas.
-    // (`isStudy` is declared above near the prompt text and gates the tile path.)
-
     // HUD summary (Level, XP, Combo).
     const hudText = isTiny
       ? `Lvl ${gameState.level} • ${gameState.xp} XP • Combos: x${combo}`
@@ -616,27 +706,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     });
     addTextRendererLayer(textRenderer, hudLayer);
 
-    // Path track line across bottom (offset higher on mobile to clear Android system gesture bar)
-    const pathY = isMobile ? H - 64 : H - 36;
-    if (!pathSprite) {
-      pathSprite = addSprite2D(spriteLayer, {
-        positionPx: [W / 2, pathY],
-        sizePx: [W - 2 * margin, 4],
-        color: spriteColor(palette.tileBorder, 0.6),
-        frame: 0,
-      });
-    } else {
-      updateSprite2D(pathSprite, {
-        positionPx: [W / 2, pathY],
-        sizePx: [W - 2 * margin, 4],
-        color: spriteColor(palette.tileBorder, 0.6),
-      });
-    }
-
-    // Render lamp markers along the path. The path is a PER-SESSION journey:
-    // every lamp starts unlit and turns gold the moment the player resolves that
-    // verse this session. Lifetime mastery / due state is NOT painted here — it
-    // runs underneath for region unlocks + scheduling.
+    // Render SVG lamp markers along the path with glow halos
     const lampCount = queue.length;
     const lampStep = (W - 4 * margin) / Math.max(1, lampCount - 1);
     const activeIndex = Math.max(0, queueIndex - 1);
@@ -645,19 +715,41 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       const isCurrent = i === activeIndex;
       const isSessionLit = sessionLitRefs.has(qv.reference) || i < activeIndex;
 
-      let lampCol = spriteColor(palette.slotBorder, 0.6); // unlit slate
-      if (isSessionLit) lampCol = spriteColor('#fbbf24', 1); // lit this session — gold flame
-      if (isCurrent) lampCol = spriteColor(palette.accent, 1); // active highlight
-
       const lx = 2 * margin + i * lampStep;
-      const size = isCurrent ? 18 : 12;
+      const size = isCurrent ? 28 : 22;
+
+      if (isSessionLit || isCurrent) {
+        // Ambient Glow Halo behind lit/active lamp
+        const haloSize = isCurrent ? 64 : 48;
+        const haloSprite = addSprite2D(spriteLayer, {
+          positionPx: [lx, pathY - 4],
+          sizePx: [haloSize, haloSize],
+          color: isCurrent ? [1, 0.8, 0.2, 0.85] : [0.9, 0.7, 0.2, 0.55],
+          frame: frameIndex('glow_halo'),
+        });
+        lampHaloSprites.push(haloSprite);
+      }
+
+      // Base Lamp Sprite
+      const lampFrame = isSessionLit || isCurrent ? frameIndex('lamp_lit') : frameIndex('lamp_unlit');
       const lSprite = addSprite2D(spriteLayer, {
-        positionPx: [lx, pathY],
+        positionPx: [lx, pathY - 10],
         sizePx: [size, size],
-        color: lampCol,
-        frame: 0,
+        color: [1, 1, 1, 1],
+        frame: lampFrame,
       });
       lampSprites.push(lSprite);
+
+      if (isSessionLit || isCurrent) {
+        // Flame Core tip
+        const flameSprite = addSprite2D(spriteLayer, {
+          positionPx: [lx, pathY - 22],
+          sizePx: [12, 12],
+          color: [1, 1, 1, 1],
+          frame: frameIndex('flame'),
+        });
+        lampFlameSprites.push(flameSprite);
+      }
     }
 
     // Slots: calculate per-word width based on natural text length
@@ -753,7 +845,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
           positionPx: [pos.x + w / 2, pos.y + cellH / 2],
           sizePx: [w, cellH],
           color: spriteColor(palette.tile, 1),
-          frame: 0,
+          frame: frameIndex('tile_bg'),
         });
         const view: TileView = {
           id: t.id,
