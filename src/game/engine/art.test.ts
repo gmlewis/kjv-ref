@@ -19,6 +19,7 @@ describe('createGameSpriteFrames', () => {
     expect(names).toContain('beacon_beam');
     expect(names).toContain('flame');
     expect(names).toContain('glow_halo');
+    expect(names).toContain('fluency_ring');
     expect(names).toContain('star');
     expect(names).toContain('moon');
     expect(names).toContain('mountain');

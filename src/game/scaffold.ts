@@ -160,3 +160,32 @@ export function buildTilePuzzle(
     decoyCount: decoys.length,
   };
 }
+
+/**
+ * Build a combined multi-verse TilePuzzle for passage chaining (Task C-6).
+ * Combines words from consecutive verses (e.g. Psalm 23:1-2) into a single
+ * sequential passage puzzle with combined slots and word bank.
+ */
+export function buildMultiVersePuzzle(
+  verses: KJVVerse[],
+  stage: ScaffoldLayer,
+  seed?: number,
+  decoyPool?: string[],
+): TilePuzzle {
+  if (verses.length === 0) {
+    return { layer: stage, reference: '', slots: [], bank: [], decoyCount: 0 };
+  }
+  if (verses.length === 1) {
+    return buildTilePuzzle(verses[0], stage, seed, decoyPool);
+  }
+  const firstRef = verses[0].reference;
+  const lastVerseNum = verses[verses.length - 1].reference.split(':').pop() || '';
+  const combinedRef = `${firstRef}–${lastVerseNum}`;
+  const combinedText = verses.map((v) => v.text).join(' ');
+  const combinedVerse: KJVVerse = {
+    ...verses[0],
+    reference: combinedRef,
+    text: combinedText,
+  };
+  return buildTilePuzzle(combinedVerse, stage, seed, decoyPool);
+}

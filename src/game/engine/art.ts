@@ -336,6 +336,26 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
     frames.push(spec);
   }
 
+  // 12b. 'fluency_ring' — 64x64 glowing ring arc for Task C-5 fluency timer
+  {
+    const { spec, buf } = createBlankFrame('fluency_ring', 64, 64);
+    const cx = 32;
+    const cy = 32;
+    const outerR = 30;
+    const innerR = 24;
+    for (let y = 0; y < 64; y++) {
+      for (let x = 0; x < 64; x++) {
+        const dist = Math.hypot(x - cx, y - cy);
+        if (dist >= innerR && dist <= outerR) {
+          const ringFactor = 1 - Math.abs(dist - 27) / 3;
+          const alpha = Math.floor(ringFactor * 255);
+          setPixel(buf, 64, x, y, 245, 158, 11, alpha);
+        }
+      }
+    }
+    frames.push(spec);
+  }
+
   // 13. 'star' — 16x16 4-point star
   {
     const { spec, buf } = createBlankFrame('star', 16, 16);

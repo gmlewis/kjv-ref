@@ -207,6 +207,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   const frameIndex = (name: string): number => frameMap.get(name) ?? 0;
 
   const atlas = createSpriteAtlasFromFrames(engine, spriteFrames, { srgb: true });
+  (window as any).__lampGameSpriteAtlas = atlas;
   const spriteLayer: Sprite2DLayer = createSprite2DLayer(atlas, { capacity: 512, depth: 'none' });
   const spriteRenderer: SpriteRenderer = createSpriteRenderer(engine, {
     layers: [spriteLayer],
@@ -273,6 +274,11 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let lampHaloSprites: Sprite2DHandle[] = [];
   let lampFlameSprites: Sprite2DHandle[] = [];
   let beaconBeamSprites: Sprite2DHandle[] = [];
+  let fluencyRingSprite: Sprite2DHandle | null = null;
+  let particleSprites: Array<{ sprite: Sprite2DHandle; vx: number; vy: number; life: number }> = [];
+  let cameraScrollX = 0;
+  let targetCameraScrollX = 0;
+  let animFrameId: number | null = null;
   let gameState = loadGameState();
   const sessionLitRefs = new Set<string>();
   let combo = 0;
@@ -540,6 +546,12 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     for (const lfs of lampFlameSprites) removeSprite2D(lfs);
     for (const bbs of beaconBeamSprites) removeSprite2D(bbs);
     for (const ss of skyStarSprites) removeSprite2D(ss);
+    for (const p of particleSprites) removeSprite2D(p.sprite);
+    particleSprites = [];
+    if (fluencyRingSprite) {
+      removeSprite2D(fluencyRingSprite);
+      fluencyRingSprite = null;
+    }
     if (skyGradientSprite) {
       removeSprite2D(skyGradientSprite);
       skyGradientSprite = null;
@@ -849,6 +861,16 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
         beaconBeamSprites.push(beamSprite);
       }
 
+      if (isCurrent) {
+        // Task C-5: Fluency Ring Timer around active lighthouse lantern room
+        fluencyRingSprite = addSprite2D(spriteLayer, {
+          positionPx: [lx, lanternCenterY],
+          sizePx: [isMobile ? 64 : 84, isMobile ? 64 : 84],
+          color: [1, 0.85, 0.2, 0.95],
+          frame: frameIndex('fluency_ring'),
+        });
+      }
+
       // Base Coastal Lighthouse Tower Sprite
       const houseFrame = isSessionLit || isCurrent ? frameIndex('lighthouse_lit') : frameIndex('lighthouse_unlit');
       const lhSprite = addSprite2D(spriteLayer, {
@@ -995,6 +1017,120 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
         }
       }
     }
+
+    (window as any).__lampGamePuzzle = () => puzzle;
+    (window as any).__lampGameCameraScrollX = cameraScrollX;
+    (window as any).__lampGameFluencyRing = fluencyRingSprite;
+    (window as any).__lampGameParticles = particleSprites;
+  }
+
+  function updateParallaxPositions() {
+    if (disposed) return;
+    const [W, H] = canvasSize();
+    const { isMobile, margin } = getResponsiveMetrics(W, H);
+    const pathY = isMobile ? H - 84 : H - 64;
+
+    // Distant Mountain Ridge (Parallax Factor 0.2)
+    if (mountainSprite) {
+      updateSprite2D(mountainSprite, {
+        positionPx: [W / 2 - cameraScrollX * 0.2, pathY - 54],
+      });
+    }
+
+    // Illuminated City on a Hill Citadel Skyline (Parallax Factor 0.35)
+    if (citySprite) {
+      updateSprite2D(citySprite, {
+        positionPx: [W * 0.76 - cameraScrollX * 0.35, pathY - 60],
+      });
+    }
+
+    // Lush Emerald Forest Hillsides (Parallax Factor 0.5)
+    if (forestHillsSprite) {
+      updateSprite2D(forestHillsSprite, {
+        positionPx: [W / 2 - cameraScrollX * 0.5, pathY - 32],
+      });
+    }
+
+    // Cascading Waterfall Stream (Parallax Factor 0.5)
+    if (waterfallSprite) {
+      updateSprite2D(waterfallSprite, {
+        positionPx: [W * 0.22 - cameraScrollX * 0.5, pathY - 22],
+      });
+    }
+
+    // Ocean Water (Parallax Factor 0.8)
+    if (oceanWaterSprite) {
+      updateSprite2D(oceanWaterSprite, {
+        positionPx: [W / 2 - cameraScrollX * 0.8, pathY + 16],
+      });
+    }
+
+    // Cobblestone Path (Parallax Factor 1.0)
+    if (pathSprite) {
+      updateSprite2D(pathSprite, {
+        positionPx: [W / 2 - cameraScrollX * 1.0, pathY],
+      });
+    }
+
+    // Coastal Lighthouses & Beacons along the path (Parallax Factor 1.0)
+    const lampCount = queue.length;
+    if (lampCount > 0) {
+      const lampStep = (W - 4 * margin) / Math.max(1, lampCount - 1);
+      const activeIndex = Math.max(0, queueIndex - 1);
+
+      let haloIdx = 0;
+      let beamIdx = 0;
+
+      for (let i = 0; i < lampCount; i++) {
+        const isCurrent = i === activeIndex;
+        const qv = queue[i];
+        const isSessionLit = sessionLitRefs.has(qv.reference) || i < activeIndex;
+
+        const baseLx = 2 * margin + i * lampStep;
+        const currentLx = baseLx - cameraScrollX * 1.0;
+
+        const lw = isMobile ? (isCurrent ? 36 : 28) : (isCurrent ? 52 : 40);
+        const lh = isMobile ? (isCurrent ? 72 : 56) : (isCurrent ? 104 : 80);
+        const lanternCenterY = pathY - lh + (isMobile ? 12 : 18);
+
+        if ((isSessionLit || isCurrent) && haloIdx < lampHaloSprites.length) {
+          updateSprite2D(lampHaloSprites[haloIdx++], {
+            positionPx: [currentLx, lanternCenterY],
+          });
+        }
+
+        if ((isSessionLit || isCurrent) && beamIdx < beaconBeamSprites.length) {
+          const beamW = isCurrent ? (isMobile ? 96 : 140) : (isMobile ? 72 : 100);
+          updateSprite2D(beaconBeamSprites[beamIdx++], {
+            positionPx: [currentLx + beamW / 2 - 4, lanternCenterY - 4],
+          });
+        }
+
+        if (isCurrent && fluencyRingSprite) {
+          updateSprite2D(fluencyRingSprite, {
+            positionPx: [currentLx, lanternCenterY],
+          });
+        }
+
+        if (i < lighthouseSprites.length) {
+          updateSprite2D(lighthouseSprites[i], {
+            positionPx: [currentLx, pathY - lh / 2 + 6],
+          });
+        }
+      }
+    }
+  }
+
+  function frameLoop() {
+    if (disposed) return;
+
+    if (Math.abs(targetCameraScrollX - cameraScrollX) > 0.05) {
+      cameraScrollX += (targetCameraScrollX - cameraScrollX) * 0.1;
+      updateParallaxPositions();
+      (window as any).__lampGameCameraScrollX = cameraScrollX;
+    }
+
+    animFrameId = requestAnimationFrame(frameLoop);
   }
 
   // =========================================================================
@@ -1369,11 +1505,21 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
     const v = queue[queueIndex];
     queueIndex++;
+    // Task C-4: Parallax camera scroll offset tracking verse progression
+    targetCameraScrollX = Math.max(0, (queueIndex - 1) * (isMobile ? 80 : 120));
+
     // A new verse starts at its own auto stage; clear any override that was
     // applied to the previous verse via setStage.
     stageOverride = null;
     ignorePersistedOverride = false;
     buildPuzzle(v);
+
+    // Expose window debug handles for E2E proof assertions
+    (window as any).__lampGameSpriteAtlas = atlas;
+    (window as any).__lampGameCameraScrollX = cameraScrollX;
+    (window as any).__lampGameFluencyRing = fluencyRingSprite;
+    (window as any).__lampGameParticles = particleSprites;
+    (window as any).__lampGamePuzzle = () => puzzle;
   }
 
   // =========================================================================
@@ -1399,6 +1545,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   // Boot the render loop + first puzzle.
   // =========================================================================
   await startEngine(engine);
+  animFrameId = requestAnimationFrame(frameLoop);
   nextPuzzle();
 
   // =========================================================================
@@ -1425,6 +1572,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   function dispose() {
     if (disposed) return;
     disposed = true;
+    if (animFrameId) cancelAnimationFrame(animFrameId);
     resizeObserver.disconnect();
     canvas.removeEventListener('pointerdown', onPointerDown);
     canvas.removeEventListener('pointermove', onPointerMove);

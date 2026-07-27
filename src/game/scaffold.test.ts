@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { getGameLayer, buildTilePuzzle, decoyCountFor } from './scaffold';
+import { getGameLayer, buildTilePuzzle, decoyCountFor, buildMultiVersePuzzle } from './scaffold';
 import { KJV_VERSES } from '../data/kjv-verses';
+import type { KJVVerse } from '../data/kjv-verses';
 
 // A small decoy pool drawn from other verses' words, used for stages ≥ 2.
 const POOL = KJV_VERSES.flatMap((v) => v.text.split(' '));
@@ -102,5 +103,18 @@ describe('buildTilePuzzle', () => {
     const p = buildTilePuzzle(v, 4, 1, POOL);
     expect(p.reference).toBe('John 3:16');
     expect(p.layer).toBe(4);
+  });
+});
+
+describe('buildMultiVersePuzzle', () => {
+  const v1: KJVVerse = { reference: 'Psalm 23:1', book: 'Psalms', chapter: 23, verse: 1, text: 'The LORD is my shepherd; I shall not want.', keywords: ['shepherd'], difficulty: 'easy', theme: 'faith' };
+  const v2: KJVVerse = { reference: 'Psalm 23:2', book: 'Psalms', chapter: 23, verse: 2, text: 'He maketh me to lie down in green pastures: he leadeth me beside the still waters.', keywords: ['pastures'], difficulty: 'easy', theme: 'faith' };
+
+  it('combines consecutive verses into a single multi-verse passage puzzle', () => {
+    const p = buildMultiVersePuzzle([v1, v2], 1, 42, POOL);
+    expect(p.reference).toBe('Psalm 23:1–2');
+    const combinedLength = v1.text.split(' ').length + v2.text.split(' ').length;
+    expect(p.slots.length).toBe(combinedLength);
+    expect(p.bank.length).toBe(combinedLength);
   });
 });

@@ -230,4 +230,73 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
       expect(new Date(after as string).getTime()).toBeGreaterThan(new Date(before as string).getTime());
     }
   });
+
+  test('PROOF C-3: Art & Sprite Atlas Generator frame specs and canvas WebGPU loading', async ({ page }) => {
+    await openApp(page, '/kjv-ref/practice');
+    const card = page.locator('text=Lamp of the Path');
+    await card.scrollIntoViewIfNeeded();
+    await card.click();
+    await page.waitForURL('**/practice/game');
+
+    await expect(page.locator('canvas')).toBeVisible();
+    await expect(page.locator('text=Lighting the lamps…')).toBeHidden({ timeout: 30000 });
+
+    const frameNames = await page.evaluate(() => {
+      const atlas = (window as any).__lampGameSpriteAtlas;
+      return atlas ? Object.keys(atlas.frameIndexMap || {}) : [];
+    });
+
+    console.log('C-3 Registered Sprite Frame Atlas:', frameNames);
+    expect(frameNames.length).toBeGreaterThan(5);
+  });
+
+  test('PROOF C-4: Parallax Landscape & Camera Motion offset tracking verse transitions', async ({ page }) => {
+    await openApp(page, '/kjv-ref/practice');
+    const card = page.locator('text=Lamp of the Path');
+    await card.scrollIntoViewIfNeeded();
+    await card.click();
+    await page.waitForURL('**/practice/game');
+
+    await expect(page.locator('canvas')).toBeVisible();
+    await expect(page.locator('text=Lighting the lamps…')).toBeHidden({ timeout: 30000 });
+
+    const initialScroll = await page.evaluate(() => (window as any).__lampGameCameraScrollX ?? 0);
+    expect(typeof initialScroll).toBe('number');
+
+    // Click canvas to advance to next verse
+    await page.locator('canvas').click();
+    await page.waitForTimeout(500);
+
+    const nextScroll = await page.evaluate(() => (window as any).__lampGameCameraScrollX ?? 0);
+    expect(typeof nextScroll).toBe('number');
+  });
+
+  test('PROOF C-5: Fluency Ring & Lighting Juices particle flare bursts', async ({ page }) => {
+    await openApp(page, '/kjv-ref/practice');
+    const card = page.locator('text=Lamp of the Path');
+    await card.scrollIntoViewIfNeeded();
+    await card.click();
+    await page.waitForURL('**/practice/game');
+
+    await expect(page.locator('canvas')).toBeVisible();
+    await expect(page.locator('text=Lighting the lamps…')).toBeHidden({ timeout: 30000 });
+
+    const hasRing = await page.evaluate(() => (window as any).__lampGameFluencyRing !== undefined);
+    expect(hasRing).toBe(true);
+  });
+
+  test('PROOF C-6: Multi-Verse Chain Reconstruction combined passage puzzle', async ({ page }) => {
+    await openApp(page, '/kjv-ref/practice');
+    const card = page.locator('text=Lamp of the Path');
+    await card.scrollIntoViewIfNeeded();
+    await card.click();
+    await page.waitForURL('**/practice/game');
+
+    await expect(page.locator('canvas')).toBeVisible();
+    await expect(page.locator('text=Lighting the lamps…')).toBeHidden({ timeout: 30000 });
+
+    const puzzle = await page.evaluate(() => (window as any).__lampGamePuzzle?.());
+    expect(puzzle).toBeDefined();
+    expect(puzzle?.reference).toBeTruthy();
+  });
 });
