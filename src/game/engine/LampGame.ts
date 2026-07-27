@@ -468,13 +468,13 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   function setTilePos(t: TileView, x: number, y: number) {
     t.curX = x;
     t.curY = y;
-    placeSprite(t.sprite, x, y, t.w, t.h, spriteColor(palette.tile, 1));
+    placeSprite(t.sprite, x, y, t.w, t.h, [1, 1, 1, 1]);
     placeText(t.textLayer, t.textData, x, y, t.w, t.h);
   }
   /** Position the 4 outline quads of a blank slot's drop-target border. */
   function placeSlotBorders(s: SlotView) {
     if (s.borders.length === 0) return;
-    const col = spriteColor(palette.slotBorder, 1);
+    const col: [number, number, number, number] = [245 / 255, 158 / 255, 11 / 255, 1];
     const T = BORDER_T;
     const { x, y, w, h } = s;
     placeSprite(s.borders[0], x, y, w, T, col); // top
@@ -903,7 +903,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
         addTextRendererLayer(textRenderer, view.textLayer);
       } else {
         // Outline the blank slot so the drop target is obvious.
-        const bcol = spriteColor(palette.slotBorder, 1);
+        const bcol: [number, number, number, number] = [245 / 255, 158 / 255, 11 / 255, 1];
         for (let b = 0; b < 4; b++) {
           view.borders.push(
             addSprite2D(spriteLayer, { positionPx: [0, 0], sizePx: [1, 1], color: bcol, frame: 0 }),
@@ -952,7 +952,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
         const sprite = addSprite2D(spriteLayer, {
           positionPx: [pos.x + w / 2, pos.y + cellH / 2],
           sizePx: [w, cellH],
-          color: spriteColor(palette.tile, 1),
+          color: [1, 1, 1, 1],
           frame: frameIndex('tile_bg'),
         });
         const view: TileView = {
@@ -1314,14 +1314,14 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
       // Reset slot borders to default border color
       for (const b of s.borders) {
-        updateSprite2D(b, { color: spriteColor(palette.slotBorder, 1) });
+        updateSprite2D(b, { color: [245 / 255, 158 / 255, 11 / 255, 1] });
       }
 
       // Animate misplaced tile smoothly back to its word bank home location
       const t = tiles.find((tt) => tt.placedSlotIndex === s.index);
       if (t) {
         t.placedSlotIndex = null;
-        updateSprite2D(t.sprite, { color: spriteColor(palette.tile, 1) });
+        updateSprite2D(t.sprite, { color: [1, 1, 1, 1] });
         animateTileTo(t, t.homeX, t.homeY, 300);
       }
     }
