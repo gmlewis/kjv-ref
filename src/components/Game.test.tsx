@@ -28,6 +28,7 @@ const doSetClozeLevel = vi.fn().mockResolvedValue(undefined);
 vi.mock('../hooks', () => ({
   useMyProgress: () => [[], false, null],
   useDueReviews: () => [[], false, null],
+  useMyBookmarks: () => [[], false, null],
   useUpdateProgressMutation: () => ({ mutate: doUpdateProgress }),
   useUpsertReviewScheduleMutation: () => ({ mutate: doUpsertReviewSchedule }),
   useCreateSessionMutation: () => ({ mutate: doCreateSession }),

@@ -1,13 +1,14 @@
 import { Link } from 'react-router-dom';
 import {
   Trophy, Star, Award, Heart, Flame, BookOpen, Target,
-  Calendar, Crown, Shield, Sparkles, Dumbbell, Lock,
+  Calendar, Crown, Shield, Sparkles, Dumbbell, Lock, Compass, Zap,
 } from 'lucide-react';
 import { useMyAchievements, useMySessions, useMyProgress } from '../hooks';
 
 type AchievementType = 'first-verse' | 'ten-verses' | 'fifty-verses' | 'hundred-verses' |
   'seven-day-streak' | 'thirty-day-streak' | 'master-level' | 'daily-goal' |
-  'book-complete' | 'testament-complete';
+  'book-complete' | 'testament-complete' |
+  'pathfinder' | 'lantern-race' | 'city-on-a-hill';
 
 interface AchievementInfo {
   icon: any;
@@ -58,6 +59,18 @@ const ACHIEVEMENT_INFO: Record<AchievementType, AchievementInfo> = {
     icon: BookOpen, title: 'Testament Hero', description: 'Practice all featured verses from a Testament',
     gradient: 'from-cyan-400 to-blue-500', hint: 'Complete all Old or New Testament featured verses',
   },
+  'pathfinder': {
+    icon: Compass, title: 'Pathfinder', description: 'Build a custom road in Lamp of the Path',
+    gradient: 'from-amber-400 to-emerald-500', hint: 'Build a custom road from any passage or bookmarks',
+  },
+  'lantern-race': {
+    icon: Zap, title: 'Lantern Race Champion', description: 'Complete a 60-second Lantern Race sprint',
+    gradient: 'from-orange-400 to-amber-500', hint: 'Complete a Lantern Race sprint in the game mode',
+  },
+  'city-on-a-hill': {
+    icon: Sparkles, title: 'City on a Hill', description: 'Master 10 lamps in Lamp of the Path',
+    gradient: 'from-yellow-400 to-amber-500', hint: 'Achieve mastery on 10 verses in the game',
+  },
 };
 
 function Achievements() {
@@ -81,6 +94,7 @@ function Achievements() {
       case 'fifty-verses': return { current: Math.min(sessionCount, 50), target: 50 };
       case 'hundred-verses': return { current: Math.min(sessionCount, 100), target: 100 };
       case 'master-level': return { current: Math.min(masteredCount, 1), target: 1 };
+      case 'city-on-a-hill': return { current: Math.min(masteredCount, 10), target: 10 };
       default: return null;
     }
   };

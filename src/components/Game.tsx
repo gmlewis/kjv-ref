@@ -1,19 +1,12 @@
-// React host for "Lamp of the Path" (task C-1).
-//
-// The host owns the React chrome (full-viewport canvas, exit button, loading
-// and error states, theme sync) and wires the engine's `onResolve` callback to
-// the existing progress / review / session / daily-goal mutations — mirroring
-// `Practice.tsx` `handleComplete`. ALL game logic lives in the pure modules
-// under `src/game/`; this file contains no game decisions. The Babylon engine
-// is loaded via a dynamic `import('../game')` so it is code-split away from
-// the site's first paint.
-
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Volume2, VolumeX, X } from 'lucide-react';
+import {
+  Eye, EyeOff, Volume2, VolumeX, X, Compass, Zap, Plus, BookOpen, Search, Check, Sparkles, Trophy, Flame,
+} from 'lucide-react';
 import {
   useMyProgress,
   useDueReviews,
+  useMyBookmarks,
   useUpdateProgressMutation,
   useUpsertReviewScheduleMutation,
   useCreateSessionMutation,
@@ -22,16 +15,47 @@ import {
   useSetClozeLevelMutation,
 } from '../hooks';
 import { getDailyGoal } from '../storage';
-import { starterRegions, unlockedRegions } from '../game/regions';
+import { KJV_VERSES } from '../data/kjv-verses';
+import { getKJVVerse } from '../data/kjv-bible';
+import { starterRegions, unlockedRegions, buildRoad } from '../game/regions';
 import { loadGameState, saveGameState } from '../game/state';
 import { setAudioMuted } from '../game/engine/audio';
 import type { GameTheme, LampResolveResult, ScaffoldLayer } from '../game';
 
 type Theme = GameTheme;
+type SubMode = 'journey' | 'race' | 'road';
 
 function currentTheme(): Theme {
   return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
 }
+
+const PRESET_ROADS = [
+  {
+    name: 'Psalms Path',
+    desc: 'Selected Psalms for comfort & worship',
+    refs: ['Psalm 1:1', 'Psalm 23:1', 'Psalm 23:4', 'Psalm 46:10', 'Psalm 91:1', 'Psalm 100:1', 'Psalm 119:11', 'Psalm 119:105'],
+  },
+  {
+    name: 'Romans Road',
+    desc: 'The plan of salvation in Romans',
+    refs: ['Romans 3:23', 'Romans 6:23', 'Romans 8:28', 'Romans 12:2'],
+  },
+  {
+    name: 'Gospel Journey',
+    desc: 'Core verses from the Gospels',
+    refs: ['Matthew 5:3', 'Matthew 6:33', 'Matthew 11:28', 'Matthew 28:19', 'John 1:1', 'John 3:16', 'John 14:6'],
+  },
+  {
+    name: 'Wisdom Path',
+    desc: 'Proverbs and James on godly wisdom',
+    refs: ['Proverbs 3:5', 'Proverbs 3:6', 'Proverbs 16:3', 'James 1:5'],
+  },
+  {
+    name: 'Comfort & Faith',
+    desc: 'Promises of strength, courage & peace',
+    refs: ['Joshua 1:9', 'Isaiah 40:31', 'Philippians 4:13', 'Hebrews 11:1', '1 John 1:9'],
+  },
+];
 
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -41,7 +65,6 @@ export default function Game() {
     setStage: (stage: ScaffoldLayer | null) => void;
   } | null>(null);
 
-  // bootKey lets "Play Again" dispose + reboot the engine from scratch.
   const [bootKey, setBootKey] = useState(0);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [soundEnabled, setSoundEnabled] = useState(() => loadGameState().settings.sound);
@@ -49,16 +72,21 @@ export default function Game() {
   const [showPeek, setShowPeek] = useState(false);
   const [activeRef, setActiveRef] = useState<string>(() => defaultVerse?.reference ?? '');
   const [activeText, setActiveText] = useState<string>(() => defaultVerse?.text ?? '');
-  // Current scaffold stage of the verse on screen (null = auto-computed).
   const [activeStage, setActiveStage] = useState<ScaffoldLayer | null>(null);
-  // Whether the current verse has a persisted stage override (so the "Auto"
-  // chip can show as active when no override is set).
   const [stageOverride, setStageOverride] = useState<ScaffoldLayer | null>(null);
-  // The current verse's on-screen instruction (e.g. "Stage 2 — Tap the words in
-  // order (2 wrong words mixed in)"). Rendered as DOM alongside the stage chips.
   const [activePrompt, setActivePrompt] = useState<string>('');
-  // Session summary shown when onSessionComplete fires.
   const [summary, setSummary] = useState<{ totalXp: number; lampsLit: number; bestCombo: number } | null>(null);
+
+  // Sub-mode state
+  const [subMode, setSubMode] = useState<SubMode>('journey');
+  const [customRoadPool, setCustomRoadPool] = useState<any[] | null>(null);
+  const [showRoadModal, setShowRoadModal] = useState(false);
+  const [customRefInput, setCustomRefInput] = useState('');
+  const [searchError, setSearchError] = useState('');
+
+  // Lantern Race state
+  const [raceSecondsLeft, setRaceSecondsLeft] = useState(60);
+  const [raceActive, setRaceActive] = useState(false);
 
   useEffect(() => {
     setAudioMuted(!soundEnabled);
@@ -73,9 +101,10 @@ export default function Game() {
     setAudioMuted(!nextSound);
   }
 
-  // Existing data + mutation hooks (same set Practice.tsx uses).
+  // Data & mutation hooks
   const [progress] = useMyProgress();
   const [dueReviews] = useDueReviews();
+  const [bookmarks] = useMyBookmarks();
   const { mutate: doUpdateProgress } = useUpdateProgressMutation();
   const { mutate: doUpsertReviewSchedule } = useUpsertReviewScheduleMutation();
   const { mutate: doCreateSession } = useCreateSessionMutation();
@@ -85,22 +114,38 @@ export default function Game() {
 
   const navigate = useNavigate();
 
-  // --- Refs that hold the latest data so callbacks never read a stale closure -
   const progressRef = useRef<any[]>(progress ?? []);
   progressRef.current = progress ?? [];
-  // dueReviews is a plain state value; the boot effect would otherwise capture
-  // the first-render (still-loading, null) value and pass `due: []` to the
-  // engine — which means due verses would never be sorted to the front of the
-  // queue and would never get practiced/cleared. Mirror the progressRef fix.
   const dueRef = useRef<any[]>(dueReviews ?? []);
   dueRef.current = dueReviews ?? [];
 
-  // Session accumulators (mutated inside onResolve / Exit, not via state).
   const versesPracticedRef = useRef<Set<string>>(new Set());
   const correctCountRef = useRef(0);
   const totalCountRef = useRef(0);
 
-  // --- Boot the engine (re-runs on bootKey, i.e. "Play Again") ----------------
+  // 60-second Sprint timer effect for Lantern Race
+  useEffect(() => {
+    if (subMode !== 'race' || !raceActive || status !== 'ready' || summary) return;
+    const timer = setInterval(() => {
+      setRaceSecondsLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          setRaceActive(false);
+          void doAwardAchievement({ type: 'lantern-race' }).catch(() => {});
+          setSummary({
+            totalXp: correctCountRef.current * 25,
+            lampsLit: correctCountRef.current,
+            bestCombo: totalCountRef.current,
+          });
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [subMode, raceActive, status, summary, doAwardAchievement]);
+
+  // Boot the engine
   useEffect(() => {
     let cancelled = false;
     const storageHandler = (e: Event) => {
@@ -108,7 +153,6 @@ export default function Game() {
       engineRef.current?.setTheme(currentTheme());
     };
 
-    // Fresh session = fresh accumulators + lamps.
     versesPracticedRef.current = new Set();
     correctCountRef.current = 0;
     totalCountRef.current = 0;
@@ -121,7 +165,22 @@ export default function Game() {
         const masteredCount = (progressRef.current ?? []).filter(
           (p: any) => p?.status === 'mastered',
         ).length;
-        const pool = unlockedRegions(starterRegions(), masteredCount).flatMap((r) => r.verses);
+
+        let pool: any[] = [];
+        if (subMode === 'road' && customRoadPool && customRoadPool.length > 0) {
+          pool = customRoadPool;
+        } else if (subMode === 'race') {
+          // Sprint mode: prefer mastered / high-streak verses for rapid recall
+          const base = unlockedRegions(starterRegions(), masteredCount).flatMap((r) => r.verses);
+          const masteredSet = new Set(
+            (progressRef.current ?? []).filter((p: any) => p?.status === 'mastered').map((p: any) => p?.verse?.reference),
+          );
+          const masteredInPool = base.filter((v) => masteredSet.has(v.reference));
+          pool = masteredInPool.length >= 4 ? masteredInPool : base;
+        } else {
+          pool = unlockedRegions(starterRegions(), masteredCount).flatMap((r) => r.verses);
+        }
+
         if (pool.length > 0) {
           setActiveRef(pool[0].reference);
           setActiveText(pool[0].text);
@@ -149,14 +208,15 @@ export default function Game() {
               }
               setActiveStage(stage);
               setActivePrompt(prompt ?? '');
-              // Reflect whether this verse has a persisted override.
               const entry = progressRef.current.find(
                 (p: any) => p?.verse?.reference === v?.reference,
               );
               setStageOverride(entry?.customClozeLevel ?? null);
             },
             onSessionComplete: (stats) => {
-              setSummary(stats);
+              if (subMode !== 'race') {
+                setSummary(stats);
+              }
             },
           },
         });
@@ -179,23 +239,19 @@ export default function Game() {
       engineRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bootKey]);
+  }, [bootKey, subMode]);
 
-  // --- onResolve: mirror Practice.tsx handleComplete (per-verse writes) ------
   function handleResolve(result: LampResolveResult, pool: any[]) {
     const { reference, correct } = result;
-    // Update active verse for peek feature
     const found = pool.find((v) => v.reference === reference);
     if (found) {
       setActiveRef(found.reference);
       setActiveText(found.text);
     }
-    // Accumulate session stats.
     versesPracticedRef.current.add(reference);
     totalCountRef.current += 1;
     if (correct) correctCountRef.current += 1;
 
-    // Per-verse progress + review schedule (mirror handleComplete).
     void doUpdateProgress({
       reference,
       correct,
@@ -212,11 +268,22 @@ export default function Game() {
       streak,
       accuracy: result.accuracy,
     }).catch(() => {});
+
+    // Award game achievements
+    if (correct) {
+      const masteredCount = (progressRef.current ?? []).filter((p: any) => p?.status === 'mastered').length + (streak >= 5 ? 1 : 0);
+      if (masteredCount >= 10) {
+        void doAwardAchievement({ type: 'city-on-a-hill' }).catch(() => {});
+      }
+      if (masteredCount >= 15) {
+        void doAwardAchievement({ type: 'book-complete' }).catch(() => {});
+      }
+      if (masteredCount >= 41) {
+        void doAwardAchievement({ type: 'testament-complete' }).catch(() => {});
+      }
+    }
   }
 
-  // --- Stage control: pin the current verse to a chosen stage, or revert ----
-  // to "Auto" (recitation-based). Persisted via customClozeLevel (mirrors the
-  // Vanishing Cloze override) and applied live via engine.setStage.
   function handleStageChange(stage: ScaffoldLayer | null) {
     if (!activeRef) return;
     engineRef.current?.setStage(stage);
@@ -225,8 +292,6 @@ export default function Game() {
     void doSetClozeLevel({ reference: activeRef, level: stage }).catch(() => {});
   }
 
-  // Auto stage for the current verse (used only to update the chip highlight
-  // when reverting to Auto — the engine computes the real puzzle stage).
   function computeAutoStage(reference: string): ScaffoldLayer {
     const entry = progressRef.current.find((p: any) => p?.verse?.reference === reference);
     const timesRecited = entry?.timesRecited ?? 0;
@@ -239,13 +304,65 @@ export default function Game() {
     return 5;
   }
 
-  // --- Play Again: reboot the engine for a fresh 12-lamp journey -------------
-  function playAgain() {
-    setSummary(null);
+  function startJourney() {
+    setSubMode('journey');
+    setRaceActive(false);
     setBootKey((k) => k + 1);
   }
 
-  // --- Exit: finalize session, then navigate to /practice --------------------
+  function startRace() {
+    setSubMode('race');
+    setRaceSecondsLeft(60);
+    setRaceActive(true);
+    setBootKey((k) => k + 1);
+  }
+
+  function startCustomRoad(name: string, refs: string[]) {
+    const road = buildRoad(name, refs, KJV_VERSES);
+    if (road.verses.length === 0) return;
+    setCustomRoadPool(road.verses);
+    setSubMode('road');
+    setShowRoadModal(false);
+    setRaceActive(false);
+    void doAwardAchievement({ type: 'pathfinder' }).catch(() => {});
+    setBootKey((k) => k + 1);
+  }
+
+  async function handleAddCustomReference() {
+    if (!customRefInput.trim()) return;
+    setSearchError('');
+    try {
+      const entry = await getKJVVerse(customRefInput.trim());
+      if (entry) {
+        const customVerse = {
+          reference: entry.reference,
+          book: entry.reference.split(' ')[0],
+          chapter: 1,
+          verse: entry.verse,
+          text: entry.text,
+          keywords: [],
+          difficulty: 'medium' as const,
+          theme: 'custom',
+        };
+        startCustomRoad(entry.reference, [entry.reference]);
+        setCustomRefInput('');
+      } else {
+        setSearchError('Verse reference not found in KJV Bible.');
+      }
+    } catch {
+      setSearchError('Could not load verse.');
+    }
+  }
+
+  function playAgain() {
+    if (subMode === 'race') {
+      startRace();
+    } else {
+      setSummary(null);
+      setBootKey((k) => k + 1);
+    }
+  }
+
   async function handleExit() {
     const verses = [...versesPracticedRef.current];
     const total = totalCountRef.current;
@@ -258,15 +375,11 @@ export default function Game() {
       totalQuestions: total,
     }).catch(() => {});
 
-    // Daily goal: ADD to today's base (mirror handleComplete).
     const baseToday = getDailyGoal()?.completedVerses ?? 0;
     await doUpdateDailyGoal({ completedVerses: baseToday + correct }).catch(() => {});
 
-    // Achievements (mirror handleComplete).
     if (correct > 0) await doAwardAchievement({ type: 'first-verse' }).catch(() => {});
-    const masteredCount = (progressRef.current ?? []).filter(
-      (p: any) => p?.status === 'mastered',
-    ).length;
+    const masteredCount = (progressRef.current ?? []).filter((p: any) => p?.status === 'mastered').length;
     if (masteredCount >= 1) await doAwardAchievement({ type: 'master-level' }).catch(() => {});
     if (masteredCount >= 15) await doAwardAchievement({ type: 'book-complete' }).catch(() => {});
     if (masteredCount >= 41) await doAwardAchievement({ type: 'testament-complete' }).catch(() => {});
@@ -278,7 +391,51 @@ export default function Game() {
     <div className="relative w-full h-screen overflow-hidden">
       <canvas ref={canvasRef} className="w-full h-screen block touch-none" />
 
-      {/* Slim overlay HUD */}
+      {/* Top Left: Sub-mode Selector chips */}
+      <div className="absolute top-2 sm:top-3 left-2.5 sm:left-4 z-10 flex items-center gap-1 sm:gap-2">
+        <button
+          type="button"
+          onClick={startJourney}
+          title="Journey Mode — Walk the path and light lamps at your own pace"
+          className={`glassmorphism rounded-full px-2.5 sm:px-3 py-1 text-xs font-bold transition-all flex items-center gap-1 ${
+            subMode === 'journey' ? 'bg-amber-500 text-white shadow-lg' : 'text-gray-700 dark:text-gray-200 hover:bg-white/20'
+          }`}
+        >
+          <Compass className="w-3.5 h-3.5" />
+          <span className="hidden xs:inline">Journey</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={startRace}
+          title="Lantern Race — 60-second timed sprint recall"
+          className={`glassmorphism rounded-full px-2.5 sm:px-3 py-1 text-xs font-bold transition-all flex items-center gap-1 ${
+            subMode === 'race' ? 'bg-orange-500 text-white shadow-lg' : 'text-gray-700 dark:text-gray-200 hover:bg-white/20'
+          }`}
+        >
+          <Zap className="w-3.5 h-3.5 text-yellow-300" />
+          <span>Race</span>
+          {subMode === 'race' && raceActive && (
+            <span className="ml-1 text-[10px] font-extrabold bg-black/30 rounded-full px-1.5 py-0.2">
+              {raceSecondsLeft}s
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setShowRoadModal(true)}
+          title="Build a Road — Create a custom branch road for any passage"
+          className={`glassmorphism rounded-full px-2.5 sm:px-3 py-1 text-xs font-bold transition-all flex items-center gap-1 ${
+            subMode === 'road' ? 'bg-indigo-500 text-white shadow-lg' : 'text-gray-700 dark:text-gray-200 hover:bg-white/20'
+          }`}
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>Road</span>
+        </button>
+      </div>
+
+      {/* Top Right: Controls HUD */}
       <div className="absolute top-2 sm:top-3 right-2.5 sm:right-4 z-10 flex items-center gap-1.5 sm:gap-3">
         <button
           type="button"
@@ -331,10 +488,7 @@ export default function Game() {
         </div>
       )}
 
-      {/* Stage instruction + stage-control chips, as one wrapping row at the top.
-          Wide: chips sit to the right of the prompt. Narrow: chips wrap to a
-          centered line below the prompt. Pin the current verse to any stage
-          (0–5) or Auto (recitation-based). Persisted via customClozeLevel. */}
+      {/* Stage instruction + stage-control chips */}
       {status === 'ready' && !summary && !showPeek && activePrompt && (
         <div className="absolute top-[44px] sm:top-[50px] left-1/2 -translate-x-1/2 z-10 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 max-w-[96vw] px-1.5">
           <span className="text-[11px] sm:text-sm font-semibold text-amber-600 dark:text-amber-400 text-center">
@@ -403,12 +557,122 @@ export default function Game() {
         </div>
       )}
 
-      {/* Session summary — shown when the 12-lamp journey completes. */}
+      {/* Build a Road Modal */}
+      {showRoadModal && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fadeIn p-4">
+          <div className="glassmorphism rounded-3xl p-6 sm:p-8 shadow-2xl border border-indigo-500/30 max-w-lg w-full max-h-[88vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Compass className="w-6 h-6 text-amber-500" />
+                <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Build a Road</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRoadModal(false)}
+                className="p-1 rounded-full hover:bg-white/20 transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-500 dark:text-gray-300" />
+              </button>
+            </div>
+            <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 mb-5">
+              Pick a scripture passage to construct a custom branch road and light its lamps step-by-step:
+            </p>
+
+            {/* Presets */}
+            <div className="space-y-2 mb-6">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Preset Scripture Paths
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {PRESET_ROADS.map((preset) => (
+                  <button
+                    key={preset.name}
+                    type="button"
+                    onClick={() => startCustomRoad(preset.name, preset.refs)}
+                    className="glassmorphism p-3 rounded-xl text-left hover:border-amber-400 transition-all group border border-white/10"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-sm text-gray-800 dark:text-gray-200 group-hover:text-amber-500">
+                        {preset.name}
+                      </span>
+                      <span className="text-[10px] font-semibold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                        {preset.refs.length} v
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 line-clamp-1">
+                      {preset.desc}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Bookmarks */}
+            {bookmarks && bookmarks.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">
+                  My Bookmarked Verses
+                </h3>
+                <button
+                  type="button"
+                  onClick={() =>
+                    startCustomRoad(
+                      'Bookmarked Road',
+                      bookmarks.map((b: any) => b.reference),
+                    )
+                  }
+                  className="w-full glassmorphism p-3 rounded-xl flex items-center justify-between text-left hover:border-indigo-400 transition-all border border-indigo-500/20"
+                >
+                  <div>
+                    <span className="font-bold text-sm text-indigo-600 dark:text-indigo-400">
+                      My Bookmarked Verses
+                    </span>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                      Light lamps for all {bookmarks.length} bookmarked verses
+                    </p>
+                  </div>
+                  <Check className="w-5 h-5 text-indigo-500" />
+                </button>
+              </div>
+            )}
+
+            {/* Custom Search/Reference Lookup */}
+            <div>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">
+                Custom Verse Lookup
+              </h3>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="e.g. Psalm 121:1"
+                  value={customRefInput}
+                  onChange={(e) => setCustomRefInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddCustomReference()}
+                  className="flex-1 bg-white/10 border border-gray-300 dark:border-gray-700 rounded-xl px-3 py-2 text-sm text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddCustomReference}
+                  className="btn-primary px-4 py-2 text-sm font-bold text-white bg-indigo-600 rounded-xl shadow hover:bg-indigo-500 flex items-center gap-1"
+                >
+                  <Search className="w-4 h-4" />
+                  <span>Build</span>
+                </button>
+              </div>
+              {searchError && (
+                <p className="text-xs text-red-500 mt-1.5">{searchError}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Session summary */}
       {summary && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fadeIn">
           <div className="glassmorphism rounded-3xl px-6 py-7 sm:px-10 sm:py-9 flex flex-col items-center gap-5 shadow-2xl border border-amber-500/30 max-w-sm w-11/12 text-center">
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-500 dark:text-amber-400">
-              Journey Complete
+              {subMode === 'race' ? '⚡ Sprint Complete' : 'Journey Complete'}
             </p>
             <p className="text-3xl sm:text-4xl font-extrabold text-gray-800 dark:text-gray-100">
               ✨ {summary.lampsLit} Lamps Lit
@@ -448,7 +712,7 @@ export default function Game() {
                 onClick={playAgain}
                 className="rounded-full px-5 py-2.5 text-sm font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 shadow-lg hover:from-amber-400 hover:to-orange-400 transition-colors"
               >
-                Play Again
+                {subMode === 'race' ? 'Race Again' : 'Play Again'}
               </button>
               <button
                 type="button"
