@@ -224,7 +224,7 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     expect(puzzle?.layer).toBe(0);
 
     // Stage 0 is the read-along study layer — the DOM stage row shows the study prompt.
-    await expect(page.locator('text=/Stage 0 — Read the verse/')).toBeVisible();
+    await expect(page.locator('text=/Verse Stage 0 — Read the verse/')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Auto' })).toBeVisible();
 
     // Tap to advance past the study layer, which resolves the verse and advances the schedule.

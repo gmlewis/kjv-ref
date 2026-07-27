@@ -485,10 +485,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // stage-control chips), NOT on the canvas, so the chips can sit beside it.
     const isStudy = puzzle.bank.length === 0;
     const promptText = isStudy
-      ? 'Stage 0 — Read the verse, then tap to continue'
+      ? 'Verse Stage 0 — Read the verse, then tap to continue'
       : puzzle.decoyCount > 0
-        ? `Stage ${puzzle.layer} — Tap the words in order (${puzzle.decoyCount} wrong words mixed in)`
-        : `Stage ${puzzle.layer} — Tap the words in order`;
+        ? `Verse Stage ${puzzle.layer} — Tap the words in order (${puzzle.decoyCount} wrong words mixed in)`
+        : `Verse Stage ${puzzle.layer} — Tap the words in order`;
     opts.callbacks.onVerseChange?.(v, stage, promptText);
 
     const [W, H] = canvasSize();
@@ -539,8 +539,8 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // HUD summary (Level, XP, Combo). Stage is shown in the host's chip row, so it
     // is omitted here to avoid duplication. Nudged below the DOM prompt+chips row.
     const hudText = isMobile
-      ? `Lvl ${gameState.level} • ${gameState.xp} XP • Combo x${combo}`
-      : `Level ${gameState.level}  •  ${gameState.xp} XP  •  Combo x${combo}`;
+      ? `Game Stats: Lvl ${gameState.level} • ${gameState.xp} XP • Session Combos: x${combo}`
+      : `Game Stats: Level ${gameState.level}  •  ${gameState.xp} XP  •  Session Combos: x${combo}`;
     hudData = createDefaultTextData(font, hudFont, hudText, textColor(palette.text, 0.8), { align: 'center' });
     hudLayer = createTextLayer(hudData, {
       positionPx: { x: (W - hudData.width) / 2, y: headerY + (isMobile ? 92 : 100) },
