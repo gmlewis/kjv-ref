@@ -275,11 +275,52 @@ export default function Game() {
       if (masteredCount >= 10) {
         void doAwardAchievement({ type: 'city-on-a-hill' }).catch(() => {});
       }
-      if (masteredCount >= 15) {
-        void doAwardAchievement({ type: 'book-complete' }).catch(() => {});
+
+      // Check for book-complete: all curated verses from a single book mastered
+      const bookVerseCounts = new Map<string, { total: number; mastered: number }>();
+      for (const v of KJV_VERSES) {
+        const existing = bookVerseCounts.get(v.book) || { total: 0, mastered: 0 };
+        existing.total += 1;
+        const prog = progressRef.current.find((p: any) => p?.verse?.reference === v.reference);
+        if (prog?.status === 'mastered' || (v.reference === reference && streak >= 5)) {
+          existing.mastered += 1;
+        }
+        bookVerseCounts.set(v.book, existing);
       }
-      if (masteredCount >= 41) {
-        void doAwardAchievement({ type: 'testament-complete' }).catch(() => {});
+      for (const [book, counts] of bookVerseCounts.entries()) {
+        if (counts.mastered === counts.total && counts.total > 0) {
+          void doAwardAchievement({ type: 'book-complete', book: { name: book } }).catch(() => {});
+        }
+      }
+
+      // Check for testament-complete: all curated verses from OT or NT mastered
+      const otBooks = ['Genesis', 'Exodus', 'Leviticus', 'Numbers', 'Deuteronomy', 'Joshua', 'Judges', 'Ruth', '1 Samuel', '2 Samuel', '1 Kings', '2 Kings', '1 Chronicles', '2 Chronicles', 'Ezra', 'Nehemiah', 'Esther', 'Job', 'Psalms', 'Proverbs', 'Ecclesiastes', 'Song of Solomon', 'Isaiah', 'Jeremiah', 'Lamentations', 'Ezekiel', 'Daniel', 'Hosea', 'Joel', 'Amos', 'Obadiah', 'Jonah', 'Micah', 'Nahum', 'Habakkuk', 'Zephaniah', 'Haggai', 'Zechariah', 'Malachi'];
+      const ntBooks = ['Matthew', 'Mark', 'Luke', 'John', 'Acts', 'Romans', '1 Corinthians', '2 Corinthians', 'Galatians', 'Ephesians', 'Philippians', 'Colossians', '1 Thessalonians', '2 Thessalonians', '1 Timothy', '2 Timothy', 'Titus', 'Philemon', 'Hebrews', 'James', '1 Peter', '2 Peter', '1 John', '2 John', '3 John', 'Jude', 'Revelation'];
+
+      let otTotal = 0, otMastered = 0, ntTotal = 0, ntMastered = 0;
+      for (const v of KJV_VERSES) {
+        const isOt = otBooks.includes(v.book);
+        const isNt = ntBooks.includes(v.book);
+        if (isOt) {
+          otTotal += 1;
+          const prog = progressRef.current.find((p: any) => p?.verse?.reference === v.reference);
+          if (prog?.status === 'mastered' || (v.reference === reference && streak >= 5)) {
+            otMastered += 1;
+          }
+        }
+        if (isNt) {
+          ntTotal += 1;
+          const prog = progressRef.current.find((p: any) => p?.verse?.reference === v.reference);
+          if (prog?.status === 'mastered' || (v.reference === reference && streak >= 5)) {
+            ntMastered += 1;
+          }
+        }
+      }
+      if (otMastered === otTotal && otTotal > 0) {
+        void doAwardAchievement({ type: 'testament-complete', book: { name: 'Old Testament' } }).catch(() => {});
+      }
+      if (ntMastered === ntTotal && ntTotal > 0) {
+        void doAwardAchievement({ type: 'testament-complete', book: { name: 'New Testament' } }).catch(() => {});
       }
     }
   }

@@ -66,6 +66,7 @@ import type { PerformanceRating } from '../scoring';
 import { paletteFor } from './theme';
 import type { GameTheme } from './theme';
 import { createGameSpriteFrames } from './art';
+import { fluencyDurationMs, isFluentNow } from '../fluency';
 
 /** Result of one lamp resolve, reported to the host so it can write progress. */
 export interface LampResolveResult {
@@ -268,14 +269,14 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let waterfallSprite: Sprite2DHandle | null = null;
   let citySprite: Sprite2DHandle | null = null;
   let pathSprite: Sprite2DHandle | null = null;
-  let skyStarSprites: Sprite2DHandle[] = [];
+  let skyStarSprites: Array<{ sprite: Sprite2DHandle; phase: number; speed: number }> = [];
   let lampSprites: Sprite2DHandle[] = [];
   let lighthouseSprites: Sprite2DHandle[] = [];
   let lampHaloSprites: Sprite2DHandle[] = [];
-  let lampFlameSprites: Sprite2DHandle[] = [];
-  let beaconBeamSprites: Sprite2DHandle[] = [];
+  let lampFlameSprites: Array<{ sprite: Sprite2DHandle; baseX: number; baseY: number; baseSize: number }> = [];
+  let beaconBeamSprites: Array<{ sprite: Sprite2DHandle; baseX: number; baseY: number; phase: number; isCurrent: boolean }> = [];
   let fluencyRingSprite: Sprite2DHandle | null = null;
-  let particleSprites: Array<{ sprite: Sprite2DHandle; vx: number; vy: number; life: number }> = [];
+  let particleSprites: Array<{ sprite: Sprite2DHandle; vx: number; vy: number; life: number; x: number; y: number; r: number; g: number; b: number }> = [];
   let cameraScrollX = 0;
   let targetCameraScrollX = 0;
   let animFrameId: number | null = null;
@@ -489,6 +490,31 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     placeSprite(s.borders[3], x + w - T, y, T, h, col); // right
   }
 
+  /** Create a burst of celebration particles at the given position. */
+  function createParticleBurst(x: number, y: number, count: number = 12) {
+    const colors = [
+      [251, 191, 36], // amber-400
+      [254, 240, 138], // amber-200
+      [245, 158, 11], // amber-500
+      [255, 255, 255], // white
+    ];
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2;
+      const speed = 30 + Math.random() * 50;
+      const vx = Math.cos(angle) * speed;
+      const vy = Math.sin(angle) * speed - 30; // upward bias
+      const size = 6 + Math.random() * 8;
+      const col = colors[Math.floor(Math.random() * colors.length)];
+      const sprite = addSprite2D(spriteLayer, {
+        positionPx: [x, y],
+        sizePx: [size, size],
+        color: [col[0] / 255, col[1] / 255, col[2] / 255, 1],
+        frame: frameIndex('flame'),
+      });
+      particleSprites.push({ sprite, vx, vy, life: 1.0, x, y, r: col[0], g: col[1], b: col[2] });
+    }
+  }
+
   // =========================================================================
   // Puzzle teardown / build.
   // =========================================================================
@@ -543,9 +569,12 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     for (const ls of lampSprites) removeSprite2D(ls);
     for (const lhs of lighthouseSprites) removeSprite2D(lhs);
     for (const lhs of lampHaloSprites) removeSprite2D(lhs);
-    for (const lfs of lampFlameSprites) removeSprite2D(lfs);
-    for (const bbs of beaconBeamSprites) removeSprite2D(bbs);
-    for (const ss of skyStarSprites) removeSprite2D(ss);
+    for (const lfs of lampFlameSprites) removeSprite2D(lfs.sprite);
+    lampFlameSprites = [];
+    for (const bb of beaconBeamSprites) removeSprite2D(bb.sprite);
+    beaconBeamSprites = [];
+    for (const ss of skyStarSprites) removeSprite2D(ss.sprite);
+    skyStarSprites = [];
     for (const p of particleSprites) removeSprite2D(p.sprite);
     particleSprites = [];
     if (fluencyRingSprite) {
@@ -678,6 +707,12 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       });
     }
 
+    // Dark mode atmospheric vignette (subtle darkness at screen edges)
+    if (isDark) {
+      // This is handled by CSS on the canvas container for performance
+      // The Babylon engine focuses on sprite rendering
+    }
+
     // Celestial Starfield (Dark mode twinkling stars)
     if (isDark && skyStarSprites.length === 0) {
       const starPositions = [
@@ -687,14 +722,18 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
         [0.78, 0.22], [0.88, 0.26], [0.38, 0.18], [0.04, 0.28],
       ];
       for (const [rx, ry] of starPositions) {
-        skyStarSprites.push(
-          addSprite2D(spriteLayer, {
+        const phase = Math.random() * Math.PI * 2;
+        const speed = 0.5 + Math.random() * 1.5; // radians per second
+        skyStarSprites.push({
+          sprite: addSprite2D(spriteLayer, {
             positionPx: [W * rx, H * ry],
             sizePx: [12, 12],
             color: [1, 1, 1, 0.85],
             frame: frameIndex('star'),
           }),
-        );
+          phase,
+          speed,
+        });
       }
     }
 
@@ -852,13 +891,15 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
         // Sweeping Beacon Light Beam extending into the sky
         const beamW = isCurrent ? (isMobile ? 96 : 140) : (isMobile ? 72 : 100);
         const beamH = isCurrent ? (isMobile ? 48 : 70) : (isMobile ? 36 : 50);
+        const baseX = lx + beamW / 2 - 4;
+        const baseY = lanternCenterY - 4;
         const beamSprite = addSprite2D(spriteLayer, {
-          positionPx: [lx + beamW / 2 - 4, lanternCenterY - 4],
+          positionPx: [baseX, baseY],
           sizePx: [beamW, beamH],
           color: isCurrent ? [1, 0.95, 0.5, 0.9] : [1, 0.85, 0.3, 0.6],
           frame: frameIndex('beacon_beam'),
         });
-        beaconBeamSprites.push(beamSprite);
+        beaconBeamSprites.push({ sprite: beamSprite, baseX, baseY, phase: i * 0.5, isCurrent });
       }
 
       if (isCurrent) {
@@ -880,6 +921,23 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
         frame: houseFrame,
       });
       lighthouseSprites.push(lhSprite);
+
+      // Add animated flame sprite on top of lit lighthouses
+      if (isSessionLit || isCurrent) {
+        const flameY = lanternCenterY - 10;
+        const flameSize = isMobile ? 14 : 20;
+        lampFlameSprites.push({
+          sprite: addSprite2D(spriteLayer, {
+            positionPx: [lx, flameY],
+            sizePx: [flameSize, flameSize],
+            color: [1, 0.9, 0.3, 0.9],
+            frame: frameIndex('flame'),
+          }),
+          baseX: lx,
+          baseY: flameY,
+          baseSize: flameSize,
+        });
+      }
     }
 
     // Slots: calculate per-word width based on natural text length
@@ -1101,7 +1159,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
         if ((isSessionLit || isCurrent) && beamIdx < beaconBeamSprites.length) {
           const beamW = isCurrent ? (isMobile ? 96 : 140) : (isMobile ? 72 : 100);
-          updateSprite2D(beaconBeamSprites[beamIdx++], {
+          updateSprite2D(beaconBeamSprites[beamIdx++].sprite, {
             positionPx: [currentLx + beamW / 2 - 4, lanternCenterY - 4],
           });
         }
@@ -1128,6 +1186,62 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       cameraScrollX += (targetCameraScrollX - cameraScrollX) * 0.1;
       updateParallaxPositions();
       (window as any).__lampGameCameraScrollX = cameraScrollX;
+    }
+
+    const now = performance.now();
+    const dt = 0.016; // ~60fps
+
+    // Update particle positions and lifetimes
+    for (let i = particleSprites.length - 1; i >= 0; i--) {
+      const p = particleSprites[i];
+      p.life -= dt;
+      if (p.life <= 0) {
+        removeSprite2D(p.sprite);
+        particleSprites.splice(i, 1);
+      } else {
+        // Apply gravity and velocity
+        p.vy += 0.5; // gravity
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        updateSprite2D(p.sprite, {
+          positionPx: [p.x, p.y],
+          color: [p.r / 255, p.g / 255, p.b / 255, p.life],
+        });
+      }
+    }
+
+    // Twinkle stars in dark mode
+    for (const star of skyStarSprites) {
+      star.phase += star.speed * dt;
+      const opacity = 0.4 + 0.6 * Math.sin(star.phase);
+      updateSprite2D(star.sprite, {
+        color: [1, 1, 1, Math.max(0.1, opacity)],
+      });
+    }
+
+    // Animate lighthouse flames (flickering)
+    const flameTime = now / 1000;
+    for (let i = 0; i < lampFlameSprites.length; i++) {
+      const flame = lampFlameSprites[i];
+      const flicker = 0.8 + 0.2 * Math.sin(flameTime * 8 + i);
+      const sway = 0.05 * Math.cos(flameTime * 6 + i * 0.5);
+      updateSprite2D(flame.sprite, {
+        positionPx: [flame.baseX + sway, flame.baseY],
+        color: [1, 0.85 + 0.15 * flicker, 0.3, 0.9],
+        sizePx: [flame.baseSize * (0.95 + 0.1 * flicker), flame.baseSize * (0.95 + 0.1 * flicker)],
+      });
+    }
+
+    // Animate beacon beams (slow sweeping rotation)
+    const beamTime = now / 1000;
+    for (const beam of beaconBeamSprites) {
+      const sweep = Math.sin(beamTime * 0.5 + beam.phase) * (beam.isCurrent ? 15 : 8);
+      const alphaPulse = 0.7 + 0.3 * Math.sin(beamTime * 2 + beam.phase);
+      const baseColor = beam.isCurrent ? [1, 0.95, 0.5, 0.9] : [1, 0.85, 0.3, 0.6];
+      updateSprite2D(beam.sprite, {
+        positionPx: [beam.baseX + sweep, beam.baseY],
+        color: [baseColor[0], baseColor[1], baseColor[2], baseColor[3] * alphaPulse],
+      });
     }
 
     animFrameId = requestAnimationFrame(frameLoop);
@@ -1306,8 +1420,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     }, 350);
   }
 
-  function report(reference: string, correct: boolean, accuracy: number): number {
-    const fluent = correct;
+  function report(reference: string, correct: boolean, accuracy: number, fluent: boolean): number {
     const rating = performanceRating(correct, false, fluent);
     const wordCount = verse ? verse.text.split(' ').length : 10;
     const layer = puzzle ? puzzle.layer : 0;
@@ -1316,6 +1429,19 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     if (correct) {
       if (verse) sessionLitRefs.add(verse.reference);
       playLampLitSound(combo);
+      // Create particle burst at the active lighthouse position
+      const [W, H] = canvasSize();
+      const { isMobile } = getResponsiveMetrics(W, H);
+      const lampCount = queue.length;
+      const activeIndex = Math.max(0, queueIndex - 1);
+      if (lampCount > 0 && activeIndex < lampCount) {
+        const margin = isMobile ? 12 : 24;
+        const lampStep = (W - 4 * margin) / Math.max(1, lampCount - 1);
+        const lx = 2 * margin + activeIndex * lampStep - cameraScrollX;
+        const lh = isMobile ? (activeIndex === queueIndex - 1 ? 72 : 56) : (activeIndex === queueIndex - 1 ? 104 : 80);
+        const lanternCenterY = (isMobile ? H - 84 : H - 64) - lh + (isMobile ? 12 : 18);
+        createParticleBurst(lx, lanternCenterY, 16 + combo * 2);
+      }
       gameState.xp += earnedXp;
       gameState.level = levelForXp(gameState.xp);
       gameState.comboBest = Math.max(gameState.comboBest, combo);
@@ -1337,8 +1463,15 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       return t ? t.word : '';
     });
     const { correct, accuracy } = scoreTilePuzzle(placed, verse.text);
+
+    // Calculate fluency: did the player finish before the ring depleted?
+    const wordCount = verse.text.split(' ').length;
+    const durationMs = fluencyDurationMs(wordCount);
+    const nowMs = performance.now();
+    const fluent = correct && isFluentNow(puzzleStartMs, nowMs, durationMs);
+
     bumpRecited();
-    const earnedXp = report(verse.reference, correct, accuracy);
+    const earnedXp = report(verse.reference, correct, accuracy, fluent);
 
     // Evaluate each slot individually to provide clear per-word visual feedback
     const slotCorrectness = puzzle.slots.map((s) => {
@@ -1506,6 +1639,8 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     const v = queue[queueIndex];
     queueIndex++;
     // Task C-4: Parallax camera scroll offset tracking verse progression
+    const [W, H] = canvasSize();
+    const { isMobile } = getResponsiveMetrics(W, H);
     targetCameraScrollX = Math.max(0, (queueIndex - 1) * (isMobile ? 80 : 120));
 
     // A new verse starts at its own auto stage; clear any override that was

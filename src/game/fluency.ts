@@ -17,11 +17,20 @@
  */
 export function fluencyDurationMs(wordCount: number): number {
   const w = Math.max(1, Math.min(wordCount, 40));
-  // Linear ramp from 20s (10 words) to 40s (30 words), clamped.
-  // For word counts below 10 the duration scales down at the same slope
-  // (1s per word) but is floored at 5s so even short verses feel responsive.
-  const ms = 20000 + (w - 10) * 1000;
-  return Math.max(5000, Math.min(40000, Math.round(ms)));
+  // Linear ramp from 20s (10 words) to 40s (30 words).
+  // For word counts below 10, duration scales down proportionally,
+  // floored at 5s so even short verses feel responsive.
+  // For word counts above 30, duration is clamped at 40s.
+  let ms: number;
+  if (w <= 10) {
+    // Scale from 5s (1 word) to 20s (10 words): 15000ms / 9 words ≈ 1666.67ms per word
+    ms = 5000 + Math.round((w - 1) * 15000 / 9);
+  } else if (w <= 30) {
+    ms = 20000 + (w - 10) * 1000;
+  } else {
+    ms = 40000;
+  }
+  return Math.max(5000, Math.min(40000, ms));
 }
 
 /** Return the depletion fraction [0..1] where 1 = fresh, 0 = exhausted. */
