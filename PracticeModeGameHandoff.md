@@ -10,6 +10,24 @@
 > **Status:** Planning artifact for review. No code has been written.
 > **Design spec:** `PracticeModeGameIdeas.md` (read it first — this doc assumes
 > it).
+>
+> **Design revision (tap-only — supersedes parts of this doc).** After this
+> handoff was written, the mechanic was redesigned: the game is now **tap/drag-
+> only at every stage — no typing, no voice, no hidden words, no first
+> letters**. Difficulty scales by adding **decoy (wrong) words** to the tile
+> bank (stages 0–5: 0, 0, 2, 4, 6, 8 decoys). Voice was **dropped entirely**
+> (`src/game/voice.ts` and its test were removed; the `voice` setting was
+> removed). Lamps are a **per-session journey** (all start unlit, light as you
+> play ~10–12 verses); lifetime mastery/due are tracked silently underneath
+> and are NOT painted on the path. `customClozeLevel` now spans **0–5** (was
+> 0–4) and is the persistence mechanism for the per-verse stage override,
+> mirroring the Vanishing Cloze override. The interfaces in §4 below are
+> updated to reflect this; anywhere else in this doc that mentions voice,
+> first-letters, `freeRecall`, typing, L0–L5 typing/voice ladder, or
+> mastery-painted/dimming lamps, read it as superseded by the tap-only design
+> in `PracticeModeGameIdeas.md` §6. A future **multi-verse "chain"** stage
+> (still tap-only) is documented as a future enhancement (Ideas §6.6) and is
+> not yet built.
 
 ---
 
@@ -72,20 +90,23 @@ All new code lives under `src/game/` (pure logic) plus `src/components/Game.tsx`
 ```
 src/game/
 ├── types.ts          # Shared types (TilePuzzle, SlotSpec, GameState, …)
-├── scaffold.ts       # Build a tile puzzle for a verse at a given mastery layer
+├── scaffold.ts       # Build a tile puzzle for a verse at a given stage; decoy
+│                     #   selection via seeded PRNG (tap-only; no voice/typing)
 ├── scoring.ts        # Score a placed puzzle, XP, combo, performance rating
 ├── selection.ts      # "Next lamp" queue: due-first, least-practiced ordering
 ├── regions.ts        # Mastery-gated region unlocks + "Build a Road" branches
-├── voice.ts          # Fuzzy match a speech transcript to a verse
 ├── state.ts          # kjv-game-state load/save/defaults
 ├── engine/
 │   ├── LampGame.ts    # Babylon scene: path, lamps, tiles, input (thin shell)
 │   └── theme.ts       # Light/dark palette sync (reads kjv-theme)
 └── index.ts          # Public re-exports the host component uses
 
+# NOTE: voice.ts was planned here but has been DROPPED (tap-only redesign).
+
 src/components/
 └── Game.tsx          # React host: full-viewport <canvas>, lazy-loads engine,
-                      #   wires hooks, theme sync, exit button, reduced-motion
+                      #   wires hooks, theme sync, exit button, reduced-motion,
+                      #   session-summary overlay, per-verse stage control (0–5 + Auto)
 
 # Edits to existing files (integration — Stream B):
 src/App.tsx                      # add route /practice/game
@@ -202,23 +223,22 @@ in Stream C code the engine/host against them; agents in Stream B wire them in.
 ### `src/game/types.ts`
 ```ts
 export type ScaffoldLayer = 0 | 1 | 2 | 3 | 4 | 5;
-// 0 Study · 1 Order (Word Bank) · 2 First-letter order · 3 Cloze tiles
-// 4 First-letter cloze · 5 Free recall (type/speak)
+// 0 Read · 1 Order (no decoys) · 2 +2 decoys · 3 +4 decoys · 4 +6 decoys · 5 +8 decoys
+// ALL stages are tap/drag-only — no typing, no voice, no hidden words.
 
-export type LampState = 'unlit' | 'learning' | 'reviewing' | 'mastered' | 'due';
+export type LampState = 'unlit' | 'lit';   // per-session journey (not mastery-painted)
 
 export interface SlotSpec { index: number; word: string; preFilled: boolean; }
-export interface TileSpec { id: string; word: string; display: string; } // display = word or first letter
+export interface TileSpec { id: string; word: string; display: string; } // display = word (decoys: word)
 export interface TilePuzzle {
   layer: ScaffoldLayer;
   reference: string;
-  slots: SlotSpec[];   // target order; preFilled slots are already shown
-  bank: TileSpec[];     // tiles the player drags in (shuffled)
-  /** For layer 5: the puzzle is "free recall" — bank is empty, host shows typing/voice. */
-  freeRecall: boolean;
+  slots: SlotSpec[];   // target order; preFilled slots are already shown (stage 0)
+  bank: TileSpec[];     // tiles the player taps/drags in (verse words + decoys), shuffled
+  decoyCount: number;   // how many decoy (wrong) words are mixed into the bank
 }
 
-export interface ProgressEntry { verse: { reference: string }; status: string; timesRecited: number; streak: number; accuracy: number; customClozeLevel?: 0|1|2|3|4; }
+export interface ProgressEntry { verse: { reference: string }; status: string; timesRecited: number; streak: number; accuracy: number; customClozeLevel?: 0|1|2|3|4|5; }
 export interface DueEntry { verse: { reference: string }; dueDate: string; interval: number; }
 
 export interface GameState {
@@ -227,7 +247,7 @@ export interface GameState {
   comboBest: number;
   unlockedRegionIds: string[];
   builtRoads: string[][];   // arrays of reference strings (branch roads)
-  settings: { sound: boolean; voice: boolean; motion: boolean };
+  settings: { sound: boolean; motion: boolean };   // voice dropped
 }
 ```
 
@@ -236,11 +256,17 @@ export interface GameState {
 import type { KJVVerse } from '../data/kjv-verses';
 import type { ScaffoldLayer, TilePuzzle, ProgressEntry } from './types';
 
-/** Map a verse's mastery → game scaffold layer (0–5). Honors customClozeLevel override. */
-export function getGameLayer(timesRecited: number, customLevel?: 0|1|2|3|4|null, status?: string): ScaffoldLayer;
+/** Map a verse's mastery → game scaffold stage (0–5). A non-null customLevel
+ *  ALWAYS wins (even over 'mastered'); mastered → 5; else auto-advance with timesRecited. */
+export function getGameLayer(timesRecited: number, customLevel?: 0|1|2|3|4|5|null, status?: string): ScaffoldLayer;
 
-/** Build the tile puzzle for a verse at a layer. Deterministic given a seed. */
-export function buildTilePuzzle(verse: KJVVerse, layer: ScaffoldLayer, seed?: number): TilePuzzle;
+/** Number of decoy (wrong) words for a stage: {0:0,1:0,2:2,3:4,4:6,5:8}. */
+export function decoyCountFor(stage: ScaffoldLayer): number;
+
+/** Build the tap-only tile puzzle for a verse at a stage. Deterministic given a seed.
+ *  Stage 0: slots pre-filled, bank empty (read-along). Stages 1–5: slots blank,
+ *  bank = shuffled(verse words + pickDecoys(decoyPool, verseWords, decoyCount, rng)). */
+export function buildTilePuzzle(verse: KJVVerse, stage: ScaffoldLayer, seed?: number, decoyPool?: string[]): TilePuzzle;
 ```
 
 ### `src/game/scoring.ts`
@@ -297,12 +323,8 @@ export function buildRoad(name: string, refs: string[], verses: KJVVerse[]): Reg
 export function masteryProgress(region: Region, progress: ProgressEntry[]): { lit: number; total: number };
 ```
 
-### `src/game/voice.ts`
-```ts
-/** Fuzzy-match a speech transcript to a verse. Normalises like checkWordBankAnswer,
- *  then requires a word-overlap threshold (default 0.85). Tolerant of order. */
-export function matchRecitation(transcript: string, target: string, threshold?: number): { match: boolean; overlap: number };
-```
+### `src/game/voice.ts` — DROPPED
+Voice was removed (tap-only redesign). No `voice.ts` module; no `voice` setting.
 
 ### `src/game/state.ts`
 ```ts
@@ -331,55 +353,69 @@ files with zero merge conflict.
 | ID | Title | Files | Test | Acceptance (red→green) | Depends | Parallel |
 |----|-------|-------|------|------------------------|--------|----------|
 | **A-0** | Shared types | `src/game/types.ts` | `src/game/types.test.ts` (compile/type-level smoke: construct a `TilePuzzle`, `GameState`) | Types compile; a sample object satisfies the shape. | — | — |
-| **A-1** | Scaffold builder | `src/game/scaffold.ts` | `src/game/scaffold.test.ts` | `getGameLayer(0)` → 0; `getGameLayer(10)` → 4; mastered+custom overrides; `buildTilePuzzle` at L1 returns bank = shuffled words, slots preFilled=false; at L0 slots preFilled=true, bank empty; at L5 `freeRecall=true`, bank empty; L3/L4 blank selection matches `getVanishingClozeMask` counts; deterministic with seed. | A-0 | A-2..A-6 |
+| **A-1** | Scaffold builder (tap-only) | `src/game/scaffold.ts` | `src/game/scaffold.test.ts` | `getGameLayer(0)` → 0; `getGameLayer(10)` → 5; mastered+custom overrides (custom beats mastered); `decoyCountFor` = {0:0,1:0,2:2,3:4,4:6,5:8}; `buildTilePuzzle` at stage 0 pre-fills slots, empty bank; stage 1 bank = shuffled verse words, no decoys; stage 2 bank = verse words + 2 decoys not in the verse; stage 5 +8 decoys; empty pool degrades gracefully (0 decoys); deterministic with seed. | A-0 | A-2..A-6 |
 | **A-2** | Scoring/XP/combo | `src/game/scoring.ts` | `src/game/scoring.test.ts` | `scoreTilePuzzle` correct order → `correct:true, accuracy:100`; wrong order → false; `performanceRating` maps (correct,no-hint,fluent)→excellent, (correct,hint)→good, (wrong)→poor; `computeXp` rises with layer & fluency & combo; `applyCombo` +1 on correct, 0 on wrong; `levelForXp` monotonic. | A-0 | A-1,A-3..A-6 |
 | **A-3** | Lamp selection queue | `src/game/selection.ts` | `src/game/selection.test.ts` | Given a pool with 2 due + 3 not-due, `selectNextLamps` returns due first; among not-due, lower `timesRecited` first; respects `limit`; `dailyGoalCompleted` truncates to 0 (or returns only due) per spec decision. | A-0 | A-1,A-2,A-4..A-6 |
 | **A-4** | Regions & Build-a-Road | `src/game/regions.ts` | `src/game/regions.test.ts` | `starterRegions()` returns 3 regions (easy/medium/hard) with the curated verses partitioned; `unlockedRegions` returns region 1 always, region 2 only when prior mastered ≥ threshold, etc.; `buildRoad` constructs a region from refs; `masteryProgress` counts `status==='mastered'`. | A-0 | A-1..A-3,A-5,A-6 |
-| **A-5** | Voice fuzzy match | `src/game/voice.ts` | `src/game/voice.test.ts` | Exact spoken verse → `match:true, overlap:1`; one missing word of a 10-word verse → still ≥0.85 → true; two missing → <0.85 → false (tune threshold with tests); punctuation/case-insensitive; order-insensitive. | A-0 | A-1..A-4,A-6 |
+| **A-5** | ~~Voice fuzzy match~~ DROPPED | — | — | Voice was removed (tap-only redesign). No `voice.ts`/`voice.test.ts`. Skip this task. | A-0 | A-1..A-4,A-6 |
 | **A-6** | Game state storage | `src/game/state.ts` | `src/game/state.test.ts` | `loadGameState()` on empty storage returns `DEFAULT_GAME_STATE` with all fields; `saveGameState` then `loadGameState` round-trips; partial/legacy JSON merges defaults for missing keys (e.g. `settings` absent → defaults). | A-0 | A-1..A-5 |
 
 **Test pattern example** (set the style for all of Stream A — write this FIRST, watch it fail, then implement):
 ```ts
 // src/game/scaffold.test.ts
 import { describe, it, expect } from 'vitest';
-import { getGameLayer, buildTilePuzzle } from './scaffold';
+import { getGameLayer, buildTilePuzzle, decoyCountFor } from './scaffold';
 import { KJV_VERSES } from '../data/kjv-verses';
+
+const POOL = KJV_VERSES.flatMap(v => v.text.split(' '));
 
 describe('getGameLayer', () => {
   it('returns 0 for a never-practiced verse', () => {
     expect(getGameLayer(0)).toBe(0);
   });
-  it('returns 4 at 10+ recitations', () => {
-    expect(getGameLayer(10)).toBe(4);
+  it('auto-advances with recitation count', () => {
+    expect(getGameLayer(1)).toBe(1);
+    expect(getGameLayer(10)).toBe(5);
   });
-  it('honors a custom override', () => {
+  it('honors a custom override (even over mastered)', () => {
     expect(getGameLayer(0, 3)).toBe(3);
+    expect(getGameLayer(20, 0, 'mastered')).toBe(0);
   });
-  it('promotes to free-recall (5) when mastered', () => {
+  it('promotes to stage 5 when mastered with no override', () => {
     expect(getGameLayer(12, null, 'mastered')).toBe(5);
   });
 });
 
+describe('decoyCountFor', () => {
+  it('is 0 for stages 0 and 1, then grows by 2 per stage', () => {
+    expect(decoyCountFor(0)).toBe(0);
+    expect(decoyCountFor(1)).toBe(0);
+    expect(decoyCountFor(2)).toBe(2);
+    expect(decoyCountFor(5)).toBe(8);
+  });
+});
+
 describe('buildTilePuzzle', () => {
-  const v = KJV_VERSES.find(x => x.reference === 'Psalm 23:1')!;
-  it('layer 0 pre-fills all slots and empties the bank (study)', () => {
+  const v = KJV_VERSES.find(x => x.reference === 'John 3:16')!;
+  it('stage 0 pre-fills all slots and empties the bank (read-along)', () => {
     const p = buildTilePuzzle(v, 0, 1);
     expect(p.bank).toEqual([]);
     expect(p.slots.every(s => s.preFilled)).toBe(true);
-    expect(p.freeRecall).toBe(false);
+    expect(p.decoyCount).toBe(0);
   });
-  it('layer 1 puts all words in the bank, none pre-filled', () => {
-    const p = buildTilePuzzle(v, 1, 1);
+  it('stage 1 puts all words in the bank, none pre-filled, no decoys', () => {
+    const p = buildTilePuzzle(v, 1, 1, POOL);
     expect(p.slots.every(s => !s.preFilled)).toBe(true);
     expect(p.bank.length).toBe(v.text.split(' ').length);
+    expect(p.decoyCount).toBe(0);
+  });
+  it('stage 2 adds exactly 2 decoys not present in the verse', () => {
+    const p = buildTilePuzzle(v, 2, 1, POOL);
+    expect(p.decoyCount).toBe(2);
+    expect(p.bank.length).toBe(v.text.split(' ').length + 2);
   });
   it('is deterministic for a fixed seed', () => {
-    expect(buildTilePuzzle(v, 1, 42)).toEqual(buildTilePuzzle(v, 1, 42));
-  });
-  it('layer 5 is free recall (empty bank)', () => {
-    const p = buildTilePuzzle(v, 5, 1);
-    expect(p.freeRecall).toBe(true);
-    expect(p.bank).toEqual([]);
+    expect(buildTilePuzzle(v, 1, 42, POOL)).toEqual(buildTilePuzzle(v, 1, 42, POOL));
   });
 });
 ```
@@ -416,7 +452,7 @@ returns). C-2 depends on C-1 + the real A modules.
 | ID | Title | Files | Test | Acceptance | Depends |
 |----|-------|-------|------|------------|---------|
 | **C-1** | React host component | `src/components/Game.tsx` | `src/components/Game.test.tsx` (RTL, mocked engine) | Renders a full-viewport `<canvas>`; shows a loading state while the engine lazy-loads; shows an Exit button that navigates back to `/practice`; reads `kjv-theme` and passes theme to the engine; on unmount calls `engine.dispose()` (verify the mock was disposed); respects `prefers-reduced-motion` by passing a flag. Engine module is `React.lazy`-imported so it's not in the main bundle. | B-5, A-* (signatures) |
-| **C-2** | Babylon engine shell | `src/game/engine/LampGame.ts`, `src/game/engine/theme.ts`, `src/game/index.ts` | e2e only (no jsdom unit test — by design) | `LampGame` boots into a canvas, renders the parallax path + lamps + tile tray, handles pointer/touch drag AND keyboard (arrow+Enter) tile placement, reads pure modules for puzzle/score, calls the hook callbacks supplied by `Game.tsx`, syncs light/dark from `kjv-theme` + `kjv-storage-change`, disposes cleanly. **No branching logic in this file** — every decision goes through a pure module. | C-1, all A, B-2 |
+| **C-2** | Babylon engine shell | `src/game/engine/LampGame.ts`, `src/game/engine/theme.ts`, `src/game/index.ts` | e2e only (no jsdom unit test — by design) | `LampGame` boots into a canvas, renders the parallax path + lamps + tile tray, handles pointer/touch tap+drag tile placement (tap-only — no keyboard/typing/voice), reads pure modules for puzzle/score, calls the hook callbacks supplied by `Game.tsx` (incl. `onVerseChange(verse, stage)` and `onSessionComplete`), exposes `setStage(stage|null)` for the host's stage control, paints per-session lamps (unlit→lit; mastery/due NOT painted), syncs light/dark from `kjv-theme` + `kjv-storage-change`, disposes cleanly. **No branching logic in this file** — every decision goes through a pure module. | C-1, all A, B-2 |
 
 ---
 
@@ -425,7 +461,7 @@ returns). C-2 depends on C-1 + the real A modules.
 | ID | Title | Files | Acceptance | Depends |
 |----|-------|-------|------------|---------|
 | **D-1** | Game e2e: entry + a full lamp | `e2e/practice.spec.ts` (extend) or `e2e/game.spec.ts` (new) | From `/practice`, the "Lamp of the Path" card is visible and navigates to the full-page game; a lamp renders; completing a tile puzzle lights the lamp; exiting returns to Practice; progress is reflected in `kjv-memorize-progress` (assert via `page.evaluate(localStorage.getItem(...))`). | C-2, B-5 |
-| **D-2** | Game e2e: due-review + daily goal | same | A verse pre-seeded as due (via `localStorage` injection in the test) appears as a dimming/flickering lamp first; completing it advances the daily goal. | D-1 |
+| **D-2** | Game e2e: due-review + daily goal | same | A verse pre-seeded as due (via `localStorage` injection in the test) is ordered first in the session queue (due-first); completing it advances the daily goal. (Lamps are per-session and do not visually dim — Ideas §8.) | D-1 |
 | **D-3** | Mobile viewport e2e | same | Run a test with `projects` mobile viewport (Playwright iPhone preset) confirming drag-by-touch works and the HUD collapses to icons. | D-1 |
 
 ---
@@ -474,7 +510,8 @@ core of Phase 2/3**. Specifically:
   into the engine + a sound toggle in `GameState.settings`.
 - Phase 3 (Build-a-Road, region unlocks, Lantern Race) = regions.ts (A-4) +
   B-4 achievements + a Race sub-mode in the engine.
-- Phase 4 (voice) = voice.ts (A-5) + Web Speech glue in the engine.
+- Phase 4 (~~voice~~ chain) = voice was DROPPED; this phase is now the future
+  multi-verse "chain" reconstruction (Ideas §6.6), still tap-only.
 - Phase 5 (3D optional variant) = out of scope for this handoff.
 
 If the team wants a minimum-viable milestone, **stop after Phase 0** and let the
@@ -532,8 +569,8 @@ engine team needs them:
 2. **`'lamp-path'` as a 7th recommended card, or behind "Show all modes"?**
    Recommend: 7th recommended (it's the headline feature), and update the e2e
    "shows 6 recommended modes" expectation to 7.
-3. **Voice in v1?** Recommend: build `voice.ts` (A-5, cheap, pure) but defer the
-   Web Speech engine glue to Phase 4.
+3. **~~Voice in v1?~~ DROPPED.** Voice was removed entirely (tap-only
+   redesign); no `voice.ts`, no Web Speech glue, no `voice` setting.
 4. **Sound default.** Recommend: off by default (`settings.sound = false`),
    toggle in HUD.
 5. **Award `book-complete` / `testament-complete` by "all featured verses of a
@@ -562,9 +599,9 @@ but the source is authoritative.
 
 ### One-line summary for the agent fleet
 
-> Build `src/game/{types,scaffold,scoring,selection,regions,voice,state}.ts`
-> TDD-first (Vitest, fully parallel), wire them into the app via
+> Build `src/game/{types,scaffold,scoring,selection,regions,state}.ts` TDD-first
+> (Vitest, fully parallel), wire them into the app via
 > `src/components/Game.tsx` + a `/practice/game` route + an 8th mode card, keep
 > ALL logic out of the Babylon engine shell, run `bun run test:run` + `bun run
 > build` green at every step, and leave everything uncommitted for Glenn to
-> review.
+> review. (Voice was dropped — the game is tap-only at every stage.)

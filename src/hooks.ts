@@ -435,11 +435,12 @@ export function useUpdateProgressMutation() {
   });
 }
 
-// Persist a user-chosen Vanishing Cloze level override for a verse.
-// Pass `null` to clear the override and revert to the auto-computed level
-// (based on timesRecited).
+// Persist a user-chosen scaffold-stage override for a verse. Used by both the
+// Vanishing Cloze practice modes (levels 0–4) and the Lamp of the Path game
+// (stages 0–5). Pass `null` to clear the override and revert to the
+// auto-computed level (based on timesRecited).
 export function useSetClozeLevelMutation() {
-  return useMutation(async (args: { reference: string; level: 0 | 1 | 2 | 3 | 4 | null }) => {
+  return useMutation(async (args: { reference: string; level: 0 | 1 | 2 | 3 | 4 | 5 | null }) => {
     const { reference, level } = args;
     const progress = getProgress();
     const existing = progress.find((p: any) => p?.verse?.reference === reference);

@@ -36,7 +36,7 @@ const MODE_INFO: Record<PracticeMode, { label: string; description: string; icon
   'multiple-choice':           { label: 'Multiple Choice',           description: 'Select the correct verse text from four options',       icon: Award,     badge: undefined },
   'reference':                 { label: 'Reference Match',           description: 'Identify the correct reference for a verse',           icon: BookOpen,  badge: undefined },
   'recall':                    { label: 'Full Recall',               description: 'Type the complete verse from memory',                  icon: Target,    badge: 'Advanced' },
-  'lamp-path':                  { label: 'Lamp of the Path',          description: 'A game: light a path of lamps by recalling verses — drag the tiles into order', icon: Flame, badge: 'New', highlight: true },
+  'lamp-path':                  { label: 'Lamp of the Path',          description: 'A game: light a path of lamps by recalling verses — tap or drag the words into order', icon: Flame, badge: 'New', highlight: true },
 };
 
 // Fisher–Yates shuffle using JavaScript's built-in Math.random().

@@ -56,13 +56,12 @@ import type {
   DefaultTextData,
 } from '@babylonjs/lite';
 import type { KJVVerse } from '../../data/kjv-verses';
-import type { ProgressEntry, DueEntry, TilePuzzle } from '../types';
+import type { ProgressEntry, DueEntry, TilePuzzle, ScaffoldLayer } from '../types';
 import { selectNextLamps } from '../selection';
 import { getGameLayer, buildTilePuzzle } from '../scaffold';
 import { scoreTilePuzzle, performanceRating, computeXp, applyCombo, levelForXp } from '../scoring';
 import { loadGameState, saveGameState } from '../state';
 import { playTileSnapSound, playTileErrorSound, playLampLitSound } from './audio';
-import { scoreRecall } from '../../utils/practiceHelpers';
 import type { PerformanceRating } from '../scoring';
 import { paletteFor } from './theme';
 import type { GameTheme } from './theme';
@@ -75,13 +74,16 @@ export interface LampResolveResult {
   rating: PerformanceRating;
   fluent: boolean;
   usedHint: boolean;
+  /** XP earned for this resolve (already applied to the cosmetic game state). */
+  earnedXp: number;
 }
 
 export interface LampGameCallbacks {
   /** Called by the engine each time the player resolves a lamp. */
   onResolve: (result: LampResolveResult) => void;
-  /** Called when the active verse changes so host UI can sync state (e.g. Peek feature). */
-  onVerseChange?: (verse: KJVVerse) => void;
+  /** Called when the active verse (and its scaffold stage) changes so the host
+   *  UI can sync state (Peek feature, stage indicator/selector). */
+  onVerseChange?: (verse: KJVVerse, stage: ScaffoldLayer) => void;
   /** Called when all lamps in the session queue are lit. */
   onSessionComplete?: (stats: { totalXp: number; lampsLit: number; bestCombo: number }) => void;
 }
@@ -106,6 +108,10 @@ export interface LampGame {
   dispose(): void;
   /** Live-switch the palette when the user toggles dark mode. */
   setTheme(theme: GameTheme): void;
+  /** Override the current verse's scaffold stage and rebuild its puzzle
+   *  immediately. The host is responsible for persisting the override via
+   *  `useSetClozeLevelMutation`; this call only changes the live puzzle. */
+  setStage(stage: ScaffoldLayer | null): void;
   /** Optional getter for current puzzle state (used in E2E tests). */
   getPuzzle?(): TilePuzzle | null;
 }
@@ -230,6 +236,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   if (queue.length === 0) queue = opts.pool.slice(0, 12); // fallback: no due, goal done
   let queueIndex = 0;
 
+  // Candidate words (from every unlocked verse) from which decoy (wrong) tiles
+  // are drawn for stages ≥ 2. Built once per session from the host's pool.
+  const decoyPool: string[] = opts.pool.flatMap((v) => v.text.split(' '));
+
   // Current puzzle view state.
   let verse: KJVVerse | null = null;
   let puzzle: ReturnType<typeof buildTilePuzzle> | null = null;
@@ -246,9 +256,6 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let feedbackBgSprite: Sprite2DHandle | null = null;
   let slotBottomY = 220;
   let bankTopY = 500;
-  let typedLayer: TextLayer | null = null;
-  let typedData: DefaultTextData | null = null;
-  let typedText = '';
   let bgSprite: Sprite2DHandle | null = null;
   let pathSprite: Sprite2DHandle | null = null;
   let lampSprites: Sprite2DHandle[] = [];
@@ -257,6 +264,14 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let combo = 0;
   let puzzleStartMs = 0;
   let resolving = false;
+  // Player-chosen stage override for the CURRENT verse only. Set by `setStage`
+  // (host persists it via useSetClozeLevelMutation); cleared when a new verse
+  // is loaded so each verse starts at its own computed/auto stage.
+  let stageOverride: ScaffoldLayer | null = null;
+  // When true (set by setStage(null) = "Auto"), the auto stage ignores any
+  // persisted customClozeLevel so the verse reverts to a pure recitation-based
+  // stage. Reset when a new verse loads.
+  let ignorePersistedOverride = false;
   // When true, the incorrect-answer feedback banner is showing and the engine
   // is waiting for a tap to dismiss it and return the misplaced tiles to the bank.
   let awaitingRetryTap = false;
@@ -439,14 +454,6 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       removeSprite2D(feedbackBgSprite);
       feedbackBgSprite = null;
     }
-    if (typedLayer) {
-      removeTextRendererLayer(textRenderer, typedLayer);
-      typedLayer = null;
-    }
-    if (typedData) {
-      disposeDefaultTextData(typedData);
-      typedData = null;
-    }
     for (const ls of lampSprites) {
       removeSprite2D(ls);
     }
@@ -455,7 +462,6 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     tiles = [];
     puzzle = null;
     verse = null;
-    typedText = '';
     dragging = null;
     dragPointerId = null;
     awaitingRetryTap = false;
@@ -464,12 +470,20 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   function buildPuzzle(v: KJVVerse) {
     teardownPuzzle();
     verse = v;
-    opts.callbacks.onVerseChange?.(v);
 
     const boot = progressFor(v.reference);
     const timesRecited = sessionRecited.get(v.reference) ?? boot?.timesRecited ?? 0;
-    const layer = getGameLayer(timesRecited, (boot?.customClozeLevel ?? null) as any, boot?.status);
-    puzzle = buildTilePuzzle(v, layer, queueIndex + 1);
+    // A live override (from setStage) wins; otherwise the auto stage is computed
+    // from this session's recitations + the persisted override + mastered status.
+    // A live override (from setStage) wins; otherwise the auto stage is computed
+    // from this session's recitations + the persisted override + mastered status.
+    // When the player chose "Auto" (setStage(null)) the persisted override is
+    // deliberately ignored so the verse reverts to a pure recitation-based stage.
+    const customForAuto = ignorePersistedOverride ? null : (boot?.customClozeLevel ?? null);
+    const stage: ScaffoldLayer =
+      stageOverride ?? getGameLayer(timesRecited, customForAuto as any, boot?.status);
+    puzzle = buildTilePuzzle(v, stage, queueIndex + 1, decoyPool);
+    opts.callbacks.onVerseChange?.(v, stage);
 
     const [W, H] = canvasSize();
     const {
@@ -512,13 +526,14 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     headerLayer = createTextLayer(headerData, { positionPx: { x: (W - headerData.width) / 2, y: headerY } });
     addTextRendererLayer(textRenderer, headerLayer);
 
-    const isRecall = puzzle.freeRecall;
-    const isStudy = puzzle.bank.length === 0 && !puzzle.freeRecall;
-    const promptText = isRecall
-      ? 'Type the verse, then press Enter'
-      : isStudy
-        ? 'Read the verse — tap to continue'
-        : 'Tap or drag tiles into the verse';
+    const isStudy = puzzle.bank.length === 0; // stage 0 read-along: full verse pre-placed
+    // Per-stage instruction. Every stage clearly tells the player what to do and
+    // (for stages ≥ 2) how many decoy words are mixed into the bank.
+    const promptText = isStudy
+      ? 'Stage 0 — Read the verse, then tap to continue'
+      : puzzle.decoyCount > 0
+        ? `Stage ${puzzle.layer} — Tap the words in order (${puzzle.decoyCount} wrong words mixed in)`
+        : `Stage ${puzzle.layer} — Tap the words in order`;
     promptData = createDefaultTextData(font, promptFont, promptText, textColor(palette.accent), {
       align: 'center',
     });
@@ -527,10 +542,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     });
     addTextRendererLayer(textRenderer, promptLayer);
 
-    // HUD summary (Level, XP, Combo, Layer) — formatted compactly on narrow mobile viewports
+    // HUD summary (Level, XP, Combo, Stage) — formatted compactly on narrow mobile viewports
     const hudText = isMobile
-      ? `Lvl ${gameState.level} • ${gameState.xp} XP • Combo x${combo} • L${puzzle.layer}`
-      : `Level ${gameState.level}  •  ${gameState.xp} XP  •  Combo x${combo}  •  Layer ${puzzle.layer}`;
+      ? `Lvl ${gameState.level} • ${gameState.xp} XP • Combo x${combo} • Stage ${puzzle.layer}`
+      : `Level ${gameState.level}  •  ${gameState.xp} XP  •  Combo x${combo}  •  Stage ${puzzle.layer}`;
     hudData = createDefaultTextData(font, hudFont, hudText, textColor(palette.text, 0.8), { align: 'center' });
     hudLayer = createTextLayer(hudData, {
       positionPx: { x: (W - hudData.width) / 2, y: headerY + (isMobile ? 52 : 72) },
@@ -554,22 +569,20 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       });
     }
 
-    // Render lamp markers along the path
+    // Render lamp markers along the path. The path is a PER-SESSION journey:
+    // every lamp starts unlit and turns gold the moment the player resolves that
+    // verse this session. Lifetime mastery / due state is NOT painted here — it
+    // runs underneath for region unlocks + scheduling.
     const lampCount = queue.length;
     const lampStep = (W - 4 * margin) / Math.max(1, lampCount - 1);
     const activeIndex = Math.max(0, queueIndex - 1);
     for (let i = 0; i < lampCount; i++) {
       const qv = queue[i];
-      const qProgress = progressFor(qv.reference);
       const isCurrent = i === activeIndex;
       const isSessionLit = sessionLitRefs.has(qv.reference) || i < activeIndex;
-      const isMastered = qProgress?.status === 'mastered';
-      const isDue = opts.due.some((d) => d.verse.reference === qv.reference);
 
       let lampCol = spriteColor(palette.slotBorder, 0.6); // unlit slate
-      if (isMastered || isSessionLit) lampCol = spriteColor('#fbbf24', 1); // glowing gold flame!
-      else if (isDue) lampCol = spriteColor('#f59e0b', 0.9); // amber due review
-
+      if (isSessionLit) lampCol = spriteColor('#fbbf24', 1); // lit this session — gold flame
       if (isCurrent) lampCol = spriteColor(palette.accent, 1); // active highlight
 
       const lx = 2 * margin + i * lampStep;
@@ -648,8 +661,8 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       return view;
     });
 
-    // Tiles (bank) — only for tile modes.
-    if (!isRecall && !isStudy) {
+    // Tiles (bank) — only for tile stages (stage 0 read-along has no bank).
+    if (!isStudy) {
       const tileWidths = puzzle.bank.map(() => maxCellW);
 
       // Determine number of wrapped rows for bank tiles:
@@ -701,22 +714,8 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       });
     }
 
-    // Free-recall typed-answer layer.
-    if (isRecall) {
-      typedData = createDefaultTextData(font, WORD_FONT, ' ', textColor(palette.text));
-      typedLayer = createTextLayer(typedData, { positionPx: { x: areaX, y: slotAreaTop } });
-      addTextRendererLayer(textRenderer, typedLayer);
-      relayoutTyped();
-    }
-
     puzzleStartMs = performance.now();
     resolving = false;
-  }
-
-  function relayoutTyped() {
-    if (!typedLayer || !typedData) return;
-    const [W] = canvasSize();
-    typedLayer.positionPx = { x: (W - typedData.width) / 2, y: slotBottomY + 20 };
   }
 
   // Re-position everything for the current puzzle on resize.
@@ -808,13 +807,12 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     }
     if (resolving || !puzzle || !verse) return;
     const [x, y] = pointerPos(e);
-    const isStudy = puzzle.bank.length === 0 && !puzzle.freeRecall;
+    const isStudy = puzzle.bank.length === 0; // stage 0 read-along
     if (isStudy) {
-      // L0 read-along: any tap resolves.
+      // Stage 0 read-along: any tap resolves.
       resolveTilePuzzle();
       return;
     }
-    if (puzzle.freeRecall) return; // keyboard-driven
     const t = hitTile(x, y);
     if (!t) return;
     downX = x;
@@ -898,28 +896,6 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     return puzzle.slots.every((s) => s.preFilled || tiles.some((t) => t.placedSlotIndex === s.index));
   }
 
-  function onKeyDown(e: KeyboardEvent) {
-    if (resolving || !puzzle || !puzzle.freeRecall || !typedData || !typedLayer) return;
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      resolveRecall();
-      return;
-    }
-    if (e.key === 'Backspace') {
-      e.preventDefault();
-      typedText = typedText.slice(0, -1);
-    } else if (e.key === ' ') {
-      e.preventDefault();
-      typedText += ' ';
-    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      typedText += e.key;
-    } else {
-      return;
-    }
-    updateDefaultTextData(typedData, typedText + '▌');
-    relayoutTyped();
-  }
-
   // =========================================================================
   // Resolve + advance.
   // =========================================================================
@@ -949,7 +925,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     } else {
       playTileErrorSound();
     }
-    onResolve({ reference, correct, accuracy, rating, fluent, usedHint: false });
+    onResolve({ reference, correct, accuracy, rating, fluent, usedHint: false, earnedXp });
     return earnedXp;
   }
 
@@ -1088,15 +1064,6 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     resolving = false;
   }
 
-  function resolveRecall() {
-    if (!verse) return;
-    resolving = true;
-    const pct = scoreRecall(typedText, verse.text);
-    bumpRecited();
-    report(verse.reference, pct >= 70, pct);
-    nextPuzzle();
-  }
-
   function bumpRecited() {
     if (!verse) return;
     const boot = progressFor(verse.reference);
@@ -1130,7 +1097,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       headerLayer = createTextLayer(headerData, { positionPx: { x: (W - headerData.width) / 2, y: HEADER_Y } });
       addTextRendererLayer(textRenderer, headerLayer);
 
-      promptData = createDefaultTextData(font, PROMPT_FONT, 'Tap Exit above to view your summary', textColor(palette.text), { align: 'center' });
+      promptData = createDefaultTextData(font, PROMPT_FONT, 'Tap Play Again for a new journey, or Exit', textColor(palette.text), { align: 'center' });
       promptLayer = createTextLayer(promptData, { positionPx: { x: (W - promptData.width) / 2, y: HEADER_Y + 44 } });
       addTextRendererLayer(textRenderer, promptLayer);
       return;
@@ -1138,6 +1105,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
     const v = queue[queueIndex];
     queueIndex++;
+    // A new verse starts at its own auto stage; clear any override that was
+    // applied to the previous verse via setStage.
+    stageOverride = null;
+    ignorePersistedOverride = false;
     buildPuzzle(v);
   }
 
@@ -1159,7 +1130,6 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   const onUp = (e: PointerEvent) => onPointerUp(e);
   canvas.addEventListener('pointerup', onUp);
   canvas.addEventListener('pointercancel', onUp);
-  window.addEventListener('keydown', onKeyDown);
 
   // =========================================================================
   // Boot the render loop + first puzzle.
@@ -1179,6 +1149,15 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     else relayout();
   }
 
+  function setStage(stage: ScaffoldLayer | null) {
+    if (!verse) return;
+    // null = "Auto": revert to the recitation-based stage and ignore any
+    // persisted customClozeLevel for this verse. A concrete stage pins it.
+    stageOverride = stage;
+    ignorePersistedOverride = stage === null;
+    buildPuzzle(verse);
+  }
+
   function dispose() {
     if (disposed) return;
     disposed = true;
@@ -1187,7 +1166,6 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     canvas.removeEventListener('pointermove', onPointerMove);
     canvas.removeEventListener('pointerup', onUp);
     canvas.removeEventListener('pointercancel', onUp);
-    window.removeEventListener('keydown', onKeyDown);
     teardownPuzzle();
     unregisterTextRenderer(textRenderer);
     disposeSpriteRenderer(spriteRenderer);
@@ -1196,5 +1174,5 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
   (window as any).__lampGamePuzzle = () => puzzle;
 
-  return { dispose, setTheme, getPuzzle: () => puzzle };
+  return { dispose, setTheme, setStage, getPuzzle: () => puzzle };
 }

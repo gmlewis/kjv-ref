@@ -18,12 +18,12 @@ import type {
 describe('game types smoke', () => {
   it('constructs a ScaffoldLayer and LampState', () => {
     const layer: ScaffoldLayer = 3;
-    const state: LampState = 'mastered';
+    const state: LampState = 'lit';
     expect(layer).toBe(3);
-    expect(state).toBe('mastered');
+    expect(state).toBe('lit');
   });
 
-  it('constructs a TilePuzzle with slots and a bank', () => {
+  it('constructs a TilePuzzle with slots, a bank, and a decoyCount', () => {
     const puzzle: TilePuzzle = {
       layer: 1,
       reference: 'Psalm 23:1',
@@ -33,25 +33,40 @@ describe('game types smoke', () => {
       ],
       bank: [
         { id: 't0', word: 'The', display: 'The' },
-        { id: 't1', word: 'LORD', display: 'L' },
+        { id: 't1', word: 'LORD', display: 'LORD' },
       ],
-      freeRecall: false,
+      decoyCount: 0,
     };
     expect(puzzle.slots.length).toBe(2);
     expect(puzzle.bank.length).toBe(2);
-    expect(puzzle.freeRecall).toBe(false);
+    expect(puzzle.decoyCount).toBe(0);
   });
 
-  it('constructs a free-recall puzzle (empty bank)', () => {
+  it('constructs a stage-0 read puzzle (empty bank, pre-filled slots)', () => {
     const puzzle: TilePuzzle = {
-      layer: 5,
+      layer: 0,
       reference: 'John 3:16',
-      slots: [{ index: 0, word: 'For', preFilled: false }],
+      slots: [{ index: 0, word: 'For', preFilled: true }],
       bank: [],
-      freeRecall: true,
+      decoyCount: 0,
     };
     expect(puzzle.bank).toEqual([]);
-    expect(puzzle.freeRecall).toBe(true);
+    expect(puzzle.slots[0].preFilled).toBe(true);
+  });
+
+  it('constructs a decoy puzzle (bank larger than slot count)', () => {
+    const puzzle: TilePuzzle = {
+      layer: 3,
+      reference: 'John 3:16',
+      slots: [{ index: 0, word: 'For', preFilled: false }],
+      bank: [
+        { id: 't0', word: 'For', display: 'For' },
+        { id: 'd0', word: 'grace', display: 'grace' },
+      ],
+      decoyCount: 1,
+    };
+    expect(puzzle.bank.length).toBeGreaterThan(puzzle.slots.length);
+    expect(puzzle.decoyCount).toBe(1);
   });
 
   it('constructs ProgressEntry and DueEntry', () => {
@@ -61,7 +76,7 @@ describe('game types smoke', () => {
       timesRecited: 12,
       streak: 6,
       accuracy: 95,
-      customClozeLevel: 4,
+      customClozeLevel: 5,
     };
     const d: DueEntry = { verse: { reference: 'John 3:16' }, dueDate: '2026-08-01', interval: 7 };
     expect(p.status).toBe('mastered');
@@ -75,7 +90,7 @@ describe('game types smoke', () => {
       comboBest: 0,
       unlockedRegionIds: [],
       builtRoads: [],
-      settings: { sound: false, voice: false, motion: true },
+      settings: { sound: false, motion: true },
     };
     expect(s.settings.sound).toBe(false);
     expect(s.settings.motion).toBe(true);
@@ -83,8 +98,8 @@ describe('game types smoke', () => {
 
   it('uses SlotSpec and TileSpec as standalone types', () => {
     const slot: SlotSpec = { index: 0, word: 'The', preFilled: true };
-    const tile: TileSpec = { id: 't0', word: 'The', display: 'T' };
+    const tile: TileSpec = { id: 't0', word: 'The', display: 'The' };
     expect(slot.preFilled).toBe(true);
-    expect(tile.display).toBe('T');
+    expect(tile.display).toBe('The');
   });
 });

@@ -11,6 +11,7 @@ export type {
   LampGameCallbacks,
   LampResolveResult,
 } from './engine/LampGame';
+export type { ScaffoldLayer } from './types';
 
 export { paletteFor } from './engine/theme';
 export type { GameTheme, GamePalette } from './engine/theme';

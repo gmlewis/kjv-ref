@@ -172,22 +172,23 @@ only ever see as far as your mastery has earned.
 
 **Core loop (30–60 seconds):**
 
-1. **Approach** a lamp (walk/scroll to it). Its signpost shows the reference
-   (e.g. *John 3:16*) and its current state: unlit (new), lit (mastered), or
-   flickering (due for review).
-2. **Recall** the verse using the scaffolded tile mechanic (§6). The scaffold
-   level is auto-set by the verse's `timesRecited` / mastery, exactly like the
-   existing Vanishing Cloze ladder.
+1. **Approach** a lamp. Its signpost shows the reference (e.g. *John 3:16*).
+   Lamps are a **per-session journey**: all start unlit and light as you play
+   through the session's ~10–12 verses. Lifetime mastery and due state are
+   tracked silently underneath (for region unlocks and scheduling) but are
+   *not* painted on the path.
+2. **Recall** the verse using the tap/drag tile mechanic (§6). The scaffold
+   stage is auto-set by the verse's `timesRecited` / mastery; difficulty scales
+   by decoy count, never by typing or hiding words.
 3. **Resolve** — correct: the lamp flares to full light, the path brightens, a
    chime plays, XP/combo accrues. Wrong: the lamp dims, the correct verse is
    shown for study, no penalty beyond lost combo.
-4. **Advance** — the next lamp (next due/new verse) slides into view. The path
-   remembers everything.
+4. **Advance** — the next lamp (next due/new verse) slides into view. Starting
+   a new session lights a fresh set of lamps to aim for.
 
-**Why a path of lamps?** It maps the existing per-verse mastery states
-(`learning`/`reviewing`/`mastered`/due) onto something visible and emotional,
-it makes the spaced-repetition schedule *the gameplay* (return to re-light
-dimming lamps), and it scales infinitely — the path never runs out of room.
+**Why a path of lamps?** It gives each session a tangible goal — light 10–12
+lamps — and maps the existing per-verse mastery states onto something visible
+and emotional. It also scales infinitely — the path never runs out of room.
 
 ---
 
@@ -252,28 +253,42 @@ What makes it a *game* and not a worksheet:
   remaining problem gets visually simpler — a satisfying convergence.
 - **Slot affordance.** The tray shows faint slot guides sized to each word,
   giving just enough structure without giving the answer.
-- **Optional "first-letter" tiles.** At higher scaffold levels the tiles show
-  only the first letter (like First Letters mode) until placed, then reveal.
 
-### 6.2 The scaffold ladder (mirrors existing Vanishing Cloze levels)
+> **Design revision — tap-only, no typing, no voice.** The original v1 design
+> had higher scaffold levels hide words, show first letters, or require
+> typing/voice. That fails the brief: on a phone there is no comfortable
+> keyboard, and in most environments the player cannot speak aloud. The game
+> is now **tap/drag-only at every stage**. Difficulty scales *only* by adding
+> **decoy (wrong) words** to the tile bank — never by hiding words, showing
+> first letters, or asking the player to type. A future revision may add
+> multi-verse "chain" reconstruction (see §6.6) as an additional difficulty
+> axis; it will also remain tap-only.
 
-The game reuses `getVanishingClozeLevel(timesRecited)` so a verse the player has
-never seen starts easy and gets harder as they master it — **identical
-progression to the existing app**, just rendered as tiles:
+### 6.2 The scaffold ladder (tap-only; difficulty = decoy count)
 
-| Game layer | Equivalent existing mode | What the player sees | Retrieval depth |
+The game reuses the `timesRecited`-based ladder so a verse the player has
+never seen starts easy and gets harder as they master it. Each stage is
+clearly explained to the player, including how many decoy words have been
+added. **Every stage is tap/drag-only — no typing, no voice, no hidden words:**
+
+| Stage | Name | What the player sees | Decoys |
 |---|---|---|---|
-| **L0 – Study** | Vanishing Cloze L0 (Study) | Full verse shown, tiles pre-placed in order; player reads and taps "Light it" (≈ "Got it") | Reading |
-| **L1 – Order** | Word Bank | All word tiles visible, shuffled; drag into order | Recognition + ordering |
-| **L2 – First-letter order** | First Letters + Word Bank | Tiles show only first letters; drag into order | Cued recall |
-| **L3 – Cloze tiles** | Simplified Vanishing Cloze | Most words pre-placed; the blanked words are tiles you drag from a bank (bank shows full word) | Cued recall, partial |
-| **L4 – First-letter cloze** | (new hybrid) | Blanked words are tiles showing only first letters | Near-free recall |
-| **L5 – Free recall** | Full Recall | Empty tray; player types (desktop) or speaks (mobile) the verse, or drags from a bank of *all* first-letter tiles | Free recall |
+| **0** | Read | Full verse shown, tiles pre-placed in order; player reads and taps to continue | 0 |
+| **1** | Order | All word tiles visible, shuffled; tap/drag into order | 0 |
+| **2** | Order + decoys | Tap/drag into order, with 2 wrong words mixed into the bank | 2 |
+| **3** | Order + decoys | …4 wrong words mixed in | 4 |
+| **4** | Order + decoys | …6 wrong words mixed in | 6 |
+| **5** | Order + decoys | …8 wrong words mixed in | 8 |
 
-L5 is the only layer that needs text/voice entry; on mobile it defaults to
-**voice** (see §6.4) to avoid the on-screen keyboard, on desktop to **typing**
-(reusing the existing `scoreRecall` ≥80% logic). The player can always drop
-back a layer with a "hint" button (costs combo, not correctness).
+The stage for a verse is decided by `getGameLayer(timesRecited, customLevel,
+status)` in `src/game/scaffold.ts`: a player-chosen override (`customClozeLevel`,
+0–5) **always wins** — even over `mastered` — so the player can drop any verse
+back to any stage, including stage 0, and have it remembered (mirrors the
+Vanishing Cloze override, now extended to cover stage 5). Otherwise a `mastered`
+verse is presented at stage 5; failing that the stage auto-advances with
+`timesRecited` (0→0, 1–2→1, 3–4→2, 5–6→3, 7–9→4, 10+→5). Decoys are drawn from
+the pool of all unlocked verses' words via a seeded PRNG so a given puzzle is
+reproducible.
 
 ### 6.3 The fluency timer (the missing ingredient)
 
@@ -288,21 +303,15 @@ A soft, non-punishing timer creates flow and pushes recall toward automaticity:
   smoothly?" beat, not a "hurry or lose" beat. It adds the automaticity
   dimension the app currently lacks without making the game anxious.
 
-### 6.4 Voice recite (mobile-first free recall)
+### 6.4 Voice recite — DROPPED
 
-Reciting aloud is one of the strongest memorization techniques and is awkward
-to score. For L5 on mobile (and opt-in on desktop), the game offers a
-**"Recite" button** that opens the Web Speech API (`SpeechRecognition`) and
-listens while the player speaks the verse. Because KJV phrasing is archaic,
-speech recognition will be imperfect, so the game uses a **forgiving fuzzy
-match**: it normalizes both transcript and verse with the *same* normalization
-`checkWordBankAnswer` already uses (lowercase, strip non-alpha), then requires
-a high word-overlap threshold (e.g. ≥85% of verse words present, in any order
-tolerant of a couple transpositions). If speech is unavailable or the match is
-ambiguous, it falls back to a **self-confirm** ("Did you say it correctly?
-Yes / Show me") — honest, not gameable for progress, and still forces the
-retrieval attempt (which is what drives memory). Voice is clearly marked
-experimental in v1.
+Voice recite was originally planned for mobile free recall. It has been
+**dropped entirely**: most players are rarely in an environment where they
+can speak aloud to their phone without disturbing others, and the game is now
+tap-only at every stage (§6.2). There is no voice/typing entry path in the
+game, no Web Speech dependency, and no `voice` setting. Reciting aloud
+remains a good memorization technique a player can do on their own — the game
+simply does not require or score it.
 
 ### 6.5 Combo & flow
 
@@ -311,6 +320,17 @@ visuals livelier (brighter flares, faster parallax, a rising melodic chime).
 A wrong answer resets combo to 0 but nothing else — combos are a *reward for
 mastery*, not a punishment for failure, keeping the mood encouraging (matching
 the app's existing "Keep practicing" tone).
+
+### 6.6 Future difficulty axis — multi-verse "chain" reconstruction (not yet built)
+
+Decoy count is the only difficulty axis in v1. A second, still-tap-only axis is
+planned: at the highest levels, instead of one verse the player reconstructs a
+short **chain** of consecutive verses (e.g. *Psalm 23:1 → 23:2 → 23:3*) from a
+single mixed bank — more words, more decoys, and the player must also recover
+verse boundaries. This rewards players who want a harder challenge without
+reintroducing typing, voice, or hidden words. It is documented here as a
+future enhancement; the current implementation is decoy-escalation only
+(stages 0–5).
 
 ---
 
@@ -373,23 +393,23 @@ mastery — not an arbitrary cap — decides how much is active at once.
 
 ## 8. Integration with spaced repetition & due reviews
 
-The game does **not** invent a new schedule. It renders the existing one:
+The game does **not** invent a new schedule. It reuses the existing one,
+silently, underneath the per-session lamp journey:
 
-- **Dimming lamps = due reviews.** A mastered lamp's glow slowly decays as its
-  `nextReview` approaches; when `now >= nextReview` it flickers and is queued
-  at the front of the session. Re-lighting it (a correct recall) calls the
-  existing `useUpsertReviewScheduleMutation` to push `nextReview` out by the
-  streak-based interval. The visible decay makes the abstract schedule
-  *tactile*: you can *see* your memory fading and act on it.
-- **Performance → schedule quality.** A fast, no-hint, first-try correct
-  recite maps to `excellent` (longer interval); a correct-with-hint or slow
-  recall maps to `good`; a wrong recall maps to `poor` (interval reset). This
-  uses the `calculateNextReview` performance grades already in
-  `spacedRepetition.ts`, even though the live hook currently uses the simpler
-  streak formula — the game can be the excuse to wire the richer SM-2 path in.
-- **Mastery state → lamp appearance.** `learning` = unlit/sputtering,
-  `reviewing` = half-lit, `mastered` = steady bright flame. The status is read
-  from the same `kjv-memorize-progress` entries the other modes write.
+- **Per-session lamps.** The lamps on the path are a *session* journey, not a
+  lifetime map: all start unlit and light as you play through ~10–12 verses.
+  Starting a new session lights a fresh set. Lifetime mastery and due state
+  are tracked underneath but are **not** painted on the path (this avoids the
+  confusion of a verse appearing "already lit" on a fresh game).
+- **Due reviews still drive ordering.** The session's verse queue is still
+  built due-first, then least-practiced (§7.2), so re-lighting due verses is
+  the day's main job — the lamps just no longer visually *dim* in the world.
+  Re-lighting a due verse calls the existing `useUpsertReviewScheduleMutation`
+  to push `nextReview` out by the streak-based interval.
+- **Per-verse progress is unified.** Every resolved lamp calls
+  `useUpdateProgressMutation` with `correct: boolean`, so `timesRecited`,
+  `streak`, `accuracy`, and `status` update identically to the other modes.
+  A verse mastered in the game is mastered in Word Bank, and vice versa.
 
 ---
 
@@ -515,14 +535,16 @@ addition is one optional key for game-only cosmetics:
   - `kjv-memorize-daily-goal` — game respects and increments it.
 - **New (optional, cosmetic only):**
   - `kjv-game-state` — `{ xp, level, comboBest, unlockedRegions[],
-    builtRoads[], settings: {sound, voice, motion} }`. If absent, the game
-    derives everything from `kjv-memorize-progress` (so even with a fresh
-    browser, a player who already mastered verses elsewhere sees the right
-    lamps lit). This key is included in `settingsTransfer` export/import so it
-    travels with the rest of the user's data.
+    builtRoads[], settings: {sound, motion} }` (voice was dropped — §6.4). If
+    absent, the game derives everything from `kjv-memorize-progress` (so even
+    with a fresh browser, a player who already mastered verses elsewhere sees
+    the right lamps lit). This key is included in `settingsTransfer`
+    export/import so it travels with the rest of the user's data.
 
-This means **a verse mastered in any of the 7 existing modes is already lit in
-the game on first launch**, and vice versa — unified progress by construction.
+This means **a verse mastered in any of the 7 existing modes contributes to
+the game's region unlocks and session ordering**, and vice versa — unified
+progress by construction. (The lamps themselves are per-session, not a
+mastery map — see §8.)
 
 ---
 
@@ -547,24 +569,23 @@ not awarded*:
 
 ## 15. Accessibility, performance & offline
 
-- **Keyboard play.** Mouse and touch share the drag mechanic; for keyboard,
-  tiles are focusable and moved to the tray with arrow + Enter/Space (mirrors
-  the existing arrow-key navigation in Simplified Vanishing Cloze). The whole
-  game is playable without a pointer.
+- **Tap/drag play.** Mouse and touch share the same tap/drag tile mechanic, so
+  the game is input-agnostic by construction — no on-screen keyboard, no
+  voice, no separate control schemes to maintain. The whole game is playable
+  with a single pointer.
 - **Reduced motion.** Respect `prefers-reduced-motion`: disable parallax,
   shorten flares, kill screen shake. The game remains fully playable.
 - **Text size.** Honor `kjv-verse-font-size` for tile text, so the player's
   existing preference carries in.
-- **Color-blind safe.** Lamp states use shape + label (lit/flickering/unlit
-  icons) in addition to color, not color alone.
+- **Color-blind safe.** Lamp states use shape + label (lit/unlit icons) in
+  addition to color, not color alone.
 - **Performance.** 2D Babylon, few dozen sprites, no per-frame heavy work;
   target 60fps on mid-range phones. Dispose scene on unmount. Cap DPR at 2 to
   avoid retina fill blowups.
 - **Offline.** The app is already static and works offline once cached; the
   Babylon bundle is just another static asset. Verse data already ships as
   static JSON / `kjv.txt`. The game works fully offline, consistent with the
-  privacy/no-backend promise. Voice recite needs the browser's on-device
-  recognizer (varies by browser/OS) and degrades gracefully to self-confirm.
+  privacy/no-backend promise. (No voice dependency remains.)
 
 ---
 
@@ -603,16 +624,18 @@ A suggested sequence so the game is useful at every step, not just at the end:
   Deliverable: a playable, ugly-but-real tile mode that unifies with existing
   progress. (This alone is a useful 8th mode.)
 - **Phase 1 — The path.** Add the scrolling landscape, lamp placement, the
-  scaffold ladder (L0–L5) driven by `timesRecited`, due-review dimming, and
-  the Journey sub-mode. Deliverable: the core stewardship loop.
+  tap-only scaffold ladder (stages 0–5) driven by `timesRecited`, per-session
+  lamps, and the Journey sub-mode. Deliverable: the core stewardship loop.
 - **Phase 2 — Fluency.** Add the gentle timer, combo, XP/level cosmetics,
-  sound + juice. Deliverable: the "game feel."
+  sound + juice, the session-summary overlay, and the stage-control UI.
+  Deliverable: the "game feel."
 - **Phase 3 — Expansion.** "Build a Road" (bookmark/full-Bible branches),
   mastery-gated region unlocks, Lantern Race sub-mode. Deliverable: scales
   beyond 41 verses and finally awards `book-complete` /
   `testament-complete`.
-- **Phase 4 — Voice.** Web Speech recite for L5 mobile, with fuzzy match +
-  self-confirm fallback. Deliverable: mobile-first free recall.
+- **Phase 4 — Chain (future).** Multi-verse "chain" reconstruction (§6.6) as
+  an additional, still-tap-only difficulty axis. Deliverable: a harder
+  challenge for advanced players without typing or voice.
 - **Phase 5 — Polish/3D option.** Reduced-motion, full a11y pass, optional
   Godot 3D variant as a premium toggle if desired.
 
@@ -655,9 +678,11 @@ mastery-gated expansion, and being equally playable on touch and mouse.
   code-split + lazy load only when the game is opened; benchmark on mobile
   before committing. If unacceptable, a hand-rolled Canvas2D implementation of
   the same mechanic is viable (the drag/tile logic needs no engine).
-- **Speech recognition quality on KJV text.** Archaic vocabulary will
-  mis-transcribe. Mitigation: fuzzy match + self-confirm fallback; keep voice
-  optional and clearly experimental; never block progress on it.
+- **Decoy-pool scaling.** Decoys are drawn from all unlocked verses' words; as
+  the pool grows, ensuring decoys are plausibly "wrong" (not accidentally the
+  verse's own words, not trivially rejectable) needs the normalized exclusion
+  in `pickDecoys`. Mitigation: seeded PRNG for reproducibility; degrade
+  gracefully (fewer decoys) when the pool is small.
 - **Unifying `mode` in session records.** The existing union collapses to
   `'recall' | 'multiple-choice' | 'reference' | 'fill-blank'`. Decide whether
   to add a `'game'` bucket (cleaner stats) or map to `'fill-blank'` (no schema
@@ -677,13 +702,14 @@ mastery-gated expansion, and being equally playable on touch and mouse.
 ### One-paragraph pitch
 
 *Lamp of the Path* is a 2D, full-page Babylon Lite game that turns the app's
-existing Vanishing-Cloze mastery ladder into a tactile drag-the-tiles-into-order
-recall mechanic — equally fun on a phone and a mouse — and lays every verse you
-master down as a lit lamp along a walking path through a scriptural landscape.
-Your spaced-repetition due dates become *dimming lamps you return to re-light*,
-your mastery becomes *a growing road you defend*, and new verses unlock only as
-you master what you have — so the pool scales from the curated 41 all the way to
-the whole Bible without ever overwhelming you. It plugs into the exact same
-`localStorage` progress, sessions, achievements, and spaced-repetition schedule
-as the other seven modes, so a verse mastered in the game is mastered
-everywhere — a true eighth practice mode, not a separate app.
+mastery ladder into a tactile **tap-or-drag the words into order** recall
+mechanic — equally fun on a phone and a mouse, with **no typing and no voice at
+any stage** — and lays every verse you play in a session down as a lit lamp
+along a walking path through a scriptural landscape. Difficulty scales by
+adding decoy (wrong) words to the bank, the lamps are a fresh per-session
+journey to light, and new verses unlock only as you master what you have — so
+the pool scales from the curated 41 all the way to the whole Bible without ever
+overwhelming you. It plugs into the exact same `localStorage` progress,
+sessions, achievements, and spaced-repetition schedule as the other seven
+modes, so a verse mastered in the game is mastered everywhere — a true eighth
+practice mode, not a separate app.

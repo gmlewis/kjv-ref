@@ -148,15 +148,18 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     expect(exitBox!.x + exitBox!.width).toBeLessThanOrEqual(412);
   });
 
-  test('D-7: Bank tiles display full words across progression layers (regression check)', async ({ page }) => {
+  test('D-7: Bank tiles display full words across progression stages (regression check)', async ({ page }) => {
     await openApp(page, '/kjv-ref/practice');
 
-    // Pre-seed progress for Exodus 20:3 (first starter verse) at customClozeLevel 2
+    // Pre-seed Genesis 1:1 (the first starter verse, so it stays first in the
+    // queue) at customClozeLevel 2 (= stage 2: order + 2 decoys) while leaving
+    // timesRecited at 0 so it does not sort behind other never-practiced verses.
+    // The override makes the very first puzzle a tile puzzle with full-word bank.
     await page.evaluate(() => {
       localStorage.setItem(
         'kjv-memorize-progress',
         JSON.stringify([
-          { verse: { reference: 'Exodus 20:3' }, status: 'learning', timesRecited: 1, streak: 1, accuracy: 100, customClozeLevel: 2 },
+          { verse: { reference: 'Genesis 1:1' }, status: 'learning', timesRecited: 0, streak: 0, accuracy: 0, customClozeLevel: 2 },
         ]),
       );
     });
@@ -168,9 +171,9 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     // Wait for game engine context to be fully booted
     await page.waitForFunction(() => typeof (window as any).__lampGamePuzzle === 'function', { timeout: 15000 });
 
-    // Tap canvas to advance past L0 study card to tile puzzle mode if initial state is study
-    await page.waitForTimeout(500);
-    await canvas.click();
+    // The first puzzle is stage 2 (customClozeLevel override), so it is already a
+    // tile puzzle — no stage-0 read-along to tap through. A background tap is a
+    // no-op when no tile is hit; wait briefly for layout to settle.
     await page.waitForTimeout(500);
 
     // Verify tile bank words in engine puzzle state

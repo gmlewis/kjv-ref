@@ -1,45 +1,51 @@
 // Shared types for the "Lamp of the Path" game mode.
 //
 // This file is the contract every pure game module codes against. It is
-// intentionally logic-free so that Stream A modules (scaffold, scoring,
-// selection, regions, voice, state) can be built in parallel against a fixed
-// shape. See `PracticeModeGameHandoff.md` §4 for the locked interface.
+// intentionally logic-free so that the Stream A modules (scaffold, scoring,
+// selection, regions, state) can be built in parallel against a fixed shape.
+// See `PracticeModeGameHandoff.md` §4 for the locked interface.
 
-/** Scaffold layer a verse is presented at, mirroring the Vanishing Cloze ladder.
- *  0 Study · 1 Order (Word Bank) · 2 First-letter order · 3 Cloze tiles
- *  4 First-letter cloze · 5 Free recall (type/speak) */
+/** Scaffold stage a verse is presented at. The game is **tap-only** (no typing,
+ *  no voice): difficulty scales by adding DECOY words to the bank, never by
+ *  hiding words or asking the player to type.
+ *  0 Read · 1 Order · 2 Order + 2 decoys · 3 Order + 4 decoys
+ *  4 Order + 6 decoys · 5 Order + 8 decoys */
 export type ScaffoldLayer = 0 | 1 | 2 | 3 | 4 | 5;
 
-/** Visual/behavioural state of a lamp on the path. `due` overlays `mastered`
- *  when a mastered verse's spaced-repetition review has come due. */
-export type LampState = 'unlit' | 'learning' | 'reviewing' | 'mastered' | 'due';
+/** Visual state of a lamp on the path. The path is a **per-session** journey:
+ *  every lamp starts `unlit` and turns `lit` when the player resolves that verse
+ *  during the current session. Lifetime mastery / due state is tracked under
+ *  the hood (for region unlocks + scheduling) but is NOT painted on the path. */
+export type LampState = 'unlit' | 'lit';
 
 /** A single slot in the tile tray: the target word at this position, and
- *  whether it is already shown (study / cloze pre-filled) or awaiting a tile. */
+ *  whether it is already shown (stage 0 read-along) or awaiting a tile. */
 export interface SlotSpec {
   index: number;
   word: string;
   preFilled: boolean;
 }
 
-/** A draggable tile. `display` is what the player sees — the full word, or just
- *  the first letter at higher scaffold layers. `id` is stable for drag/drop. */
+/** A tappable tile. `display` is what the player sees — always the full word
+ *  (the game never shows first-letter-only tiles). `id` is stable for tap/drag. */
 export interface TileSpec {
   id: string;
   word: string;
   display: string;
 }
 
-/** A complete tile puzzle for one verse at one scaffold layer. */
+/** A complete tile puzzle for one verse at one scaffold stage. */
 export interface TilePuzzle {
   layer: ScaffoldLayer;
   reference: string;
-  /** Target order; preFilled slots are already shown to the player. */
+  /** Target order; preFilled slots are already shown to the player (stage 0). */
   slots: SlotSpec[];
-  /** Tiles the player drags in (shuffled). Empty for study (L0) and free recall (L5). */
+  /** Tiles the player taps in (shuffled). For stages ≥ 2 this includes decoy
+   *  words that do NOT belong to the verse; the player must avoid placing them.
+   *  Empty for stage 0 (read-along). */
   bank: TileSpec[];
-  /** For layer 5: the puzzle is "free recall" — bank is empty, host shows typing/voice. */
-  freeRecall: boolean;
+  /** How many decoy (wrong) words are mixed into the bank. 0 for stages 0–1. */
+  decoyCount: number;
 }
 
 /** A progress entry as read from `kjv-memorize-progress` via `useMyProgress`. */
@@ -49,7 +55,8 @@ export interface ProgressEntry {
   timesRecited: number;
   streak: number;
   accuracy: number;
-  customClozeLevel?: 0 | 1 | 2 | 3 | 4;
+  /** Player-chosen scaffold stage override (0–5). `null`/absent = auto from timesRecited. */
+  customClozeLevel?: 0 | 1 | 2 | 3 | 4 | 5;
 }
 
 /** A due-review entry as read from `kjv-memorize-review-schedule` via `useDueReviews`. */
@@ -69,5 +76,5 @@ export interface GameState {
   unlockedRegionIds: string[];
   /** Branch roads the player has built; each is an array of reference strings. */
   builtRoads: string[][];
-  settings: { sound: boolean; voice: boolean; motion: boolean };
+  settings: { sound: boolean; motion: boolean };
 }

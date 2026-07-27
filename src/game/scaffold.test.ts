@@ -1,80 +1,91 @@
 import { describe, it, expect } from 'vitest';
-import { getGameLayer, buildTilePuzzle } from './scaffold';
+import { getGameLayer, buildTilePuzzle, decoyCountFor } from './scaffold';
 import { KJV_VERSES } from '../data/kjv-verses';
+
+// A small decoy pool drawn from other verses' words, used for stages ≥ 2.
+const POOL = KJV_VERSES.flatMap((v) => v.text.split(' '));
 
 describe('getGameLayer', () => {
   it('returns 0 for a never-practiced verse', () => {
     expect(getGameLayer(0)).toBe(0);
   });
-  it('returns 4 at 10+ recitations', () => {
-    expect(getGameLayer(10)).toBe(4);
+  it('auto-advances with recitation count', () => {
+    expect(getGameLayer(1)).toBe(1);
+    expect(getGameLayer(2)).toBe(1);
+    expect(getGameLayer(3)).toBe(2);
+    expect(getGameLayer(5)).toBe(3);
+    expect(getGameLayer(7)).toBe(4);
+    expect(getGameLayer(10)).toBe(5);
   });
-  it('honors a custom override', () => {
+  it('honors a custom override (even over mastered)', () => {
     expect(getGameLayer(0, 3)).toBe(3);
+    expect(getGameLayer(20, 0, 'mastered')).toBe(0); // override beats mastered
   });
-  it('promotes to free-recall (5) when mastered', () => {
+  it('promotes to stage 5 when mastered with no override', () => {
     expect(getGameLayer(12, null, 'mastered')).toBe(5);
   });
-  it('respects cloze level boundaries', () => {
-    expect(getGameLayer(1)).toBe(1);
-    expect(getGameLayer(5)).toBe(2);
-    expect(getGameLayer(9)).toBe(3);
+});
+
+describe('decoyCountFor', () => {
+  it('is 0 for stages 0 and 1, then grows by 2 per stage', () => {
+    expect(decoyCountFor(0)).toBe(0);
+    expect(decoyCountFor(1)).toBe(0);
+    expect(decoyCountFor(2)).toBe(2);
+    expect(decoyCountFor(3)).toBe(4);
+    expect(decoyCountFor(4)).toBe(6);
+    expect(decoyCountFor(5)).toBe(8);
   });
 });
 
 describe('buildTilePuzzle', () => {
-  const v = KJV_VERSES.find(x => x.reference === 'John 3:16')!;
+  const v = KJV_VERSES.find((x) => x.reference === 'John 3:16')!;
+  const wordCount = v.text.split(' ').length;
 
-  it('layer 0 pre-fills all slots and empties the bank (study)', () => {
+  it('stage 0 pre-fills all slots and empties the bank (read-along)', () => {
     const p = buildTilePuzzle(v, 0, 1);
     expect(p.bank).toEqual([]);
-    expect(p.slots.every(s => s.preFilled)).toBe(true);
-    expect(p.freeRecall).toBe(false);
+    expect(p.slots.every((s) => s.preFilled)).toBe(true);
+    expect(p.decoyCount).toBe(0);
   });
 
-  it('layer 1 puts all words in the bank, none pre-filled', () => {
-    const p = buildTilePuzzle(v, 1, 1);
-    expect(p.slots.every(s => !s.preFilled)).toBe(true);
-    expect(p.bank.length).toBe(v.text.split(' ').length);
-    expect(p.bank.every(t => t.display === t.word)).toBe(true);
+  it('stage 1 puts all words in the bank, none pre-filled, no decoys', () => {
+    const p = buildTilePuzzle(v, 1, 1, POOL);
+    expect(p.slots.every((s) => !s.preFilled)).toBe(true);
+    expect(p.bank.length).toBe(wordCount);
+    expect(p.decoyCount).toBe(0);
+    expect(p.bank.every((t) => t.display === t.word)).toBe(true);
   });
 
-  it('layer 2 bank tiles show full words', () => {
-    const p = buildTilePuzzle(v, 2, 1);
-    expect(p.bank.every(t => t.display === t.word)).toBe(true);
+  it('stage 2 adds exactly 2 decoys not present in the verse', () => {
+    const p = buildTilePuzzle(v, 2, 1, POOL);
+    expect(p.decoyCount).toBe(2);
+    expect(p.bank.length).toBe(wordCount + 2);
+    const verseWords = new Set(v.text.split(' ').map((w) => w.toLowerCase().replace(/[^a-z0-9]/g, '')));
+    const decoys = p.bank.filter((t) => t.id.startsWith('d'));
+    expect(decoys.length).toBe(2);
+    expect(decoys.every((d) => !verseWords.has(d.word.toLowerCase().replace(/[^a-z0-9]/g, '')))).toBe(true);
+  });
+
+  it('stage 5 adds 8 decoys', () => {
+    const p = buildTilePuzzle(v, 5, 1, POOL);
+    expect(p.decoyCount).toBe(8);
+    expect(p.bank.length).toBe(wordCount + 8);
+  });
+
+  it('decoy count degrades gracefully when the pool is empty', () => {
+    const p = buildTilePuzzle(v, 5, 1, []);
+    expect(p.decoyCount).toBe(0);
+    expect(p.bank.length).toBe(wordCount);
   });
 
   it('is deterministic for a fixed seed', () => {
-    expect(buildTilePuzzle(v, 1, 42)).toEqual(buildTilePuzzle(v, 1, 42));
+    expect(buildTilePuzzle(v, 1, 42, POOL)).toEqual(buildTilePuzzle(v, 1, 42, POOL));
+    expect(buildTilePuzzle(v, 3, 7, POOL)).toEqual(buildTilePuzzle(v, 3, 7, POOL));
   });
 
-  it('different seeds can produce different bank orders', () => {
-    // not guaranteed for very short verses, so just assert determinism holds
-    expect(buildTilePuzzle(v, 1, 1)).toEqual(buildTilePuzzle(v, 1, 1));
-  });
-
-  it('layer 5 is free recall (empty bank)', () => {
-    const p = buildTilePuzzle(v, 5, 1);
-    expect(p.freeRecall).toBe(true);
-    expect(p.bank).toEqual([]);
-  });
-
-  it('layer 3 blanks match getVanishingClozeMask count', () => {
-    const p = buildTilePuzzle(v, 3, 1);
-    const blankCount = p.slots.filter(s => !s.preFilled).length;
-    const expected = Math.max(1, Math.round(v.text.split(' ').length * 0.5));
-    expect(blankCount).toBe(expected);
-    expect(p.bank.length).toBe(expected);
-  });
-
-  it('layer 4 blanks match getVanishingClozeMask count', () => {
-    const p = buildTilePuzzle(v, 4, 1);
-    const blankCount = p.slots.filter(s => !s.preFilled).length;
-    const expected = Math.max(1, Math.round(v.text.split(' ').length * 0.75));
-    expect(blankCount).toBe(expected);
-  });
-
-  it('preserves the reference on the puzzle', () => {
-    expect(buildTilePuzzle(v, 1, 1).reference).toBe('John 3:16');
+  it('preserves the reference and stage on the puzzle', () => {
+    const p = buildTilePuzzle(v, 4, 1, POOL);
+    expect(p.reference).toBe('John 3:16');
+    expect(p.layer).toBe(4);
   });
 });

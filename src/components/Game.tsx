@@ -19,12 +19,13 @@ import {
   useCreateSessionMutation,
   useAwardAchievementMutation,
   useUpdateDailyGoalMutation,
+  useSetClozeLevelMutation,
 } from '../hooks';
 import { getDailyGoal } from '../storage';
 import { starterRegions, unlockedRegions } from '../game/regions';
 import { loadGameState, saveGameState } from '../game/state';
 import { setAudioMuted } from '../game/engine/audio';
-import type { GameTheme, LampResolveResult } from '../game';
+import type { GameTheme, LampResolveResult, ScaffoldLayer } from '../game';
 
 type Theme = GameTheme;
 
@@ -34,14 +35,27 @@ function currentTheme(): Theme {
 
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const engineRef = useRef<{ dispose: () => void; setTheme: (t: Theme) => void } | null>(null);
+  const engineRef = useRef<{
+    dispose: () => void;
+    setTheme: (t: Theme) => void;
+    setStage: (stage: ScaffoldLayer | null) => void;
+  } | null>(null);
 
+  // bootKey lets "Play Again" dispose + reboot the engine from scratch.
+  const [bootKey, setBootKey] = useState(0);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [soundEnabled, setSoundEnabled] = useState(() => loadGameState().settings.sound);
   const defaultVerse = starterRegions()[0]?.verses[0];
   const [showPeek, setShowPeek] = useState(false);
   const [activeRef, setActiveRef] = useState<string>(() => defaultVerse?.reference ?? '');
   const [activeText, setActiveText] = useState<string>(() => defaultVerse?.text ?? '');
+  // Current scaffold stage of the verse on screen (null = auto-computed).
+  const [activeStage, setActiveStage] = useState<ScaffoldLayer | null>(null);
+  // Whether the current verse has a persisted stage override (so the "Auto"
+  // chip can show as active when no override is set).
+  const [stageOverride, setStageOverride] = useState<ScaffoldLayer | null>(null);
+  // Session summary shown when onSessionComplete fires.
+  const [summary, setSummary] = useState<{ totalXp: number; lampsLit: number; bestCombo: number } | null>(null);
 
   useEffect(() => {
     setAudioMuted(!soundEnabled);
@@ -64,6 +78,7 @@ export default function Game() {
   const { mutate: doCreateSession } = useCreateSessionMutation();
   const { mutate: doAwardAchievement } = useAwardAchievementMutation();
   const { mutate: doUpdateDailyGoal } = useUpdateDailyGoalMutation();
+  const { mutate: doSetClozeLevel } = useSetClozeLevelMutation();
 
   const navigate = useNavigate();
 
@@ -76,7 +91,7 @@ export default function Game() {
   const correctCountRef = useRef(0);
   const totalCountRef = useRef(0);
 
-  // --- Boot the engine once on mount ----------------------------------------
+  // --- Boot the engine (re-runs on bootKey, i.e. "Play Again") ----------------
   useEffect(() => {
     let cancelled = false;
     const storageHandler = (e: Event) => {
@@ -84,8 +99,15 @@ export default function Game() {
       engineRef.current?.setTheme(currentTheme());
     };
 
+    // Fresh session = fresh accumulators + lamps.
+    versesPracticedRef.current = new Set();
+    correctCountRef.current = 0;
+    totalCountRef.current = 0;
+    setSummary(null);
+
     (async () => {
       try {
+        setStatus('loading');
         const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         const masteredCount = (progressRef.current ?? []).filter(
           (p: any) => p?.status === 'mastered',
@@ -111,11 +133,20 @@ export default function Game() {
             onResolve: (result: LampResolveResult) => {
               handleResolve(result, pool);
             },
-            onVerseChange: (v: any) => {
+            onVerseChange: (v: any, stage: ScaffoldLayer) => {
               if (v?.reference && v?.text) {
                 setActiveRef(v.reference);
                 setActiveText(v.text);
               }
+              setActiveStage(stage);
+              // Reflect whether this verse has a persisted override.
+              const entry = progressRef.current.find(
+                (p: any) => p?.verse?.reference === v?.reference,
+              );
+              setStageOverride(entry?.customClozeLevel ?? null);
+            },
+            onSessionComplete: (stats) => {
+              setSummary(stats);
             },
           },
         });
@@ -138,7 +169,7 @@ export default function Game() {
       engineRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [bootKey]);
 
   // --- onResolve: mirror Practice.tsx handleComplete (per-verse writes) ------
   function handleResolve(result: LampResolveResult, pool: any[]) {
@@ -171,6 +202,37 @@ export default function Game() {
       streak,
       accuracy: result.accuracy,
     }).catch(() => {});
+  }
+
+  // --- Stage control: pin the current verse to a chosen stage, or revert ----
+  // to "Auto" (recitation-based). Persisted via customClozeLevel (mirrors the
+  // Vanishing Cloze override) and applied live via engine.setStage.
+  function handleStageChange(stage: ScaffoldLayer | null) {
+    if (!activeRef) return;
+    engineRef.current?.setStage(stage);
+    setActiveStage(stage ?? computeAutoStage(activeRef));
+    setStageOverride(stage);
+    void doSetClozeLevel({ reference: activeRef, level: stage }).catch(() => {});
+  }
+
+  // Auto stage for the current verse (used only to update the chip highlight
+  // when reverting to Auto — the engine computes the real puzzle stage).
+  function computeAutoStage(reference: string): ScaffoldLayer {
+    const entry = progressRef.current.find((p: any) => p?.verse?.reference === reference);
+    const timesRecited = entry?.timesRecited ?? 0;
+    if (entry?.status === 'mastered') return 5;
+    if (timesRecited <= 0) return 0;
+    if (timesRecited <= 2) return 1;
+    if (timesRecited <= 4) return 2;
+    if (timesRecited <= 6) return 3;
+    if (timesRecited <= 9) return 4;
+    return 5;
+  }
+
+  // --- Play Again: reboot the engine for a fresh 12-lamp journey -------------
+  function playAgain() {
+    setSummary(null);
+    setBootKey((k) => k + 1);
   }
 
   // --- Exit: finalize session, then navigate to /practice --------------------
@@ -259,6 +321,45 @@ export default function Game() {
         </div>
       )}
 
+      {/* Stage control — pin the current verse to any stage (0–5) or Auto. */}
+      {status === 'ready' && !summary && (
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 sm:left-3 sm:translate-x-0 z-10 flex flex-wrap items-center justify-center gap-1 sm:gap-1.5 glassmorphism rounded-full px-2.5 sm:px-3 py-1.5 shadow-lg max-w-[94vw]">
+          <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mr-0.5">
+            Stage
+          </span>
+          {([0, 1, 2, 3, 4, 5] as ScaffoldLayer[]).map((s) => {
+            const isActive = stageOverride === s || (stageOverride === null && activeStage === s);
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => handleStageChange(s)}
+                title={`Stage ${s}${s === 0 ? ' — read along' : s === 1 ? ' — order, no decoys' : ` — order + ${[0, 0, 2, 4, 6, 8][s]} decoys`}`}
+                className={`min-w-[1.5rem] rounded-full px-1.5 sm:px-2 py-0.5 text-[11px] sm:text-xs font-bold transition-colors ${
+                  isActive
+                    ? 'bg-amber-500 text-white shadow'
+                    : 'text-gray-600 dark:text-gray-300 hover:bg-white/20'
+                }`}
+              >
+                {s}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => handleStageChange(null)}
+            title="Auto — let the stage advance with recitation count"
+            className={`rounded-full px-2 sm:px-2.5 py-0.5 text-[11px] sm:text-xs font-bold transition-colors ${
+              stageOverride === null
+                ? 'bg-indigo-500 text-white shadow'
+                : 'text-gray-600 dark:text-gray-300 hover:bg-white/20'
+            }`}
+          >
+            Auto
+          </button>
+        </div>
+      )}
+
       {status === 'loading' && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/30 backdrop-blur-sm">
           <div className="glassmorphism rounded-2xl px-6 py-4 flex items-center gap-3 shadow-xl">
@@ -281,6 +382,65 @@ export default function Game() {
           >
             <X className="w-6 h-6 text-gray-700 dark:text-gray-100" />
           </button>
+        </div>
+      )}
+
+      {/* Session summary — shown when the 12-lamp journey completes. */}
+      {summary && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fadeIn">
+          <div className="glassmorphism rounded-3xl px-6 py-7 sm:px-10 sm:py-9 flex flex-col items-center gap-5 shadow-2xl border border-amber-500/30 max-w-sm w-11/12 text-center">
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-500 dark:text-amber-400">
+              Journey Complete
+            </p>
+            <p className="text-3xl sm:text-4xl font-extrabold text-gray-800 dark:text-gray-100">
+              ✨ {summary.lampsLit} Lamps Lit
+            </p>
+            <div className="flex items-center gap-6 sm:gap-8 text-gray-700 dark:text-gray-200">
+              <div className="flex flex-col items-center">
+                <span className="text-2xl font-bold text-amber-500 dark:text-amber-400">
+                  {summary.totalXp}
+                </span>
+                <span className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  XP earned
+                </span>
+              </div>
+              <div className="flex flex-col items-center">
+                <span className="text-2xl font-bold text-rose-500 dark:text-rose-400">
+                  🔥 {summary.bestCombo}
+                </span>
+                <span className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  Best combo
+                </span>
+              </div>
+              <div className="flex flex-col items-center">
+                <span className="text-2xl font-bold text-indigo-500 dark:text-indigo-400">
+                  {totalCountRef.current > 0
+                    ? Math.round((correctCountRef.current / totalCountRef.current) * 100)
+                    : 0}
+                  %
+                </span>
+                <span className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  Accuracy
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 mt-1">
+              <button
+                type="button"
+                onClick={playAgain}
+                className="rounded-full px-5 py-2.5 text-sm font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 shadow-lg hover:from-amber-400 hover:to-orange-400 transition-colors"
+              >
+                Play Again
+              </button>
+              <button
+                type="button"
+                onClick={handleExit}
+                className="glassmorphism rounded-full px-5 py-2.5 text-sm font-bold text-gray-700 dark:text-gray-200 hover:bg-white/20 transition-colors"
+              >
+                Exit
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

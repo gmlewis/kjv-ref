@@ -17,7 +17,7 @@ export const DEFAULT_GAME_STATE: GameState = {
   comboBest: 0,
   unlockedRegionIds: [],
   builtRoads: [],
-  settings: { sound: false, voice: false, motion: true },
+  settings: { sound: false, motion: true },
 };
 
 function isNumber(v: unknown): v is number {
@@ -57,7 +57,6 @@ export function loadGameState(): GameState {
   const builtRoads = asStringArray2d(parsed.builtRoads) ?? DEFAULT_GAME_STATE.builtRoads;
   const settings = {
     sound: parsed?.settings?.sound ?? DEFAULT_GAME_STATE.settings.sound,
-    voice: parsed?.settings?.voice ?? DEFAULT_GAME_STATE.settings.voice,
     motion: parsed?.settings?.motion ?? DEFAULT_GAME_STATE.settings.motion,
   };
 

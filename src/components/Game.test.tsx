@@ -8,11 +8,12 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 let lastEngineOpts: any = null;
 const engineDispose = vi.fn();
 const engineSetTheme = vi.fn();
+const engineSetStage = vi.fn();
 
 vi.mock('../game', () => ({
   createLampGame: vi.fn(async (opts: any) => {
     lastEngineOpts = opts;
-    return { dispose: engineDispose, setTheme: engineSetTheme };
+    return { dispose: engineDispose, setTheme: engineSetTheme, setStage: engineSetStage };
   }),
 }));
 
@@ -22,6 +23,7 @@ const doUpsertReviewSchedule = vi.fn().mockResolvedValue(undefined);
 const doCreateSession = vi.fn().mockResolvedValue(undefined);
 const doAwardAchievement = vi.fn().mockResolvedValue(undefined);
 const doUpdateDailyGoal = vi.fn().mockResolvedValue(undefined);
+const doSetClozeLevel = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('../hooks', () => ({
   useMyProgress: () => [[], false, null],
@@ -31,6 +33,7 @@ vi.mock('../hooks', () => ({
   useCreateSessionMutation: () => ({ mutate: doCreateSession }),
   useAwardAchievementMutation: () => ({ mutate: doAwardAchievement }),
   useUpdateDailyGoalMutation: () => ({ mutate: doUpdateDailyGoal }),
+  useSetClozeLevelMutation: () => ({ mutate: doSetClozeLevel }),
 }));
 
 // useNavigate spy
