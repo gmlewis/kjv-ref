@@ -168,8 +168,10 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     const canvas = page.locator('canvas');
     await expect(canvas).toBeVisible();
 
-    // Wait for game engine context to be fully booted
-    await page.waitForFunction(() => typeof (window as any).__lampGamePuzzle === 'function', { timeout: 15000 });
+    // Wait for game engine context to be fully booted. The 30s ceiling
+    // accommodates slow WebGPU adapter init + font fetch on a loaded CI runner
+    // (the overall per-test timeout is 60s).
+    await page.waitForFunction(() => typeof (window as any).__lampGamePuzzle === 'function', { timeout: 30000 });
 
     // The first puzzle is stage 2 (customClozeLevel override), so it is already a
     // tile puzzle — no stage-0 read-along to tap through. A background tap is a
@@ -215,7 +217,8 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     expect(before).not.toBeNull();
 
     await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
-    await page.waitForFunction(() => typeof (window as any).__lampGamePuzzle === 'function', { timeout: 15000 });
+    // 30s ceiling for slow WebGPU adapter init + font fetch on a loaded CI runner.
+    await page.waitForFunction(() => typeof (window as any).__lampGamePuzzle === 'function', { timeout: 30000 });
     await page.waitForTimeout(500);
 
     // The due verse should be first in the queue (due-first sorting).

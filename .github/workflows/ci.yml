@@ -113,3 +113,14 @@ jobs:
 
       - name: E2E tests
         run: bun run e2e
+
+      # Always upload Playwright's trace/screenshot/video for failed tests so
+      # flakes are diagnosable. `if: always()` ensures it runs even when the
+      # E2E step fails (otherwise the artifacts would be discarded with the runner).
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: test-results/
+          retention-days: 14
