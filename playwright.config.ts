@@ -63,9 +63,12 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         launchOptions: {
           args: [
+            '--headless=new',
             '--enable-unsafe-webgpu',
-            '--enable-features=Vulkan,UseSkiaRenderer,WebGPU',
+            '--enable-features=Vulkan,UseSkiaRenderer,WebGPU,UnsafeWebGPU',
             '--ignore-gpu-blocklist',
+            '--use-gl=angle',
+            '--use-angle=swiftshader',
           ],
         },
       },

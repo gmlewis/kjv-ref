@@ -2,6 +2,32 @@ import { test, expect } from '@playwright/test';
 import { openApp } from './helpers/app-frame';
 
 test.describe('Lamp of the Path Game Mode (Stream D)', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      if (!navigator.gpu) {
+        const dummyBuffer = new ArrayBuffer(4096);
+        const dummyTexture = { createView: () => ({}) };
+        const dummyDevice = {
+          createShaderModule: () => ({}),
+          createRenderPipeline: () => ({}),
+          createBuffer: () => ({ getMappedRange: () => dummyBuffer, unmap: () => {} }),
+          createTexture: () => dummyTexture,
+          createSampler: () => ({}),
+          createBindGroup: () => ({}),
+          createBindGroupLayout: () => ({}),
+          createPipelineLayout: () => ({}),
+          queue: { writeBuffer: () => {}, writeTexture: () => {}, submit: () => {} },
+        };
+        (navigator as any).gpu = {
+          requestAdapter: async () => ({
+            requestDevice: async () => dummyDevice,
+          }),
+          getPreferredCanvasFormat: () => 'rgba8unorm',
+        };
+      }
+    });
+  });
+
   test('D-1: Entry from Practice mode selector and navigation to full-page game', async ({ page }) => {
     await openApp(page, '/kjv-ref/practice');
 
@@ -122,12 +148,7 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     // Set viewport to Pixel 10XL portrait resolution (412x915)
     await page.setViewportSize({ width: 412, height: 915 });
 
-    await openApp(page, '/kjv-ref/practice');
-
-    const card = page.locator('text=Lamp of the Path');
-    await card.scrollIntoViewIfNeeded();
-    await card.click();
-    await page.waitForURL('**/practice/game');
+    await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
 
     // Wait for game engine canvas to render and puzzle to be ready
     const canvas = page.locator('canvas');

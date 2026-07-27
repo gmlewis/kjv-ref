@@ -563,8 +563,8 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     });
     addTextRendererLayer(textRenderer, hudLayer);
 
-    // Path track line across bottom
-    const pathY = H - 36;
+    // Path track line across bottom (offset higher on mobile to clear Android system gesture bar)
+    const pathY = isMobile ? H - 64 : H - 36;
     if (!pathSprite) {
       pathSprite = addSprite2D(spriteLayer, {
         positionPx: [W / 2, pathY],

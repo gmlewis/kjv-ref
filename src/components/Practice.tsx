@@ -31,12 +31,12 @@ type PerformanceRating = 'excellent' | 'good' | 'poor';
 const MODE_INFO: Record<PracticeMode, { label: string; description: string; icon: any; badge?: string; highlight?: boolean }> = {
   'word-bank':                 { label: 'Word Bank',                 description: 'Tap the shuffled words into the correct order',        icon: Layers,    badge: 'Tap to order',   highlight: true },
   'first-letters':             { label: 'First Letters',             description: 'Each word shown as its first letter only — fill in the rest', icon: AlignLeft, badge: 'Hint-guided',    highlight: true },
+  'lamp-path':                  { label: 'Lamp of the Path',          description: 'A game: light a path of lamps by recalling verses — tap or drag the words into order', icon: Flame, badge: 'New', highlight: true },
   'simplified-vanishing-cloze':{ label: 'Simplified Vanishing Cloze', description: 'Blanks grow with mastery — type just the first letter of each blanked word', icon: Eye, badge: 'Adapts to you',  highlight: true },
   'vanishing-cloze':           { label: 'Vanishing Cloze',           description: 'Blanks increase as your mastery grows',                icon: Eye,       badge: 'Adapts to you',  highlight: true },
   'multiple-choice':           { label: 'Multiple Choice',           description: 'Select the correct verse text from four options',       icon: Award,     badge: undefined },
   'reference':                 { label: 'Reference Match',           description: 'Identify the correct reference for a verse',           icon: BookOpen,  badge: undefined },
   'recall':                    { label: 'Full Recall',               description: 'Type the complete verse from memory',                  icon: Target,    badge: 'Advanced' },
-  'lamp-path':                  { label: 'Lamp of the Path',          description: 'A game: light a path of lamps by recalling verses — tap or drag the words into order', icon: Flame, badge: 'New', highlight: true },
 };
 
 // Fisher–Yates shuffle using JavaScript's built-in Math.random().
@@ -1183,7 +1183,7 @@ function PracticeSession({
 }
 
 // ─── Mode Selector ────────────────────────────────────────────────────────────
-const RECOMMENDED_MODES: PracticeMode[] = ['word-bank', 'first-letters', 'simplified-vanishing-cloze', 'vanishing-cloze', 'multiple-choice', 'reference', 'lamp-path'];
+const RECOMMENDED_MODES: PracticeMode[] = ['word-bank', 'first-letters', 'lamp-path', 'simplified-vanishing-cloze', 'vanishing-cloze', 'multiple-choice', 'reference'];
 
 function ModeSelector({ onSelect, dueCount }: { onSelect: (mode: PracticeMode) => void; dueCount: number }) {
   const [showAll, setShowAll] = useState(false);
