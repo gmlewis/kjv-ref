@@ -17,10 +17,15 @@ describe('createGameSpriteFrames', () => {
     expect(names).toContain('flame');
     expect(names).toContain('glow_halo');
     expect(names).toContain('star');
+    expect(names).toContain('moon');
     expect(names).toContain('mountain');
+    expect(names).toContain('hills');
     expect(names).toContain('city');
     expect(names).toContain('path_stone');
     expect(names).toContain('tile_bg');
+    expect(names).toContain('slot_bg');
+    expect(names).toContain('sky_dark');
+    expect(names).toContain('sky_light');
   });
 
   it('provides correct Uint8Array pixel buffer sizes for each frame', () => {

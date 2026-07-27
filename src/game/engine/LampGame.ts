@@ -258,9 +258,12 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let slotBottomY = 220;
   let bankTopY = 500;
   let bgSprite: Sprite2DHandle | null = null;
-  let pathSprite: Sprite2DHandle | null = null;
+  let skyGradientSprite: Sprite2DHandle | null = null;
+  let moonSprite: Sprite2DHandle | null = null;
   let mountainSprite: Sprite2DHandle | null = null;
+  let hillsSprite: Sprite2DHandle | null = null;
   let citySprite: Sprite2DHandle | null = null;
+  let pathSprite: Sprite2DHandle | null = null;
   let skyStarSprites: Sprite2DHandle[] = [];
   let lampSprites: Sprite2DHandle[] = [];
   let lampHaloSprites: Sprite2DHandle[] = [];
@@ -530,9 +533,21 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     for (const lhs of lampHaloSprites) removeSprite2D(lhs);
     for (const lfs of lampFlameSprites) removeSprite2D(lfs);
     for (const ss of skyStarSprites) removeSprite2D(ss);
+    if (skyGradientSprite) {
+      removeSprite2D(skyGradientSprite);
+      skyGradientSprite = null;
+    }
+    if (moonSprite) {
+      removeSprite2D(moonSprite);
+      moonSprite = null;
+    }
     if (mountainSprite) {
       removeSprite2D(mountainSprite);
       mountainSprite = null;
+    }
+    if (hillsSprite) {
+      removeSprite2D(hillsSprite);
+      hillsSprite = null;
     }
     if (citySprite) {
       removeSprite2D(citySprite);
@@ -598,74 +613,110 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
     const isDark = theme === 'dark';
 
-    if (!bgSprite) {
-      bgSprite = addSprite2D(spriteLayer, {
+    // Sky Background (Atmospheric gradient sky)
+    if (!skyGradientSprite) {
+      skyGradientSprite = addSprite2D(spriteLayer, {
         positionPx: [W / 2, H / 2],
         sizePx: [W, H],
-        color: spriteColor(palette.background, 1),
-        frame: frameIndex('w'),
+        color: [1, 1, 1, 1],
+        frame: frameIndex(isDark ? 'sky_dark' : 'sky_light'),
       });
     } else {
-      updateSprite2D(bgSprite, {
+      updateSprite2D(skyGradientSprite, {
         positionPx: [W / 2, H / 2],
         sizePx: [W, H],
-        color: spriteColor(palette.background, 1),
-        frame: frameIndex('w'),
+        color: [1, 1, 1, 1],
+        frame: frameIndex(isDark ? 'sky_dark' : 'sky_light'),
       });
     }
 
-    // Celestial Starfield (Dark mode sky elements)
+    // Celestial Moon (Dark mode upper-right sky)
+    if (isDark && !moonSprite) {
+      moonSprite = addSprite2D(spriteLayer, {
+        positionPx: [W * 0.88, H * 0.14],
+        sizePx: [36, 36],
+        color: [1, 1, 1, 0.95],
+        frame: frameIndex('moon'),
+      });
+    } else if (isDark && moonSprite) {
+      updateSprite2D(moonSprite, {
+        positionPx: [W * 0.88, H * 0.14],
+        sizePx: [36, 36],
+        color: [1, 1, 1, 0.95],
+        frame: frameIndex('moon'),
+      });
+    }
+
+    // Celestial Starfield (Dark mode twinkling stars)
     if (isDark && skyStarSprites.length === 0) {
       const starPositions = [
-        [0.08, 0.06], [0.22, 0.12], [0.38, 0.05], [0.54, 0.14],
-        [0.68, 0.07], [0.82, 0.13], [0.92, 0.06], [0.15, 0.18],
-        [0.45, 0.19], [0.76, 0.22],
+        [0.06, 0.08], [0.18, 0.14], [0.32, 0.06], [0.46, 0.12],
+        [0.58, 0.07], [0.72, 0.16], [0.82, 0.08], [0.94, 0.18],
+        [0.12, 0.22], [0.28, 0.26], [0.52, 0.24], [0.66, 0.28],
+        [0.78, 0.22], [0.88, 0.26], [0.38, 0.18], [0.04, 0.28],
       ];
       for (const [rx, ry] of starPositions) {
         skyStarSprites.push(
           addSprite2D(spriteLayer, {
             positionPx: [W * rx, H * ry],
             sizePx: [12, 12],
-            color: [1, 1, 1, 0.75],
+            color: [1, 1, 1, 0.85],
             frame: frameIndex('star'),
           }),
         );
       }
     }
 
-    // Path track line across bottom
-    const pathY = isMobile ? H - 64 : H - 36;
+    // Walking Path Y-position (Prominent lower-third of canvas)
+    const pathY = isMobile ? H - 84 : H - 64;
 
-    // Distant Mountain Scenery
+    // Distant Mountain Ridge Scenery
     if (!mountainSprite) {
       mountainSprite = addSprite2D(spriteLayer, {
-        positionPx: [W / 2, pathY - 32],
-        sizePx: [W, 64],
-        color: isDark ? [0.4, 0.5, 0.7, 0.6] : [0.7, 0.8, 0.9, 0.5],
+        positionPx: [W / 2, pathY - 54],
+        sizePx: [W, 80],
+        color: isDark ? [1, 1, 1, 0.8] : [1, 1, 1, 0.55],
         frame: frameIndex('mountain'),
       });
     } else {
       updateSprite2D(mountainSprite, {
-        positionPx: [W / 2, pathY - 32],
-        sizePx: [W, 64],
-        color: isDark ? [0.4, 0.5, 0.7, 0.6] : [0.7, 0.8, 0.9, 0.5],
+        positionPx: [W / 2, pathY - 54],
+        sizePx: [W, 80],
+        color: isDark ? [1, 1, 1, 0.8] : [1, 1, 1, 0.55],
         frame: frameIndex('mountain'),
       });
     }
 
-    // City on a Hill Skyline
+    // Midland Green Rolling Hills
+    if (!hillsSprite) {
+      hillsSprite = addSprite2D(spriteLayer, {
+        positionPx: [W / 2, pathY - 32],
+        sizePx: [W, 64],
+        color: isDark ? [1, 1, 1, 0.85] : [1, 1, 1, 0.75],
+        frame: frameIndex('hills'),
+      });
+    } else {
+      updateSprite2D(hillsSprite, {
+        positionPx: [W / 2, pathY - 32],
+        sizePx: [W, 64],
+        color: isDark ? [1, 1, 1, 0.85] : [1, 1, 1, 0.75],
+        frame: frameIndex('hills'),
+      });
+    }
+
+    // Illuminated City on a Hill Citadel Skyline
     if (!citySprite) {
       citySprite = addSprite2D(spriteLayer, {
-        positionPx: [W * 0.78, pathY - 44],
-        sizePx: [128, 48],
-        color: isDark ? [0.9, 0.8, 0.6, 0.85] : [0.5, 0.5, 0.6, 0.6],
+        positionPx: [W * 0.76, pathY - 60],
+        sizePx: [160, 64],
+        color: isDark ? [1, 1, 1, 0.95] : [0.9, 0.9, 1, 0.75],
         frame: frameIndex('city'),
       });
     } else {
       updateSprite2D(citySprite, {
-        positionPx: [W * 0.78, pathY - 44],
-        sizePx: [128, 48],
-        color: isDark ? [0.9, 0.8, 0.6, 0.85] : [0.5, 0.5, 0.6, 0.6],
+        positionPx: [W * 0.76, pathY - 60],
+        sizePx: [160, 64],
+        color: isDark ? [1, 1, 1, 0.95] : [0.9, 0.9, 1, 0.75],
         frame: frameIndex('city'),
       });
     }
@@ -674,15 +725,15 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     if (!pathSprite) {
       pathSprite = addSprite2D(spriteLayer, {
         positionPx: [W / 2, pathY],
-        sizePx: [W - 2 * margin, 14],
-        color: [1, 1, 1, 0.9],
+        sizePx: [W - 2 * margin, 24],
+        color: [1, 1, 1, 0.95],
         frame: frameIndex('path_stone'),
       });
     } else {
       updateSprite2D(pathSprite, {
         positionPx: [W / 2, pathY],
-        sizePx: [W - 2 * margin, 14],
-        color: [1, 1, 1, 0.9],
+        sizePx: [W - 2 * margin, 24],
+        color: [1, 1, 1, 0.95],
         frame: frameIndex('path_stone'),
       });
     }
@@ -706,7 +757,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     });
     addTextRendererLayer(textRenderer, hudLayer);
 
-    // Render SVG lamp markers along the path with glow halos
+    // Render SVG oil lamp markers along the path with ambient light halos
     const lampCount = queue.length;
     const lampStep = (W - 4 * margin) / Math.max(1, lampCount - 1);
     const activeIndex = Math.max(0, queueIndex - 1);
@@ -716,24 +767,24 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       const isSessionLit = sessionLitRefs.has(qv.reference) || i < activeIndex;
 
       const lx = 2 * margin + i * lampStep;
-      const size = isCurrent ? 28 : 22;
+      const size = isCurrent ? 36 : 28;
 
       if (isSessionLit || isCurrent) {
-        // Ambient Glow Halo behind lit/active lamp
-        const haloSize = isCurrent ? 64 : 48;
+        // Ambient Radial Light Glow Halo behind lit/active lamp
+        const haloSize = isCurrent ? 84 : 64;
         const haloSprite = addSprite2D(spriteLayer, {
-          positionPx: [lx, pathY - 4],
+          positionPx: [lx, pathY - 6],
           sizePx: [haloSize, haloSize],
-          color: isCurrent ? [1, 0.8, 0.2, 0.85] : [0.9, 0.7, 0.2, 0.55],
+          color: isCurrent ? [1, 0.8, 0.2, 0.9] : [0.95, 0.7, 0.2, 0.6],
           frame: frameIndex('glow_halo'),
         });
         lampHaloSprites.push(haloSprite);
       }
 
-      // Base Lamp Sprite
+      // Base Oil Lamp Sprite
       const lampFrame = isSessionLit || isCurrent ? frameIndex('lamp_lit') : frameIndex('lamp_unlit');
       const lSprite = addSprite2D(spriteLayer, {
-        positionPx: [lx, pathY - 10],
+        positionPx: [lx, pathY - 14],
         sizePx: [size, size],
         color: [1, 1, 1, 1],
         frame: lampFrame,
@@ -741,10 +792,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       lampSprites.push(lSprite);
 
       if (isSessionLit || isCurrent) {
-        // Flame Core tip
+        // Golden Flame Core Tip
         const flameSprite = addSprite2D(spriteLayer, {
-          positionPx: [lx, pathY - 22],
-          sizePx: [12, 12],
+          positionPx: [lx, pathY - 28],
+          sizePx: [14, 14],
           color: [1, 1, 1, 1],
           frame: frameIndex('flame'),
         });
@@ -767,13 +818,13 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       const pos = slotPos[i];
       const w = slotWidths[i];
       const color = s.preFilled
-        ? spriteColor(palette.tile, 0.7)
-        : spriteColor(palette.slot, 0.35); // faint fill — the border carries visibility
+        ? spriteColor(palette.tile, 0.85)
+        : spriteColor(palette.slot, 0.6);
       const sprite = addSprite2D(spriteLayer, {
         positionPx: [pos.x + w / 2, pos.y + cellH / 2],
         sizePx: [w, cellH],
-        color,
-        frame: 0,
+        color: [1, 1, 1, 0.95],
+        frame: s.preFilled ? frameIndex('tile_bg') : frameIndex('slot_bg'),
       });
       const view: SlotView = {
         index: s.index,
