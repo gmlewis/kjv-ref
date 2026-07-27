@@ -114,10 +114,10 @@ function pickDecoys(pool: string[], verseWords: string[], count: number, rng: ()
 const DEFAULT_SEED = 1;
 
 /**
- * Build a TilePuzzle for `verse` at `stage`. When `seed` is omitted a fixed
- * default seed is used so output is still deterministic. `decoyPool` is the
- * candidate word pool (e.g. all words from all unlocked verses) from which
- * decoy (wrong) tiles are drawn for stages ≥ 2; pass `[]`/omit for no decoys.
+ * Build a TilePuzzle for `verse` at `stage`. When `seed` is omitted `Math.random`
+ * is used to truly randomize word tile positions every run. When `seed` is provided
+ * (e.g. in unit tests), a deterministic PRNG is used. `decoyPool` is the candidate
+ * word pool from which decoy (wrong) tiles are drawn for stages ≥ 2.
  */
 export function buildTilePuzzle(
   verse: KJVVerse,
@@ -125,7 +125,7 @@ export function buildTilePuzzle(
   seed?: number,
   decoyPool?: string[],
 ): TilePuzzle {
-  const rng = mulberry32(seed ?? DEFAULT_SEED);
+  const rng = seed !== undefined ? mulberry32(seed) : Math.random;
   const words = verse.text.split(' ').filter((w) => w.length > 0);
 
   const slots: SlotSpec[] = words.map((word, index) => ({

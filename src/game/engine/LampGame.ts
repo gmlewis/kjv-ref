@@ -339,6 +339,59 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     };
   }
 
+  function getCompactBankArea(
+    tileWidths: number[],
+    maxAreaW: number,
+    canvasW: number,
+    cellH: number,
+    gap: number,
+    isMobile: boolean,
+  ): { bankAreaX: number; bankAreaW: number } {
+    if (isMobile || tileWidths.length <= 2 || maxAreaW <= 520) {
+      return { bankAreaX: (canvasW - maxAreaW) / 2, bankAreaW: maxAreaW };
+    }
+
+    const n = tileWidths.length;
+    const targetRatio = 1.5; // Target aspect ratio (width / height) for compact near-square desktop bank block
+    let bestW = maxAreaW;
+    let bestDiff = Infinity;
+
+    for (let r = 2; r <= Math.min(n, 6); r++) {
+      const itemsPerRow = Math.ceil(n / r);
+      let maxRowW = 0;
+      for (let i = 0; i < n; i += itemsPerRow) {
+        const rowSlice = tileWidths.slice(i, i + itemsPerRow);
+        const rw = rowSlice.reduce((acc, w) => acc + w, 0) + Math.max(0, rowSlice.length - 1) * gap;
+        if (rw > maxRowW) maxRowW = rw;
+      }
+
+      const candidateW = Math.min(maxAreaW, maxRowW + 4);
+      let actualRows = 1;
+      let curW = 0;
+      for (const w of tileWidths) {
+        if (curW > 0 && curW + gap + w > candidateW) {
+          actualRows++;
+          curW = w;
+        } else {
+          curW += (curW > 0 ? gap : 0) + w;
+        }
+      }
+
+      const blockH = actualRows * cellH + (actualRows - 1) * gap;
+      const ratio = candidateW / blockH;
+      const diff = Math.abs(ratio - targetRatio);
+
+      if (diff < bestDiff && candidateW <= maxAreaW) {
+        bestDiff = diff;
+        bestW = candidateW;
+      }
+    }
+
+    const constrainedW = Math.min(maxAreaW, Math.max(360, Math.min(bestW, 680)));
+    const bankAreaX = Math.round((canvasW - constrainedW) / 2);
+    return { bankAreaX, bankAreaW: constrainedW };
+  }
+
   function wrapLayout(
     widths: number[],
     areaX: number,
@@ -670,11 +723,14 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
         return w;
       });
 
-      // Determine number of wrapped rows for bank tiles:
+      // On desktop / wide viewports, calculate a constrained bank area to format clickable bank tiles into a centered, square-ish block.
+      const { bankAreaX, bankAreaW } = getCompactBankArea(tileWidths, areaW, W, cellH, gap, isMobile);
+
+      // Determine number of wrapped rows for bank tiles within bankAreaW:
       let rowCount = 1;
       let rW = 0;
       for (const w of tileWidths) {
-        if (rW > 0 && rW + gap + w > areaW) {
+        if (rW > 0 && rW + gap + w > bankAreaW) {
           rowCount++;
           rW = w;
         } else {
@@ -687,7 +743,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       const maxBankTopY = maxBankBottomY - totalBankH;
       bankTopY = Math.min(idealBankTopY, maxBankTopY);
       bankTopY = Math.max(slotBottomY + (isMobile ? 48 : 56), bankTopY);
-      const tilePos = wrapLayout(tileWidths, areaX, areaW, bankTopY, cellH, gap);
+      const tilePos = wrapLayout(tileWidths, bankAreaX, bankAreaW, bankTopY, cellH, gap);
       tiles = puzzle.bank.map((t, i) => {
         const pos = tilePos[i];
         const w = tileWidths[i];

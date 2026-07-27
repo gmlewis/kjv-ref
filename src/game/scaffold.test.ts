@@ -83,6 +83,21 @@ describe('buildTilePuzzle', () => {
     expect(buildTilePuzzle(v, 3, 7, POOL)).toEqual(buildTilePuzzle(v, 3, 7, POOL));
   });
 
+  it('randomizes bank tile order via Math.random when seed is omitted', () => {
+    // Generate multiple puzzles without passing a seed
+    const p1 = buildTilePuzzle(v, 1, undefined, POOL);
+    const p2 = buildTilePuzzle(v, 1, undefined, POOL);
+    const p3 = buildTilePuzzle(v, 1, undefined, POOL);
+    // All 3 puzzles contain the same tile set, but their bank display order will differ
+    const bank1 = p1.bank.map((t) => t.display);
+    const bank2 = p2.bank.map((t) => t.display);
+    const bank3 = p3.bank.map((t) => t.display);
+    expect(bank1).toHaveLength(wordCount);
+    // At least one pair out of 3 should have different word order
+    const isDifferent = JSON.stringify(bank1) !== JSON.stringify(bank2) || JSON.stringify(bank1) !== JSON.stringify(bank3);
+    expect(isDifferent).toBe(true);
+  });
+
   it('preserves the reference and stage on the puzzle', () => {
     const p = buildTilePuzzle(v, 4, 1, POOL);
     expect(p.reference).toBe('John 3:16');
