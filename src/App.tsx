@@ -21,7 +21,7 @@ function App() {
         <Route
           path="/practice/game"
           element={
-            <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-gray-500 bg-slate-900">Loading game…</div>}>
+            <Suspense fallback={<div className="min-h-dvh flex items-center justify-center text-gray-500 bg-slate-900">Loading game…</div>}>
               <Game />
             </Suspense>
           }

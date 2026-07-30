@@ -429,8 +429,8 @@ export default function Game() {
   }
 
   return (
-    <div className="relative w-full h-screen overflow-hidden">
-      <canvas ref={canvasRef} className="w-full h-screen block touch-none" />
+    <div className="relative w-full h-dvh overflow-hidden">
+      <canvas ref={canvasRef} className="w-full h-dvh block touch-none" />
 
       {/* Top Left: Sub-mode Selector chips */}
       <div className="absolute top-2 left-2 sm:left-4 z-10 flex items-center gap-1">

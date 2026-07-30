@@ -34,7 +34,15 @@ body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
   background-attachment: fixed;
-  min-height: 100vh;
+  /* Use the DYNAMIC viewport (dvh), not 100vh. On Android Chrome, 100vh is the
+   * LARGE viewport (URL bar hidden), which is ~80px taller than the visible
+   * area when the URL bar is shown. That made the <body> taller than the
+   * visible region, so the page became scrollable by the URL-bar height and
+   * the whole game could shift up under the browser header. dvh tracks the
+   * URL bar so body == visible height → no overflow → no scroll → no shift.
+   * Other routes are unaffected: their shells use min-h-screen (100vh), which
+   * is still larger and still grows body to fit, so they scroll normally. */
+  min-height: 100dvh;
   color: #1a202c;
 }
 
