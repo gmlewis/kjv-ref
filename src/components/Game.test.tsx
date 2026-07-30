@@ -102,7 +102,7 @@ describe('Game host component', () => {
     const canvas = document.querySelector('canvas');
     expect(canvas).not.toBeNull();
     expect(canvas?.className).toContain('w-full');
-    expect(canvas?.className).toContain('h-screen');
+    expect(canvas?.className).toContain('h-dvh');
     await flush();
     unmount();
   });
