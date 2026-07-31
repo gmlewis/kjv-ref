@@ -451,6 +451,14 @@ export default function Game() {
     <div className="relative w-full h-dvh overflow-hidden">
       <canvas ref={canvasRef} className="w-full h-dvh block touch-none" />
 
+      {/* Top controls are hidden in the error state so the error overlay's own
+          Exit button is the only `aria-label="Exit"` on screen. Without this,
+          the always-rendered Controls HUD Exit and the error overlay Exit
+          share the same accessible name and both match
+          `button[aria-label="Exit"]`, breaking strict-mode locators (and
+          confusing screen readers). */}
+      {status !== 'error' && (
+        <>
       {/* Top Left: Sub-mode Selector chips */}
       <div className="absolute top-2 left-2 sm:left-4 z-10 flex items-center gap-1">
         <button
@@ -536,6 +544,8 @@ export default function Game() {
           <X className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-gray-700 dark:text-gray-200" />
         </button>
       </div>
+        </>
+      )}
 
       {showPeek && activeText && (
         <div className="absolute top-14 left-1/2 -translate-x-1/2 z-20 max-w-lg w-11/12 glassmorphism rounded-2xl p-4 shadow-2xl border border-purple-500/30 text-center animate-fadeIn">

@@ -61,6 +61,7 @@ beforeEach(() => {
 });
 
 import Game from './Game';
+import { createLampGame } from '../game';
 
 // --- Helpers -----------------------------------------------------------
 
@@ -150,6 +151,27 @@ describe('Game host component', () => {
     const exitBtn = screen.getByRole('button', { name: /exit/i });
     await act(async () => {
       fireEvent.click(exitBtn);
+    });
+    await flush();
+    expect(navigateSpy).toHaveBeenCalledWith('/practice');
+    unmount();
+  });
+
+  it('error state renders exactly one Exit button (no duplicate)', async () => {
+    // When the engine fails to boot, the host sets status='error' and shows an
+    // error overlay with its own Exit button. The always-rendered top-controls
+    // HUD also has an Exit button — if both render, two buttons share the same
+    // accessible name ("Exit") and strict-mode locators break. The HUD is
+    // hidden in the error state, so there must be exactly one Exit.
+    vi.mocked(createLampGame).mockRejectedValueOnce(new Error('boom'));
+    const { unmount } = renderGame();
+    await flush();
+    expect(screen.getByText(/Could not start the game/i)).toBeDefined();
+    const exitBtns = screen.queryAllByRole('button', { name: /^exit$/i });
+    expect(exitBtns.length).toBe(1);
+    // And that single Exit still navigates home.
+    await act(async () => {
+      fireEvent.click(exitBtns[0]);
     });
     await flush();
     expect(navigateSpy).toHaveBeenCalledWith('/practice');
