@@ -78,6 +78,10 @@ export interface LampResolveResult {
   usedHint: boolean;
   /** XP earned for this resolve (already applied to the cosmetic game state). */
   earnedXp: number;
+  /** True when the player abandoned this lamp via "Skip" rather than resolving it.
+   *  Recorded as a miss (correct:false) through the same host path, but lets the
+   *  host reveal the verse and suppress achievement awards. */
+  skipped?: boolean;
 }
 
 export interface LampGameCallbacks {
@@ -88,6 +92,10 @@ export interface LampGameCallbacks {
   onVerseChange?: (verse: KJVVerse, stage: ScaffoldLayer, prompt: string) => void;
   /** Called when all lamps in the session queue are lit. */
   onSessionComplete?: (stats: { totalXp: number; lampsLit: number; bestCombo: number }) => void;
+  /** Called when the "Skip this lamp" affordance should appear or disappear.
+   *  The engine only enables it after the player has struggled (>= SKIP_THRESHOLD
+   *  wrong submissions), so it is never present during normal first attempts. */
+  onCanSkipChange?: (canSkip: boolean) => void;
 }
 
 export interface LampGameOptions {
@@ -114,6 +122,10 @@ export interface LampGame {
    *  immediately. The host is responsible for persisting the override via
    *  `useSetClozeLevelMutation`; this call only changes the live puzzle. */
   setStage(stage: ScaffoldLayer | null): void;
+  /** Abandon the current lamp: records it as a miss (correct:false), reveals
+   *  the verse to the host, and advances to the next lamp. No-op if no verse
+   *  is loaded or a resolve animation is mid-flight. */
+  skipLamp(): void;
   /** Optional getter for current puzzle state (used in E2E tests). */
   getPuzzle?(): TilePuzzle | null;
 }
@@ -125,6 +137,12 @@ const HEADER_FONT = 34;
 const WORD_FONT = 26;
 const PROMPT_FONT = 18;
 const TYPED_FONT = 26;
+
+/** Number of wrong tile-puzzle submissions before the "Skip this lamp" control
+ *  is offered. Tuned so the affordance only appears after genuine struggle — it
+ *  is never present during normal first/second attempts, eliminating the risk
+ *  of an accidental skip while the player is still working. */
+const SKIP_THRESHOLD = 3;
 const CELL_H = 52;
 const MIN_CELL_W = 84;
 const CELL_PAD = 14;
@@ -300,6 +318,20 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   // dismiss handler can reset borders / return misplaced tiles after the player
   // has read the feedback.
   let lastSlotCorrectness: boolean[] = [];
+
+  // --- Skip-this-lamp state ------------------------------------------------
+  // Wrong submissions on the current puzzle. Reset in buildPuzzle. When it
+  // reaches SKIP_THRESHOLD the host is notified (via onCanSkipChange) that the
+  // Skip control may be shown.
+  let wrongAttempts = 0;
+  // Last value reported to the host via onCanSkipChange, deduped so the host
+  // only re-renders on a real change.
+  let canSkipNotified = false;
+  function setCanSkip(can: boolean) {
+    if (can === canSkipNotified) return;
+    canSkipNotified = can;
+    callbacks.onCanSkipChange?.(can);
+  }
 
   // --- Input state ---------------------------------------------------------
   let dragging: TileView | null = null;
@@ -629,6 +661,11 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   function buildPuzzle(v: KJVVerse, chainVerses: KJVVerse[] | null = null) {
     teardownPuzzle();
     verse = v;
+
+    // Fresh puzzle → no struggle yet, so the Skip affordance is hidden. This
+    // also covers stage overrides / theme swaps which rebuild the puzzle.
+    wrongAttempts = 0;
+    setCanSkip(false);
 
     const boot = progressFor(v.reference);
     const timesRecited = sessionRecited.get(v.reference) ?? boot?.timesRecited ?? 0;
@@ -1550,6 +1587,9 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     addTextRendererLayer(textRenderer, feedbackLayer);
 
     if (correct || wasStudy) {
+      // A solved lamp can no longer be skipped; hide the affordance so it
+      // can't be tapped during the celebration banner below.
+      setCanSkip(false);
       // Paced 1.4s delay so the player can see and study their slot feedback,
       // then advance to the next puzzle (or re-present the same verse at the
       // next layer for the L0 read-along).
@@ -1565,6 +1605,11 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       // misplaced tiles return to the word bank.
       lastSlotCorrectness = slotCorrectness;
       awaitingRetryTap = true;
+      // After enough wrong submissions, offer the Skip affordance. This is the
+      // sole trigger — there is no idle/timeout path, so tabbing away never
+      // surfaces it.
+      wrongAttempts += 1;
+      if (wrongAttempts >= SKIP_THRESHOLD) setCanSkip(true);
     }
   }
 
@@ -1761,6 +1806,59 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     buildPuzzle(verse);
   }
 
+  function skipLamp() {
+    if (!verse || !puzzle) return;
+    // Ignore a skip issued mid auto-resolve animation (the 350ms between
+    // all-filled and resolveTilePuzzle). A skip during the "tap to retry"
+    // banner is allowed — that's exactly when the player is stuck.
+    if (resolving && !awaitingRetryTap) return;
+
+    // Clear the retry banner and return any misplaced tiles so the reveal
+    // underneath isn't cluttered.
+    if (awaitingRetryTap) {
+      awaitingRetryTap = false;
+      clearFeedbackBanner();
+      returnMisplacedTiles(); // also resets resolving=false
+    }
+    // Send any other placed tiles back to the bank for a clean slate.
+    for (const t of tiles) {
+      if (t.placedSlotIndex != null) {
+        t.placedSlotIndex = null;
+        animateTileTo(t, t.homeX, t.homeY);
+      }
+    }
+
+    // Counts as a miss: same data path as a wrong resolve. No XP, combo resets,
+    // and (via the host's `if (correct)` achievement guard) no awards.
+    combo = applyCombo(combo, false);
+    gameState.comboBest = Math.max(gameState.comboBest, combo);
+    saveGameState(gameState);
+    bumpRecited();
+    wrongAttempts = 0;
+    setCanSkip(false);
+
+    onResolve({
+      reference: verse.reference,
+      correct: false,
+      accuracy: 0,
+      rating: performanceRating(false, true, false),
+      fluent: false,
+      usedHint: true,
+      earnedXp: 0,
+      skipped: true,
+    });
+
+    // Hold the verse on screen briefly so the host's auto-reveal (Peek panel)
+    // gives the player a moment to read the answer, then advance.
+    resolving = true;
+    setTimeout(() => {
+      if (disposed) return;
+      resolving = false;
+      clearFeedbackBanner();
+      nextPuzzle();
+    }, 1400);
+  }
+
   function dispose() {
     if (disposed) return;
     disposed = true;
@@ -1778,5 +1876,5 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
   (window as any).__lampGamePuzzle = () => puzzle;
 
-  return { dispose, setTheme, setStage, getPuzzle: () => puzzle };
+  return { dispose, setTheme, setStage, skipLamp, getPuzzle: () => puzzle };
 }

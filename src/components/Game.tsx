@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Eye, EyeOff, Volume2, VolumeX, X, Compass, Zap, Plus, BookOpen, Search, Check, Sparkles, Trophy, Flame,
+  Eye, EyeOff, Volume2, VolumeX, X, Compass, Zap, Plus, BookOpen, Search, Check, Sparkles, Trophy, Flame, SkipForward,
 } from 'lucide-react';
 import {
   useMyProgress,
@@ -63,6 +63,7 @@ export default function Game() {
     dispose: () => void;
     setTheme: (t: Theme) => void;
     setStage: (stage: ScaffoldLayer | null) => void;
+    skipLamp: () => void;
   } | null>(null);
 
   const [bootKey, setBootKey] = useState(0);
@@ -76,6 +77,14 @@ export default function Game() {
   const [stageOverride, setStageOverride] = useState<ScaffoldLayer | null>(null);
   const [activePrompt, setActivePrompt] = useState<string>('');
   const [summary, setSummary] = useState<{ totalXp: number; lampsLit: number; bestCombo: number } | null>(null);
+
+  // Skip-this-lamp affordance. The engine drives `canSkip` (true only after the
+  // player has struggled); `showSkipConfirm` is the two-step guard; `autoPeek`
+  // distinguishes the skip reveal from a manual Peek so onVerseChange can hide
+  // only the auto-opened one.
+  const [canSkip, setCanSkip] = useState(false);
+  const [showSkipConfirm, setShowSkipConfirm] = useState(false);
+  const [autoPeek, setAutoPeek] = useState(false);
 
   // Sub-mode state
   const [subMode, setSubMode] = useState<SubMode>('journey');
@@ -157,6 +166,9 @@ export default function Game() {
     correctCountRef.current = 0;
     totalCountRef.current = 0;
     setSummary(null);
+    setCanSkip(false);
+    setShowSkipConfirm(false);
+    setAutoPeek(false);
 
     (async () => {
       try {
@@ -228,7 +240,15 @@ export default function Game() {
                 (p: any) => p?.verse?.reference === v?.reference,
               );
               setStageOverride(entry?.customClozeLevel ?? null);
+              // New verse: close any stale skip confirm and hide the auto-reveal
+              // (a manually opened Peek is left untouched).
+              setShowSkipConfirm(false);
+              if (autoPeek) {
+                setShowPeek(false);
+                setAutoPeek(false);
+              }
             },
+            onCanSkipChange: (can: boolean) => setCanSkip(can),
             onSessionComplete: (stats) => {
               if (subMode !== 'race') {
                 setSummary(stats);
@@ -263,6 +283,13 @@ export default function Game() {
     if (found) {
       setActiveRef(found.reference);
       setActiveText(found.text);
+    }
+    // A skip is recorded as a miss (correct:false flows through the existing
+    // progress / review-schedule writes below) but also reveals the verse via
+    // the Peek panel so the player sees the answer before advancing.
+    if (result.skipped) {
+      setShowPeek(true);
+      setAutoPeek(true);
     }
     versesPracticedRef.current.add(reference);
     totalCountRef.current += 1;
@@ -507,7 +534,7 @@ export default function Game() {
       <div className="absolute top-2 right-2 sm:right-4 z-10 flex items-center gap-1">
         <button
           type="button"
-          onClick={() => setShowPeek((prev) => !prev)}
+          onClick={() => { setShowPeek((prev) => !prev); setAutoPeek(false); }}
           aria-label={showPeek ? 'Hide verse text' : 'Peek verse text'}
           title={showPeek ? 'Hide full verse text' : 'Peek full verse text'}
           className="glassmorphism rounded-full p-1.5 sm:px-3 sm:py-1 shadow-lg hover:bg-white/20 transition-colors flex items-center gap-1"
@@ -521,6 +548,20 @@ export default function Game() {
             {showPeek ? 'Hide' : 'Peek'}
           </span>
         </button>
+        {canSkip && (
+          <button
+            type="button"
+            onClick={() => setShowSkipConfirm(true)}
+            aria-label="Skip this lamp"
+            title="Skip this lamp — counts as a miss"
+            className="glassmorphism rounded-full p-1.5 sm:px-3 sm:py-1 shadow-lg hover:bg-white/20 transition-colors flex items-center gap-1 border border-amber-400/40"
+          >
+            <SkipForward className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-500" />
+            <span className="hidden sm:inline text-xs font-semibold text-gray-700 dark:text-gray-200">
+              Skip
+            </span>
+          </button>
+        )}
         <button
           type="button"
           onClick={toggleSound}
@@ -555,6 +596,39 @@ export default function Game() {
           <p className="text-sm font-serif leading-relaxed text-gray-800 dark:text-gray-100">
             {activeText}
           </p>
+        </div>
+      )}
+
+      {/* Skip-this-lamp confirmation (two-step guard; "Keep trying" is primary) */}
+      {showSkipConfirm && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fadeIn p-4">
+          <div className="glassmorphism rounded-2xl p-5 sm:p-6 shadow-2xl border border-amber-500/30 max-w-xs w-full text-center">
+            <p className="text-sm font-bold text-amber-500 dark:text-amber-400 mb-1">
+              Skip this lamp?
+            </p>
+            <p className="text-xs text-gray-600 dark:text-gray-300 mb-4">
+              It counts as a miss. You&apos;ll see the verse, then move on.
+            </p>
+            <div className="flex gap-2 justify-center">
+              <button
+                type="button"
+                onClick={() => setShowSkipConfirm(false)}
+                className="rounded-full px-4 py-1.5 text-xs font-bold bg-amber-500 text-white shadow hover:bg-amber-600 transition-colors"
+              >
+                Keep trying
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSkipConfirm(false);
+                  engineRef.current?.skipLamp();
+                }}
+                className="rounded-full px-4 py-1.5 text-xs font-bold text-gray-700 dark:text-gray-200 glassmorphism border border-white/20 hover:bg-white/20 transition-colors"
+              >
+                Skip
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

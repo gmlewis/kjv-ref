@@ -9,11 +9,31 @@ let lastEngineOpts: any = null;
 const engineDispose = vi.fn();
 const engineSetTheme = vi.fn();
 const engineSetStage = vi.fn();
+const engineSkipLamp = vi.fn();
 
 vi.mock('../game', () => ({
   createLampGame: vi.fn(async (opts: any) => {
     lastEngineOpts = opts;
-    return { dispose: engineDispose, setTheme: engineSetTheme, setStage: engineSetStage };
+    return {
+      dispose: engineDispose,
+      setTheme: engineSetTheme,
+      setStage: engineSetStage,
+      // Mirror the real engine: skipLamp records a miss by firing onResolve
+      // with correct:false + skipped:true, so the host writes a miss.
+      skipLamp: () => {
+        engineSkipLamp();
+        opts.callbacks.onResolve({
+          reference: 'John 3:16',
+          correct: false,
+          accuracy: 0,
+          rating: 'needs-work',
+          fluent: false,
+          usedHint: true,
+          earnedXp: 0,
+          skipped: true,
+        });
+      },
+    };
   }),
 }));
 
@@ -222,6 +242,55 @@ describe('Game host component', () => {
       );
     });
     expect(engineSetTheme).toHaveBeenCalledWith('dark');
+    unmount();
+  });
+
+  it('Skip flow: canSkip -> confirm -> skipLamp records a miss', async () => {
+    const { unmount } = renderGame();
+    await flush();
+    expect(lastEngineOpts).not.toBeNull();
+
+    // Before the engine signals struggle, the Skip control is absent — this
+    // is the core accident-prevention guarantee.
+    expect(screen.queryByRole('button', { name: /skip this lamp/i })).toBeNull();
+
+    // Engine reports enough wrong submissions to offer Skip.
+    await act(async () => {
+      lastEngineOpts.callbacks.onCanSkipChange(true);
+    });
+    const skipBtn = screen.getByRole('button', { name: /skip this lamp/i });
+    await act(async () => {
+      fireEvent.click(skipBtn);
+    });
+
+    // Two-step guard: a confirm modal appears ("Keep trying" is primary).
+    expect(screen.getByText(/skip this lamp\?/i)).toBeDefined();
+    const confirmSkip = screen.getByRole('button', { name: /^skip$/i });
+    await act(async () => {
+      fireEvent.click(confirmSkip);
+    });
+
+    // skipLamp ran and recorded the verse as a miss (correct:false).
+    expect(engineSkipLamp).toHaveBeenCalledTimes(1);
+    expect(doUpdateProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ reference: 'John 3:16', correct: false }),
+    );
+    // No achievement is awarded for a skip (host guards awards on `correct`).
+    expect(doAwardAchievement).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('onCanSkipChange(false) hides the Skip control', async () => {
+    const { unmount } = renderGame();
+    await flush();
+    await act(async () => {
+      lastEngineOpts.callbacks.onCanSkipChange(true);
+    });
+    expect(screen.getByRole('button', { name: /skip this lamp/i })).toBeDefined();
+    await act(async () => {
+      lastEngineOpts.callbacks.onCanSkipChange(false);
+    });
+    expect(screen.queryByRole('button', { name: /skip this lamp/i })).toBeNull();
     unmount();
   });
 });
