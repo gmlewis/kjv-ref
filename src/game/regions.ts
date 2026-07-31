@@ -1,6 +1,8 @@
 import type { KJVVerse } from '../data/kjv-verses';
 import type { ProgressEntry } from './types';
 import { KJV_VERSES } from '../data/kjv-verses';
+import { getKJVVerse } from '../data/kjv-bible';
+import { parseVerseRangeRef } from '../utils/urlHelpers';
 
 export interface Region {
   id: string;
@@ -76,4 +78,59 @@ export function masteryProgress(region: Region, progress: ProgressEntry[]): { li
 
 function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+/**
+ * Resolve an arbitrary list of references into `KJVVerse` objects suitable for
+ * the game pool, expanding verse ranges (e.g. "John 3:1-3") into one entry per
+ * verse so each becomes its own lamp.
+ *
+ * - References that match a curated verse in `verses` reuse that verse's full
+ *   record (keywords, difficulty, theme).
+ * - Other single verses are fetched from the full Bible via `getKJVVerse` and
+ *   wrapped in a neutral stub (`difficulty: 'medium'`, `theme: 'custom'`,
+ *   empty keywords). This is what lets favorited verses outside the curated
+ *   set — the vast majority of the Bible — participate in the game.
+ *
+ * Duplicate references (after range expansion) are dropped. References that
+ * can't be parsed or aren't found in the Bible are skipped.
+ */
+export async function resolveRefsToVerses(
+  refs: string[],
+  verses: KJVVerse[] = KJV_VERSES,
+): Promise<KJVVerse[]> {
+  const byRef = new Map<string, KJVVerse>();
+  for (const v of verses) byRef.set(v.reference, v);
+
+  const out: KJVVerse[] = [];
+  const seen = new Set<string>();
+  for (const ref of refs) {
+    const parsed = parseVerseRangeRef(ref);
+    if (!parsed) continue;
+    const { book, chapter, verseStart, verseEnd } = parsed;
+    for (let v = verseStart; v <= verseEnd; v++) {
+      const singleRef = `${book} ${chapter}:${v}`;
+      if (seen.has(singleRef)) continue;
+      const curated = byRef.get(singleRef);
+      if (curated) {
+        out.push(curated);
+        seen.add(singleRef);
+        continue;
+      }
+      const entry = await getKJVVerse(singleRef);
+      if (!entry) continue;
+      out.push({
+        reference: singleRef,
+        book,
+        chapter,
+        verse: v,
+        text: entry.text,
+        keywords: [],
+        difficulty: 'medium',
+        theme: 'custom',
+      });
+      seen.add(singleRef);
+    }
+  }
+  return out;
 }

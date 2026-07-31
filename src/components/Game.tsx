@@ -14,10 +14,10 @@ import {
   useUpdateDailyGoalMutation,
   useSetClozeLevelMutation,
 } from '../hooks';
-import { getDailyGoal } from '../storage';
+import { getDailyGoal, getBookmarks } from '../storage';
 import { KJV_VERSES } from '../data/kjv-verses';
 import { getKJVVerse } from '../data/kjv-bible';
-import { starterRegions, unlockedRegions, buildRoad } from '../game/regions';
+import { starterRegions, unlockedRegions, resolveRefsToVerses } from '../game/regions';
 import { loadGameState, saveGameState } from '../game/state';
 import { setAudioMuted } from '../game/engine/audio';
 import type { GameTheme, LampResolveResult, ScaffoldLayer } from '../game';
@@ -179,6 +179,22 @@ export default function Game() {
           pool = masteredInPool.length >= 4 ? masteredInPool : base;
         } else {
           pool = unlockedRegions(starterRegions(), masteredCount).flatMap((r) => r.verses);
+          // Auto-merge favorited verses into the Journey pool. Favorites may be
+          // outside the curated set or be verse ranges; resolveRefsToVerses
+          // expands ranges to one verse per lamp and fetches non-curated verses
+          // from the full Bible. Duplicates of verses already in the pool are
+          // skipped so a curated favorite isn't added twice.
+          const bookmarkRefs = (getBookmarks() ?? []).map((b: any) => b?.reference).filter(Boolean) as string[];
+          if (bookmarkRefs.length > 0) {
+            const favVerses = await resolveRefsToVerses(bookmarkRefs, KJV_VERSES);
+            const seen = new Set(pool.map((v: any) => v.reference));
+            for (const v of favVerses) {
+              if (!seen.has(v.reference)) {
+                pool.push(v);
+                seen.add(v.reference);
+              }
+            }
+          }
         }
 
         if (pool.length > 0) {
@@ -358,10 +374,13 @@ export default function Game() {
     setBootKey((k) => k + 1);
   }
 
-  function startCustomRoad(name: string, refs: string[]) {
-    const road = buildRoad(name, refs, KJV_VERSES);
-    if (road.verses.length === 0) return;
-    setCustomRoadPool(road.verses);
+  async function startCustomRoad(name: string, refs: string[]) {
+    // Resolve refs (curated, non-curated, or ranges) into verses via the full
+    // Bible so custom roads and the "My Bookmarked Verses" button work for any
+    // favorited reference, not just the curated set.
+    const verses = await resolveRefsToVerses(refs, KJV_VERSES);
+    if (verses.length === 0) return;
+    setCustomRoadPool(verses);
     setSubMode('road');
     setShowRoadModal(false);
     setRaceActive(false);

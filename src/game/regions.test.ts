@@ -1,7 +1,12 @@
-import { describe, it, expect } from 'vitest';
-import { starterRegions, unlockedRegions, buildRoad, masteryProgress } from './regions';
+import { describe, it, expect, beforeAll } from 'vitest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { starterRegions, unlockedRegions, buildRoad, masteryProgress, resolveRefsToVerses } from './regions';
 import { KJV_VERSES } from '../data/kjv-verses';
+import { _setBibleForTesting } from '../data/kjv-bible';
 import type { ProgressEntry } from './types';
+
+const KJV_RAW = readFileSync(join(__dirname, '../../kjv.txt'), 'utf-8');
 
 describe('starterRegions', () => {
   it('returns 3 regions', () => {
@@ -111,5 +116,46 @@ describe('masteryProgress', () => {
     const mp = masteryProgress(region, []);
     expect(mp.lit).toBe(0);
     expect(mp.total).toBe(region.verses.length);
+  });
+});
+describe('resolveRefsToVerses', () => {
+  beforeAll(() => _setBibleForTesting(KJV_RAW));
+
+  it('reuses curated verses by their full record', async () => {
+    const out = await resolveRefsToVerses(['Psalm 23:1'], KJV_VERSES);
+    expect(out.length).toBe(1);
+    expect(out[0].reference).toBe('Psalm 23:1');
+    // Curated record carries keywords/difficulty/theme, not the stub defaults.
+    expect(out[0].keywords.length).toBeGreaterThan(0);
+    expect(out[0].theme).toBe('faith');
+  });
+
+  it('fetches a non-curated verse from the full Bible', async () => {
+    // John 3:17 is not in the curated set (only John 3:16 is).
+    const out = await resolveRefsToVerses(['John 3:17'], KJV_VERSES);
+    expect(out.length).toBe(1);
+    expect(out[0].reference).toBe('John 3:17');
+    expect(out[0].text.length).toBeGreaterThan(0);
+    expect(out[0].difficulty).toBe('medium');
+    expect(out[0].theme).toBe('custom');
+    expect(out[0].keywords).toEqual([]);
+  });
+
+  it('expands a verse range into one verse per lamp', async () => {
+    const out = await resolveRefsToVerses(['John 3:1-3'], KJV_VERSES);
+    expect(out.map((v) => v.reference)).toEqual(['John 3:1', 'John 3:2', 'John 3:3']);
+  });
+
+  it('mixes curated, non-curated, and ranges, dropping duplicates', async () => {
+    const out = await resolveRefsToVerses(
+      ['Psalm 23:1', 'John 3:1-2', 'Psalm 23:1'],
+      KJV_VERSES,
+    );
+    expect(out.map((v) => v.reference)).toEqual(['Psalm 23:1', 'John 3:1', 'John 3:2']);
+  });
+
+  it('skips references not found in the Bible', async () => {
+    const out = await resolveRefsToVerses(['Hezekiah 99:99'], KJV_VERSES);
+    expect(out).toEqual([]);
   });
 });
