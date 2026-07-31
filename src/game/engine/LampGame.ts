@@ -142,7 +142,7 @@ const TYPED_FONT = 26;
  *  is offered. Tuned so the affordance only appears after genuine struggle — it
  *  is never present during normal first/second attempts, eliminating the risk
  *  of an accidental skip while the player is still working. */
-const SKIP_THRESHOLD = 3;
+const SKIP_THRESHOLD = 2;
 const CELL_H = 52;
 const MIN_CELL_W = 84;
 const CELL_PAD = 14;
