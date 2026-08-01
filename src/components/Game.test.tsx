@@ -10,6 +10,7 @@ const engineDispose = vi.fn();
 const engineSetTheme = vi.fn();
 const engineSetStage = vi.fn();
 const engineSkipLamp = vi.fn();
+const engineSwapVerse = vi.fn();
 
 vi.mock('../game', () => ({
   createLampGame: vi.fn(async (opts: any) => {
@@ -18,6 +19,9 @@ vi.mock('../game', () => ({
       dispose: engineDispose,
       setTheme: engineSetTheme,
       setStage: engineSetStage,
+      // Skip-and-swap: no-op in the mock (the real engine swaps the verse
+      // without firing onResolve or advancing the lamp).
+      swapVerse: engineSwapVerse,
       // Mirror the real engine: skipLamp records a miss by firing onResolve
       // with correct:false + skipped:true, so the host writes a miss.
       skipLamp: () => {

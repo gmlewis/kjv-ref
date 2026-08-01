@@ -17,6 +17,7 @@ export const DEFAULT_GAME_STATE: GameState = {
   comboBest: 0,
   unlockedRegionIds: [],
   builtRoads: [],
+  deferredRefs: [],
   settings: { sound: false, motion: true },
 };
 
@@ -55,12 +56,13 @@ export function loadGameState(): GameState {
   const comboBest = isNumber(parsed.comboBest) ? parsed.comboBest : DEFAULT_GAME_STATE.comboBest;
   const unlockedRegionIds = asStringArray(parsed.unlockedRegionIds) ?? DEFAULT_GAME_STATE.unlockedRegionIds;
   const builtRoads = asStringArray2d(parsed.builtRoads) ?? DEFAULT_GAME_STATE.builtRoads;
+  const deferredRefs = asStringArray(parsed.deferredRefs) ?? [];
   const settings = {
     sound: parsed?.settings?.sound ?? DEFAULT_GAME_STATE.settings.sound,
     motion: parsed?.settings?.motion ?? DEFAULT_GAME_STATE.settings.motion,
   };
 
-  return { xp, level, comboBest, unlockedRegionIds, builtRoads, settings };
+  return { xp, level, comboBest, unlockedRegionIds, builtRoads, deferredRefs, settings };
 }
 
 /** Persist the cosmetic game state to `localStorage`. */

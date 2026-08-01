@@ -126,6 +126,12 @@ export interface LampGame {
    *  the verse to the host, and advances to the next lamp. No-op if no verse
    *  is loaded or a resolve animation is mid-flight. */
   skipLamp(): void;
+  /** Skip the current verse but stay on the same lamp: swap it for a different
+   *  random verse from the queue. The skipped verse is moved to the end of the
+   *  queue and deferred so it isn't immediately re-chosen next session. No-op
+   *  if no verse is loaded, a resolve animation is mid-flight, or the queue
+   *  has no other fresh verse to swap in. */
+  swapVerse(): void;
   /** Optional getter for current puzzle state (used in E2E tests). */
   getPuzzle?(): TilePuzzle | null;
 }
@@ -247,15 +253,35 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   const progressFor = (ref: string): ProgressEntry | undefined =>
     opts.progress.find((p) => p?.verse?.reference === ref);
 
+  // Cosmetic game state (xp / level / combo / deferred refs). Loaded here, at
+  // the top of session setup, so the deferred-swap set is available to
+  // `selectNextLamps` when the queue is built.
+  let gameState = loadGameState();
+
   let queue: KJVVerse[] = selectNextLamps({
     pool: opts.pool,
     progress: opts.progress,
     due: opts.due,
     dailyGoalCompleted: opts.dailyGoalCompleted,
+    deferred: gameState.deferredRefs ?? [],
     limit: 12,
   });
   if (queue.length === 0) queue = opts.pool.slice(0, 12); // fallback: no due, goal done
   let queueIndex = 0;
+  // Number of queue positions the currently-displayed lamp occupies. 1 for a
+  // single verse; >1 when a stage-5 chain reconstructed multiple consecutive
+  // verses as one puzzle. Tracked so the skip-and-swap feature can locate the
+  // current verse's span inside the queue.
+  let currentChainLen = 1;
+  // The chain verses for the currently-displayed lamp (null for a single
+  // verse). Retained so relayout / setTheme can rebuild the exact same puzzle
+  // (chain included) instead of silently dropping it back to a single verse.
+  let currentChainVerses: KJVVerse[] | null = null;
+  // Per-verse-random seed fed to the tile-puzzle builder so the word-bank
+  // shuffle (and decoy pick) varies between sessions. Stable across
+  // relayout / setTheme (same puzzle instance) but re-rolled for each new
+  // verse, re-presented read-along, or swapped-in verse.
+  let puzzleSeed = 1;
 
   // Candidate words (from every unlocked verse) from which decoy (wrong) tiles
   // are drawn for stages ≥ 2. Built once per session from the host's pool.
@@ -298,7 +324,6 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let cameraScrollX = 0;
   let targetCameraScrollX = 0;
   let animFrameId: number | null = null;
-  let gameState = loadGameState();
   const sessionLitRefs = new Set<string>();
   let combo = 0;
   let puzzleStartMs = 0;
@@ -331,6 +356,31 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     if (can === canSkipNotified) return;
     canSkipNotified = can;
     callbacks.onCanSkipChange?.(can);
+  }
+
+  // --- Deferred-verse set (skip-and-swap persistence) ----------------------
+  // A verse the player swaps out is recorded here so `selectNextLamps` sorts it
+  // last next session ("not now — I'll come back to it later"). Bounded LRU; a
+  // verse drops off the front once the set exceeds the cap, and any verse that
+  // is actually resolved is removed (the player came back to it).
+  const DEFERRED_CAP = 40;
+  function deferRef(reference: string) {
+    const list = gameState.deferredRefs ? [...gameState.deferredRefs] : [];
+    const i = list.indexOf(reference);
+    if (i >= 0) list.splice(i, 1); // move-to-back so re-swaps refresh recency
+    list.push(reference);
+    while (list.length > DEFERRED_CAP) list.shift();
+    gameState.deferredRefs = list;
+    saveGameState(gameState);
+  }
+  function undeferRef(reference: string) {
+    const list = gameState.deferredRefs ?? [];
+    if (list.length === 0) return;
+    const i = list.indexOf(reference);
+    if (i < 0) return;
+    list.splice(i, 1);
+    gameState.deferredRefs = list;
+    saveGameState(gameState);
   }
 
   // --- Input state ---------------------------------------------------------
@@ -656,9 +706,14 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     dragging = null;
     dragPointerId = null;
     awaitingRetryTap = false;
+    swipeStart = null;
   }
 
-  function buildPuzzle(v: KJVVerse, chainVerses: KJVVerse[] | null = null) {
+  function buildPuzzle(
+    v: KJVVerse,
+    chainVerses: KJVVerse[] | null = null,
+    minStage: ScaffoldLayer = 0,
+  ) {
     teardownPuzzle();
     verse = v;
 
@@ -674,13 +729,18 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // When the player chose "Auto" (setStage(null)) the persisted override is
     // deliberately ignored so the verse reverts to a pure recitation-based stage.
     const customForAuto = ignorePersistedOverride ? null : (boot?.customClozeLevel ?? null);
-    const stage: ScaffoldLayer =
+    const computed: ScaffoldLayer =
       stageOverride ?? getGameLayer(timesRecited, customForAuto as any, boot?.status);
+    // `minStage` forces the stage up (never down). Used only when re-presenting
+    // a verse immediately after its stage-0 read-along: tapping to continue
+    // must advance to at least stage 1, even if a persisted customClozeLevel of
+    // 0 would otherwise pin the verse back to the read-along and loop forever.
+    const stage: ScaffoldLayer = Math.max(minStage, computed) as ScaffoldLayer;
 
     // Task C-6: Multi-verse chain reconstruction
     puzzle = chainVerses && chainVerses.length > 1
-      ? buildMultiVersePuzzle(chainVerses, stage, queueIndex + 1, decoyPool)
-      : buildTilePuzzle(v, stage, queueIndex + 1, decoyPool);
+      ? buildMultiVersePuzzle(chainVerses, stage, puzzleSeed, decoyPool)
+      : buildTilePuzzle(v, stage, puzzleSeed, decoyPool);
 
     // The stage instruction is rendered by the host as a DOM row (paired with the
     // stage-control chips), NOT on the canvas, so the chips can sit beside it.
@@ -1112,7 +1172,9 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   function relayout() {
     if (verse) {
       const savedPlaced = tiles.map((t) => ({ id: t.id, slot: t.placedSlotIndex }));
-      buildPuzzle(verse);
+      // Rebuild with the same chain verses so a resize mid-passage doesn't
+      // silently collapse a stage-5 chain back to a single verse.
+      buildPuzzle(verse, currentChainVerses);
       for (const p of savedPlaced) {
         if (p.slot == null) continue;
         const t = tiles.find((tt) => tt.id === p.id);
@@ -1303,6 +1365,13 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let downX = 0;
   let downY = 0;
   let downTilePlacedSlotIndex: number | null = null;
+  // A right-to-left swipe on empty canvas (no tile grabbed) swaps the current
+  // verse for a different one without advancing the lamp. Armed on pointerdown
+  // that hits no tile; triggered on pointerup if the horizontal travel is a
+  // leftward swipe past the threshold. See `swapCurrentVerse`.
+  let swipeStart: { x: number; y: number } | null = null;
+  const SWIPE_MIN_DX = 60; // px of leftward travel to count as a swap swipe
+  const SWIPE_MAX_DY = 50; // px of vertical drift still allowed
 
   function animateTileTo(t: TileView, targetX: number, targetY: number, durationMs: number = 140) {
     const startX = t.curX;
@@ -1376,7 +1445,14 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       return;
     }
     const t = hitTile(x, y);
-    if (!t) return;
+    if (!t) {
+      // Empty-area press on a tile stage: arm a potential right-to-left swap
+      // swipe. A plain tap here does nothing (delta stays small), so this only
+      // ever fires on an actual leftward swipe.
+      swipeStart = { x, y };
+      return;
+    }
+    swipeStart = null;
     downX = x;
     downY = y;
     downTilePlacedSlotIndex = t.placedSlotIndex;
@@ -1397,7 +1473,22 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     setTilePos(dragging, x - dragOffX, y - dragOffY);
   }
   function onPointerUp(e: PointerEvent) {
-    if (!dragging) return;
+    if (!dragging) {
+      // No tile was grabbed — if this was an armed leftward swipe on empty
+      // canvas, swap the current verse for a different one (same lamp).
+      if (swipeStart) {
+        const [x, y] = pointerPos(e);
+        const dx = x - swipeStart.x;
+        const dy = y - swipeStart.y;
+        swipeStart = null;
+        // Only a genuine pointer-up (not a pointercancel) can trigger a swap.
+        if (e.type === 'pointerup' && dx <= -SWIPE_MIN_DX && Math.abs(dy) <= SWIPE_MAX_DY) {
+          swapCurrentVerse();
+        }
+      }
+      return;
+    }
+    swipeStart = null;
     const t = dragging;
     dragging = null;
     dragPointerId = null;
@@ -1499,6 +1590,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     } else {
       playTileErrorSound();
     }
+    // The player engaged with this verse (right or wrong), so it's no longer
+    // "deferred — try later": drop it from the deferred-swap set so it returns
+    // to its normal selection priority next session.
+    undeferRef(reference);
     onResolve({ reference, correct, accuracy, rating, fluent, usedHint: false, earnedXp });
     return earnedXp;
   }
@@ -1596,8 +1691,20 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       setTimeout(() => {
         if (disposed) return;
         clearFeedbackBanner();
-        if (wasStudy) buildPuzzle(verse);
-        else nextPuzzle();
+        if (wasStudy) {
+          // Re-present the same verse at the next scaffold layer. Force the
+          // stage up to at least 1 so a tap on the stage-0 read-along always
+          // advances to the word-ordering stage — even when a persisted
+          // customClozeLevel of 0 would otherwise pin it back to the read-along
+          // and leave the player stuck on "Level 0" forever. A read-along is a
+          // one-time intro; after it, the player taps the words in order.
+          currentChainLen = 1;
+          currentChainVerses = null;
+          puzzleSeed = (Math.random() * 2 ** 31) | 0;
+          buildPuzzle(verse, null, 1);
+        } else {
+          nextPuzzle();
+        }
       }, 1400);
     } else {
       // Incorrect: keep the red banner + per-slot glow on screen until the
@@ -1662,14 +1769,27 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     sessionRecited.set(verse.reference, prev + 1);
   }
 
+  /** Compute the scaffold stage a verse would be presented at right now, using
+   *  the same logic as `buildPuzzle` (live override > persisted override >
+   *  mastered > recitation-based). Used to decide chain eligibility without
+   *  having to build the puzzle first. */
+  function computeStage(v: KJVVerse): ScaffoldLayer {
+    const boot = progressFor(v.reference);
+    const timesRecited = sessionRecited.get(v.reference) ?? boot?.timesRecited ?? 0;
+    const customForAuto = ignorePersistedOverride ? null : (boot?.customClozeLevel ?? null);
+    return (stageOverride ?? getGameLayer(timesRecited, customForAuto as any, boot?.status)) as ScaffoldLayer;
+  }
+
   /**
    * Task C-6: Multi-verse chain reconstruction
    * Returns 1-3 consecutive verses to chain together for increased difficulty.
-   * Chain detection: at stage 5 (or override), group consecutive verses from same chapter.
+   * Chains only form at stage 5 (hardest difficulty); `effectiveStage` is the
+   * actual scaffold stage the verse will be presented at (computed by the
+   * caller), NOT `override ?? 5` — previously the fallback made every auto-stage
+   * verse pretend to be stage 5, chaining verses even at the stage-0 read-along.
    */
-  function getChainVerses(q: KJVVerse[], startIndex: number, override: ScaffoldLayer | null): KJVVerse[] {
+  function getChainVerses(q: KJVVerse[], startIndex: number, effectiveStage: ScaffoldLayer): KJVVerse[] {
     // Only chain at stage 5 (hardest difficulty)
-    const effectiveStage = override ?? 5;
     if (effectiveStage < 5) {
       return [q[startIndex]];
     }
@@ -1734,21 +1854,29 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       return;
     }
 
+    // A new verse starts at its own auto stage; clear any override that was
+    // applied to the previous verse via setStage BEFORE deciding the chain, so
+    // chain eligibility reflects the new verse's own auto stage (not the prior
+    // verse's override).
+    stageOverride = null;
+    ignorePersistedOverride = false;
+
     // Task C-6: Multi-verse chain reconstruction
-    // At stage 5, chain 2-3 consecutive verses together for increased difficulty
-    const chainVerses = getChainVerses(queue, queueIndex, stageOverride);
+    // At stage 5, chain 2-3 consecutive verses together for increased difficulty.
+    const stage0 = computeStage(queue[queueIndex]);
+    const chainVerses = getChainVerses(queue, queueIndex, stage0);
     const v = chainVerses[0];
     queueIndex += chainVerses.length;
+    currentChainLen = chainVerses.length;
+    currentChainVerses = chainVerses.length > 1 ? chainVerses : null;
+    // Fresh per-verse tile-bank seed so the word shuffle varies each session.
+    puzzleSeed = (Math.random() * 2 ** 31) | 0;
 
     // Task C-4: Parallax camera scroll offset tracking verse progression
     const [W, H] = canvasSize();
     const { isMobile } = getResponsiveMetrics(W, H);
     targetCameraScrollX = Math.max(0, (queueIndex - 1) * (isMobile ? 80 : 120));
 
-    // A new verse starts at its own auto stage; clear any override that was
-    // applied to the previous verse via setStage.
-    stageOverride = null;
-    ignorePersistedOverride = false;
     buildPuzzle(v, chainVerses.length > 1 ? chainVerses : null);
 
     // Expose window debug handles for E2E proof assertions
@@ -1793,7 +1921,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     palette = paletteFor(theme);
     // Rebuild the current puzzle so every sprite/text adopts the new palette.
     const current = verse;
-    if (current) buildPuzzle(current);
+    if (current) buildPuzzle(current, currentChainVerses);
     else relayout();
   }
 
@@ -1803,6 +1931,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // persisted customClozeLevel for this verse. A concrete stage pins it.
     stageOverride = stage;
     ignorePersistedOverride = stage === null;
+    // A manual stage change drops any active chain: the player is explicitly
+    // choosing how to practice this single verse.
+    currentChainVerses = null;
+    currentChainLen = 1;
     buildPuzzle(verse);
   }
 
@@ -1859,6 +1991,80 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     }, 1400);
   }
 
+  /**
+   * Skip the current verse but STAY on the same lamp: swap the verse currently
+   * on screen for a different random verse from the queue, without advancing
+   * the journey. The skipped verse is moved to the end of the queue (lowest
+   * priority for the rest of this session) and recorded in the deferred set so
+   * it isn't immediately re-chosen next session either. Triggered by the
+   * circular right-arrow button and by a right-to-left swipe on empty canvas.
+   *
+   * Unlike `skipLamp`, this does NOT count as a miss, does NOT fire `onResolve`,
+   * and does NOT advance `queueIndex` past the current lamp — the replacement
+   * verse simply takes the current lamp's place.
+   */
+  function swapCurrentVerse() {
+    if (!verse || !puzzle) return;
+    // No swap mid auto-resolve animation or mid-celebration; wait for the
+    // current resolve to settle. A swap during the "tap to retry" banner is
+    // fine — that's the player giving up on this particular verse.
+    if (resolving && !awaitingRetryTap) return;
+
+    if (awaitingRetryTap) {
+      awaitingRetryTap = false;
+      clearFeedbackBanner();
+      returnMisplacedTiles(); // also resets resolving=false
+    }
+
+    // The current lamp occupies queue positions [start, start + chainLen - 1].
+    const start = queueIndex - currentChainLen;
+    const skipRefs = new Set<string>();
+    for (let i = start; i < queueIndex; i++) {
+      const qv = queue[i];
+      if (qv) skipRefs.add(qv.reference);
+    }
+
+    // Pick a replacement: prefer an upcoming verse already in the queue (the
+    // user asked to swap for "a different random one that exists in the
+    // queue"), skipping anything already lit this session or previously
+    // deferred (so repeated swaps never bounce back to a verse the player just
+    // said "not now" to). Fall back to the full host pool if the queue has no
+    // fresh candidates (e.g. last lamp).
+    const deferredSet = new Set(gameState.deferredRefs ?? []);
+    const isCandidate = (v: KJVVerse) =>
+      !skipRefs.has(v.reference) &&
+      !sessionLitRefs.has(v.reference) &&
+      !deferredSet.has(v.reference);
+    let candidates = queue.slice(queueIndex).filter(isCandidate);
+    if (candidates.length === 0) candidates = opts.pool.filter(isCandidate);
+    if (candidates.length === 0) return; // nothing to swap to — stay put
+
+    const replacement = candidates[Math.floor(Math.random() * candidates.length)];
+
+    // Move the skipped verse(s) to the end of the queue (lowest priority this
+    // session) and mark them deferred for next session. The replacement takes
+    // the current lamp's position; queueIndex is re-anchored just past it.
+    const removed = queue.splice(start, currentChainLen);
+    queue.splice(start, 0, replacement);
+    for (const v of removed) {
+      queue.push(v);
+      deferRef(v.reference);
+    }
+    queueIndex = start + 1;
+    currentChainLen = 1;
+    currentChainVerses = null;
+    stageOverride = null;
+    ignorePersistedOverride = false;
+    puzzleSeed = (Math.random() * 2 ** 31) | 0;
+
+    // Re-arm a fresh puzzle for the replacement at the current lamp position.
+    // The replacement starts at its own auto stage (minStage 0 — a freshly
+    // encountered verse may legitimately be a stage-0 read-along).
+    buildPuzzle(replacement, null, 0);
+
+    (window as any).__lampGamePuzzle = () => puzzle;
+  }
+
   function dispose() {
     if (disposed) return;
     disposed = true;
@@ -1876,5 +2082,5 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
   (window as any).__lampGamePuzzle = () => puzzle;
 
-  return { dispose, setTheme, setStage, skipLamp, getPuzzle: () => puzzle };
+  return { dispose, setTheme, setStage, skipLamp, swapVerse: swapCurrentVerse, getPuzzle: () => puzzle };
 }

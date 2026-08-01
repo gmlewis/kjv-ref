@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Eye, EyeOff, Volume2, VolumeX, X, Compass, Zap, Plus, BookOpen, Search, Check, Sparkles, Trophy, Flame, SkipForward,
+  Eye, EyeOff, Volume2, VolumeX, X, Compass, Zap, Plus, BookOpen, Search, Check, Sparkles, Trophy, Flame, SkipForward, ArrowRight,
 } from 'lucide-react';
 import {
   useMyProgress,
@@ -64,6 +64,7 @@ export default function Game() {
     setTheme: (t: Theme) => void;
     setStage: (stage: ScaffoldLayer | null) => void;
     skipLamp: () => void;
+    swapVerse: () => void;
   } | null>(null);
 
   const [bootKey, setBootKey] = useState(0);
@@ -586,6 +587,23 @@ export default function Game() {
         </button>
       </div>
         </>
+      )}
+
+      {/* Skip-and-swap verse: a circular right-arrow button on the right edge,
+          vertically centered. Swaps the current verse for a different random
+          one from the queue without advancing the lamp — the skipped verse is
+          moved to the end of the queue and deferred so it isn't immediately
+          re-chosen. (A right-to-left swipe on the canvas does the same.) */}
+      {status === 'ready' && !summary && (
+        <button
+          type="button"
+          onClick={() => engineRef.current?.swapVerse()}
+          aria-label="Skip to a different verse"
+          title="Skip to a different verse — stays on this lamp"
+          className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 z-10 glassmorphism rounded-full p-2 sm:p-2.5 shadow-lg hover:bg-white/30 active:scale-95 transition-all flex items-center justify-center border border-white/15"
+        >
+          <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500 dark:text-amber-400" />
+        </button>
       )}
 
       {showPeek && activeText && (

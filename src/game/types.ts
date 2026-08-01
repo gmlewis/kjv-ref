@@ -76,5 +76,9 @@ export interface GameState {
   unlockedRegionIds: string[];
   /** Branch roads the player has built; each is an array of reference strings. */
   builtRoads: string[][];
+  /** References the player swapped out of a session ("not now") — deprioritized
+   *  by `selectNextLamps` so they aren't immediately re-chosen next session.
+   *  Bounded LRU; a verse is removed when it is actually resolved. */
+  deferredRefs?: string[];
   settings: { sound: boolean; motion: boolean };
 }

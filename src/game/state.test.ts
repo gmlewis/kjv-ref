@@ -11,7 +11,7 @@ describe('game state storage', () => {
     expect(s.settings.motion).toBe(true);
   });
   it('saveGameState then loadGameState round-trips', () => {
-    const state = { xp: 250, level: 2, comboBest: 7, unlockedRegionIds: ['gate'], builtRoads: [['John 3:16']], settings: { sound: true, motion: false } };
+    const state = { xp: 250, level: 2, comboBest: 7, unlockedRegionIds: ['gate'], builtRoads: [['John 3:16']], deferredRefs: ['Psalm 23:1'], settings: { sound: true, motion: false } };
     saveGameState(state);
     expect(loadGameState()).toEqual(state);
   });
