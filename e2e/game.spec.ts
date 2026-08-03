@@ -273,7 +273,7 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
 
     const frameNames = await page.evaluate(() => {
       const atlas = (window as any).__lampGameSpriteAtlas;
-      return atlas ? Object.keys(atlas.frameIndexMap || {}) : [];
+      return atlas && atlas.frames ? atlas.frames.map((f: any) => f.name).filter(Boolean) : [];
     });
 
     console.log('C-3 Registered Sprite Frame Atlas:', frameNames);
