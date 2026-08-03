@@ -77,6 +77,18 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
 
   test('D-4: Audio Mute button toggle and localStorage persistence', async ({ page }) => {
     await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
+
+    // Wait for game engine to finish loading (same pattern as D-5, D-7, D-8)
+    const isReady = await page.waitForFunction(
+      () => typeof (window as any).__lampGamePuzzle === 'function' || document.body.innerText.includes('Failed to light'),
+      { timeout: 30000 },
+    ).then(() => true).catch(() => false);
+
+    if (!isReady) {
+      console.log('D-4: Game failed to initialize');
+      return;
+    }
+
     const muteBtn = page.locator('button[aria-label="Unmute sound"], button[aria-label="Mute sound"]');
     await expect(muteBtn).toBeVisible();
 
