@@ -450,13 +450,21 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     gap: number,
     isMobile: boolean,
   ): { bankAreaX: number; bankAreaW: number } {
-    if (isMobile || tileWidths.length <= 2 || maxAreaW <= 520) {
-      return { bankAreaX: (canvasW - maxAreaW) / 2, bankAreaW: maxAreaW };
+    // Reserve space on the right edge for the "Skip to a different verse" button.
+    // The button sits at right-2 (mobile) or right-3 (desktop) with padding,
+    // requiring ~70px exclusion zone on desktop and ~55px on mobile.
+    const SKIP_BUTTON_EXCLUSION = isMobile ? 55 : 70;
+    const effectiveCanvasW = canvasW - SKIP_BUTTON_EXCLUSION;
+    const effectiveMaxAreaW = Math.min(maxAreaW, effectiveCanvasW);
+
+    if (isMobile || tileWidths.length <= 2 || effectiveMaxAreaW <= 520) {
+      const bankAreaX = (effectiveCanvasW - effectiveMaxAreaW) / 2;
+      return { bankAreaX, bankAreaW: effectiveMaxAreaW };
     }
 
     const n = tileWidths.length;
     const targetRatio = 1.5; // Target aspect ratio (width / height) for compact near-square desktop bank block
-    let bestW = maxAreaW;
+    let bestW = effectiveMaxAreaW;
     let bestDiff = Infinity;
 
     for (let r = 2; r <= Math.min(n, 6); r++) {
@@ -468,7 +476,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
         if (rw > maxRowW) maxRowW = rw;
       }
 
-      const candidateW = Math.min(maxAreaW, maxRowW + 4);
+      const candidateW = Math.min(effectiveMaxAreaW, maxRowW + 4);
       let actualRows = 1;
       let curW = 0;
       for (const w of tileWidths) {
@@ -484,14 +492,14 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       const ratio = candidateW / blockH;
       const diff = Math.abs(ratio - targetRatio);
 
-      if (diff < bestDiff && candidateW <= maxAreaW) {
+      if (diff < bestDiff && candidateW <= effectiveMaxAreaW) {
         bestDiff = diff;
         bestW = candidateW;
       }
     }
 
-    const constrainedW = Math.min(maxAreaW, Math.max(360, Math.min(bestW, 680)));
-    const bankAreaX = Math.round((canvasW - constrainedW) / 2);
+    const constrainedW = Math.min(effectiveMaxAreaW, Math.max(360, Math.min(bestW, 680)));
+    const bankAreaX = Math.round((effectiveCanvasW - constrainedW) / 2);
     return { bankAreaX, bankAreaW: constrainedW };
   }
 
@@ -959,20 +967,21 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     });
     addTextRendererLayer(textRenderer, headerLayer);
 
-    // HUD summary (Level, XP, Combo).
-    const hudText = isTiny
+    // HUD summary (Level, XP, Combo) - captured for updateHud() to refresh.
+    const makeHudText = () => isTiny
       ? `Lvl ${gameState.level} • ${gameState.xp} XP • Combos: x${combo}`
       : `Game Stats: Level ${gameState.level} • ${gameState.xp} XP • Session Combos: x${combo}`;
-    hudData = createDefaultTextData(font, hudFont, hudText, textColor(palette.text, 0.8), { align: 'center' });
+    hudData = createDefaultTextData(font, hudFont, makeHudText(), textColor(palette.text, 0.8), { align: 'center' });
     hudLayer = createTextLayer(hudData, {
       positionPx: { x: (W - hudData.width) / 2, y: hudY + hudFont * 0.65 },
     });
     addTextRendererLayer(textRenderer, hudLayer);
 
     // Render Majestic Coastal Lighthouses & Radiant Beacons along the path
-    const lampCount = queue.length;
+    // Cap at 12 lighthouses (the session limit) even if queue somehow exceeds it
+    const lampCount = Math.min(12, queue.length);
     const lampStep = (W - 4 * margin) / Math.max(1, lampCount - 1);
-    const activeIndex = Math.max(0, queueIndex - 1);
+    const activeIndex = Math.max(0, Math.min(queueIndex - 1, lampCount - 1));
     for (let i = 0; i < lampCount; i++) {
       const qv = queue[i];
       const isCurrent = i === activeIndex;
@@ -1190,6 +1199,28 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     (window as any).__lampGameCameraScrollX = cameraScrollX;
     (window as any).__lampGameFluencyRing = fluencyRingSprite;
     (window as any).__lampGameParticles = particleSprites;
+    (window as any).__lampGameLighthouses = lighthouseSprites;
+    (window as any).__lampGameLamps = lampSprites;
+  }
+
+  /** Update the HUD text to reflect the current gameState (level, xp, combo). */
+  function updateHud() {
+    if (!hudLayer || !hudData) return;
+    const [W, H] = canvasSize();
+    const { isTiny, hudFont, hudY } = getResponsiveMetrics(W, H);
+    const hudText = isTiny
+      ? `Lvl ${gameState.level} • ${gameState.xp} XP • Combos: x${combo}`
+      : `Game Stats: Level ${gameState.level} • ${gameState.xp} XP • Session Combos: x${combo}`;
+    // Dispose old text data and create new one
+    disposeDefaultTextData(hudData);
+    removeTextRendererLayer(textRenderer, hudLayer);
+    const newData = createDefaultTextData(font, hudFont, hudText, textColor(palette.text, 0.8), { align: 'center' });
+    const newLayer = createTextLayer(newData, {
+      positionPx: { x: (W - newData.width) / 2, y: hudY + hudFont * 0.65 },
+    });
+    addTextRendererLayer(textRenderer, newLayer);
+    hudData = newData;
+    hudLayer = newLayer;
   }
 
   function updateParallaxPositions() {
@@ -1241,10 +1272,11 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     }
 
     // Coastal Lighthouses & Beacons along the path (Parallax Factor 1.0)
-    const lampCount = queue.length;
+    // Cap at 12 lighthouses (the session limit) even if queue somehow exceeds it
+    const lampCount = Math.min(12, queue.length);
     if (lampCount > 0) {
       const lampStep = (W - 4 * margin) / Math.max(1, lampCount - 1);
-      const activeIndex = Math.max(0, queueIndex - 1);
+      const activeIndex = Math.max(0, Math.min(queueIndex - 1, lampCount - 1));
 
       let haloIdx = 0;
       let beamIdx = 0;
@@ -1298,6 +1330,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       cameraScrollX += (targetCameraScrollX - cameraScrollX) * 0.025;
       updateParallaxPositions();
       (window as any).__lampGameCameraScrollX = cameraScrollX;
+      (window as any).__lampGameLighthouses = lighthouseSprites;
     }
 
     const now = performance.now();
@@ -1587,6 +1620,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       gameState.level = levelForXp(gameState.xp);
       gameState.comboBest = Math.max(gameState.comboBest, combo);
       saveGameState(gameState);
+      updateHud(); // Refresh HUD to show new level/XP
     } else {
       playTileErrorSound();
     }
