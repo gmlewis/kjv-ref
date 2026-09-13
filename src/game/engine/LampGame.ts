@@ -57,7 +57,7 @@ import type {
 } from '@babylonjs/lite';
 import type { KJVVerse } from '../../data/kjv-verses';
 import type { ProgressEntry, DueEntry, TilePuzzle, ScaffoldLayer } from '../types';
-import { selectNextLamps } from '../selection';
+import { selectNextLamps, replaceQueueSlot } from '../selection';
 import { getGameLayer, buildTilePuzzle, buildMultiVersePuzzle } from '../scaffold';
 import { scoreTilePuzzle, performanceRating, computeXp, applyCombo, levelForXp } from '../scoring';
 import { loadGameState, saveGameState } from '../state';
@@ -325,6 +325,11 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let targetCameraScrollX = 0;
   let animFrameId: number | null = null;
   const sessionLitRefs = new Set<string>();
+  // Verses the player skipped (right-arrow / swipe) during THIS session. A skip
+  // means "not now" for the rest of this game, so these are never re-presented
+  // and never re-picked as a swap replacement. Cleared implicitly on the next
+  // session (a fresh engine instance).
+  const sessionSkippedRefs = new Set<string>();
   let combo = 0;
   let puzzleStartMs = 0;
   let resolving = false;
@@ -657,8 +662,11 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       feedbackBgSprite = null;
     }
     for (const ls of lampSprites) removeSprite2D(ls);
+    lampSprites = [];
     for (const lhs of lighthouseSprites) removeSprite2D(lhs);
+    lighthouseSprites = [];
     for (const lhs of lampHaloSprites) removeSprite2D(lhs);
+    lampHaloSprites = [];
     for (const lfs of lampFlameSprites) removeSprite2D(lfs.sprite);
     lampFlameSprites = [];
     for (const bb of beaconBeamSprites) removeSprite2D(bb.sprite);
@@ -1195,7 +1203,13 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       }
     }
 
-    (window as any).__lampGamePuzzle = () => puzzle;
+    // Only publish the puzzle hook once a puzzle actually exists. `relayout()`
+    // also runs from the boot-time ResizeObserver, before `nextPuzzle()` has
+    // built anything; publishing an empty hook there made the e2e readiness
+    // probe (`typeof __lampGamePuzzle === 'function'`) succeed against a
+    // half-booted game, so the tests raced the engine and asserted against the
+    // "Lighting the lamps…" loading screen.
+    if (puzzle) (window as any).__lampGamePuzzle = () => puzzle;
     (window as any).__lampGameCameraScrollX = cameraScrollX;
     (window as any).__lampGameFluencyRing = fluencyRingSprite;
     (window as any).__lampGameParticles = particleSprites;
@@ -2028,10 +2042,12 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   /**
    * Skip the current verse but STAY on the same lamp: swap the verse currently
    * on screen for a different random verse from the queue, without advancing
-   * the journey. The skipped verse is moved to the end of the queue (lowest
-   * priority for the rest of this session) and recorded in the deferred set so
-   * it isn't immediately re-chosen next session either. Triggered by the
-   * circular right-arrow button and by a right-to-left swipe on empty canvas.
+   * the journey. The replacement takes the skipped verse's slot in place, so the
+   * queue keeps its length and the session stays winnable; the skipped verse is
+   * dropped from this game entirely (see `sessionSkippedRefs`) and recorded in
+   * the deferred set so it isn't immediately re-chosen next session either.
+   * Triggered by the circular right-arrow button and by a right-to-left swipe on
+   * empty canvas.
    *
    * Unlike `skipLamp`, this does NOT count as a miss, does NOT fire `onResolve`,
    * and does NOT advance `queueIndex` past the current lamp — the replacement
@@ -2052,22 +2068,23 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
     // The current lamp occupies queue positions [start, start + chainLen - 1].
     const start = queueIndex - currentChainLen;
-    const skipRefs = new Set<string>();
+    const skippedRefs = new Set<string>();
     for (let i = start; i < queueIndex; i++) {
       const qv = queue[i];
-      if (qv) skipRefs.add(qv.reference);
+      if (qv) skippedRefs.add(qv.reference);
     }
 
     // Pick a replacement: prefer an upcoming verse already in the queue (the
     // user asked to swap for "a different random one that exists in the
-    // queue"), skipping anything already lit this session or previously
-    // deferred (so repeated swaps never bounce back to a verse the player just
-    // said "not now" to). Fall back to the full host pool if the queue has no
-    // fresh candidates (e.g. last lamp).
+    // queue"), skipping anything already lit this session, previously deferred,
+    // or already skipped this session (a verse the player said "not now" to
+    // must not come back for the rest of THIS game). Fall back to the full host
+    // pool if the queue has no fresh candidates (e.g. last lamp).
     const deferredSet = new Set(gameState.deferredRefs ?? []);
     const isCandidate = (v: KJVVerse) =>
-      !skipRefs.has(v.reference) &&
+      !skippedRefs.has(v.reference) &&
       !sessionLitRefs.has(v.reference) &&
+      !sessionSkippedRefs.has(v.reference) &&
       !deferredSet.has(v.reference);
     let candidates = queue.slice(queueIndex).filter(isCandidate);
     if (candidates.length === 0) candidates = opts.pool.filter(isCandidate);
@@ -2075,14 +2092,17 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
     const replacement = candidates[Math.floor(Math.random() * candidates.length)];
 
-    // Move the skipped verse(s) to the end of the queue (lowest priority this
-    // session) and mark them deferred for next session. The replacement takes
-    // the current lamp's position; queueIndex is re-anchored just past it.
-    const removed = queue.splice(start, currentChainLen);
-    queue.splice(start, 0, replacement);
-    for (const v of removed) {
-      queue.push(v);
-      deferRef(v.reference);
+    // The replacement takes the current lamp's slot IN PLACE, so the queue
+    // length — and therefore the "queueIndex >= queue.length" win condition —
+    // is preserved no matter how many times the player skips. The skipped
+    // verse is dropped from the queue (not re-appended, which would both
+    // resurrect it later this game and make the final lamp unreachable) and
+    // recorded so it can't be re-picked as a replacement or re-presented.
+    const swapped = replaceQueueSlot(queue, start, currentChainLen, replacement);
+    queue = swapped.queue;
+    for (const ref of swapped.skipped) {
+      sessionSkippedRefs.add(ref);
+      deferRef(ref);
     }
     queueIndex = start + 1;
     currentChainLen = 1;

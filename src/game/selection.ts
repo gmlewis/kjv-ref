@@ -21,6 +21,36 @@ export interface SelectionInput {
 }
 
 /**
+ * Swap the verse(s) occupying the current lamp's queue slot for `replacement`.
+ *
+ * The replacement takes the slot **in place**, so the queue length is preserved.
+ * That is what keeps the session winnable: a session is complete once
+ * `queueIndex >= queue.length`, so a swap that lengthened the queue would push
+ * the final lamp permanently out of reach and the game would cycle forever.
+ *
+ * The skipped verse(s) are dropped from the queue entirely rather than
+ * re-appended: the player said "not now", so they must not reappear for the
+ * rest of this game. They are returned as `skipped` so the caller can defer
+ * them (sort-last next session) and exclude them from later swaps.
+ *
+ * `start` is clamped into range so a stale/negative offset can't splice from
+ * the end of the queue.
+ */
+export function replaceQueueSlot(
+  queue: KJVVerse[],
+  start: number,
+  chainLen: number,
+  replacement: KJVVerse,
+): { queue: KJVVerse[]; skipped: string[] } {
+  const next = [...queue];
+  const at = Math.max(0, Math.min(start, next.length));
+  const len = Math.max(1, Math.min(chainLen, next.length - at));
+  const removed = next.splice(at, len);
+  next.splice(at, 0, replacement);
+  return { queue: next, skipped: removed.map((v) => v.reference) };
+}
+
+/**
  * Select the next lamps to present for a practice session.
  *
  * Sort order:

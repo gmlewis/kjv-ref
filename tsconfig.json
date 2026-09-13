@@ -15,7 +15,7 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
-    "types": ["vitest/globals"]
+    "types": ["vitest/globals", "node"]
   },
   "include": ["src", "kjv-memorize.ts", "parse-kjv.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]

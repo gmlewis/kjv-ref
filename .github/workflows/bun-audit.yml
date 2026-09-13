@@ -1,0 +1,62 @@
+name: security-audit
+
+# Dependabot's *security* update jobs run outside this repo's control: they are
+# GitHub-managed `dynamic` jobs, are not driven by .github/dependabot.yml, and
+# cannot be pointed at the `bun` ecosystem — which is why the "npm_and_yarn in /"
+# runs kept failing against a project with no package-lock.json. This workflow is
+# the replacement: it asks bun itself, weekly, using the lockfile we actually have.
+on:
+  schedule:
+    # Mondays 06:17 UTC. Deliberately off the hour: :00 is the most congested
+    # slot on GitHub's scheduler and runs there are queued, not started promptly.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-audit
+  cancel-in-progress: false
+
+jobs:
+  bun-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # No `bun install` step: `bun audit` resolves the advisory database against
+      # package.json + bun.lock directly. Nothing is executed from the dependency
+      # tree, so there is no reason to instantiate it.
+      #
+      # `--audit-level=high` gates the exit code, not just the printed output, so
+      # moderate-only findings leave the run green. Relax to `critical` if the
+      # weekly red is noisier than it is useful.
+      - name: Audit dependencies
+        run: |
+          report="${RUNNER_TEMP:-/tmp}/bun-audit.txt"
+
+          if bun audit --audit-level=high > "$report" 2>&1; then
+            cat "$report"
+            echo "No high or critical advisories." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          cat "$report"
+          {
+            echo "## \`bun audit\` found high or critical advisories"
+            echo
+            echo '```'
+            cat "$report"
+            echo '```'
+            echo
+            echo "Upgrade with \`bun update <package>\`, or let \`bun audit fix\`"
+            echo "resolve within the existing ranges."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1

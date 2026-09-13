@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { selectNextLamps } from './selection';
+import { selectNextLamps, replaceQueueSlot } from './selection';
 import { KJV_VERSES } from '../data/kjv-verses';
 import type { ProgressEntry, DueEntry } from './types';
 
@@ -57,5 +57,62 @@ describe('selectNextLamps', () => {
     ];
     const out = selectNextLamps({ pool, progress: [], due, dailyGoalCompleted: true, limit: 1 });
     expect(out.length).toBe(1);
+  });
+});
+
+describe('replaceQueueSlot', () => {
+  // A 12-lamp session, as the engine builds it.
+  const session = () => KJV_VERSES.slice(0, 12);
+
+  it('keeps the queue length, so the win condition stays reachable', () => {
+    const queue = session();
+    const { queue: next, skipped } = replaceQueueSlot(queue, 11, 1, ref('John 3:16'));
+    expect(next.length).toBe(queue.length);
+    expect(skipped).toEqual([queue[11].reference]);
+  });
+
+  it('does not re-append the skipped verse (it must not reappear this game)', () => {
+    const queue = session();
+    const skipRef = queue[11].reference;
+    const { queue: next } = replaceQueueSlot(queue, 11, 1, ref('John 3:16'));
+    expect(next.map(v => v.reference)).not.toContain(skipRef);
+  });
+
+  it('lets the final lamp be solved and complete the session', () => {
+    // queueIndex is 12 (the last lamp is on screen) and the player skips it.
+    const queue = session();
+    const queueIndex = 12;
+    const start = queueIndex - 1;
+    const { queue: next } = replaceQueueSlot(queue, start, 1, ref('John 3:16'));
+
+    // The engine advances to start + 1 after a swap, then nextPuzzle() checks
+    // `queueIndex >= queue.length`. Before the fix the queue grew to 13, so the
+    // check never passed and the game cycled forever.
+    const nextQueueIndex = start + 1;
+    expect(nextQueueIndex).toBe(12);
+    expect(nextQueueIndex).toBeGreaterThanOrEqual(next.length);
+  });
+
+  it('preserves the original queue (no in-place mutation)', () => {
+    const queue = session();
+    const before = queue.map(v => v.reference);
+    replaceQueueSlot(queue, 0, 1, ref('John 3:16'));
+    expect(queue.map(v => v.reference)).toEqual(before);
+  });
+
+  it('collapses a multi-verse chain slot to a single replacement', () => {
+    const queue = session();
+    const { queue: next, skipped } = replaceQueueSlot(queue, 4, 3, ref('John 3:16'));
+    expect(skipped.length).toBe(3);
+    expect(next.length).toBe(queue.length - 2);
+    expect(next[4].reference).toBe('John 3:16');
+  });
+
+  it('clamps an out-of-range start instead of splicing from the end', () => {
+    const queue = session();
+    const { queue: next, skipped } = replaceQueueSlot(queue, -5, 1, ref('John 3:16'));
+    expect(next.length).toBe(queue.length);
+    expect(next[0].reference).toBe('John 3:16');
+    expect(skipped).toEqual([queue[0].reference]);
   });
 });

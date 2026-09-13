@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { openApp } from './helpers/app-frame';
+import { requireReadyGame } from './helpers/game-ready';
 
 test.describe('Lamp of the Path Game Mode (Stream D)', () => {
 
@@ -79,15 +80,7 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
 
     // Wait for game engine to finish loading (same pattern as D-5, D-7, D-8)
-    const isReady = await page.waitForFunction(
-      () => typeof (window as any).__lampGamePuzzle === 'function' || document.body.innerText.includes('Failed to light'),
-      { timeout: 30000 },
-    ).then(() => true).catch(() => false);
-
-    if (!isReady) {
-      console.log('D-4: Game failed to initialize');
-      return;
-    }
+    if (!await requireReadyGame(page, 'D-4')) return;
 
     const muteBtn = page.locator('button[aria-label="Unmute sound"], button[aria-label="Mute sound"]');
     await expect(muteBtn).toBeVisible();
@@ -112,15 +105,7 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     await page.waitForURL('**/practice/game');
 
     // Wait for game boot loading overlay to disappear (same pattern as D-7/D-8)
-    const isReady = await page.waitForFunction(
-      () => typeof (window as any).__lampGamePuzzle === 'function' || document.body.innerText.includes('Failed to light'),
-      { timeout: 30000 },
-    ).then(() => true).catch(() => false);
-
-    if (!isReady) {
-      console.log('D-5: Game failed to initialize');
-      return;
-    }
+    if (!await requireReadyGame(page, 'D-5')) return;
 
     const peekBtn = page.locator('button[aria-label="Peek verse text"]');
     await expect(peekBtn).toBeVisible();
@@ -180,12 +165,9 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     const canvas = page.locator('canvas');
     await expect(canvas).toBeVisible();
 
-    const isReady = await page.waitForFunction(
-      () => typeof (window as any).__lampGamePuzzle === 'function' || document.body.innerText.includes('Failed to light'),
-      { timeout: 30000 },
-    ).then(() => true).catch(() => false);
+    const isReady = await requireReadyGame(page, 'D-7');
 
-    if (isReady && await page.evaluate(() => typeof (window as any).__lampGamePuzzle === 'function')) {
+    if (isReady) {
       const info = await page.evaluate(() => {
         const getPuzzle = (window as any).__lampGamePuzzle;
         if (getPuzzle) {
@@ -226,12 +208,9 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
 
     await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
 
-    const isReady = await page.waitForFunction(
-      () => typeof (window as any).__lampGamePuzzle === 'function' || document.body.innerText.includes('Failed to light'),
-      { timeout: 30000 },
-    ).then(() => true).catch(() => false);
+    const isReady = await requireReadyGame(page, 'D-8');
 
-    if (isReady && await page.evaluate(() => typeof (window as any).__lampGamePuzzle === 'function')) {
+    if (isReady) {
       const puzzle = await page.evaluate(() => (window as any).__lampGamePuzzle?.());
       expect(puzzle?.reference).toBe('John 1:1');
       expect(puzzle?.layer).toBe(0);
@@ -261,15 +240,7 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     await expect(page.locator('canvas')).toBeVisible();
 
     // Wait for game engine to initialize (same pattern as D-7/D-8)
-    const isReady = await page.waitForFunction(
-      () => typeof (window as any).__lampGamePuzzle === 'function' || document.body.innerText.includes('Failed to light'),
-      { timeout: 30000 },
-    ).then(() => true).catch(() => false);
-
-    if (!isReady) {
-      console.log('C-3: Game failed to initialize');
-      return;
-    }
+    if (!await requireReadyGame(page, 'C-3')) return;
 
     const frameNames = await page.evaluate(() => {
       const atlas = (window as any).__lampGameSpriteAtlas;
@@ -290,15 +261,7 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     await expect(page.locator('canvas')).toBeVisible();
 
     // Wait for game engine to initialize (same pattern as D-7/D-8)
-    const isReady = await page.waitForFunction(
-      () => typeof (window as any).__lampGamePuzzle === 'function' || document.body.innerText.includes('Failed to light'),
-      { timeout: 30000 },
-    ).then(() => true).catch(() => false);
-
-    if (!isReady) {
-      console.log('C-4: Game failed to initialize');
-      return;
-    }
+    if (!await requireReadyGame(page, 'C-4')) return;
 
     const initialScroll = await page.evaluate(() => (window as any).__lampGameCameraScrollX ?? 0);
     expect(typeof initialScroll).toBe('number');
@@ -321,15 +284,7 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     await expect(page.locator('canvas')).toBeVisible();
 
     // Wait for game engine to initialize (same pattern as D-7/D-8)
-    const isReady = await page.waitForFunction(
-      () => typeof (window as any).__lampGamePuzzle === 'function' || document.body.innerText.includes('Failed to light'),
-      { timeout: 30000 },
-    ).then(() => true).catch(() => false);
-
-    if (!isReady) {
-      console.log('C-5: Game failed to initialize');
-      return;
-    }
+    if (!await requireReadyGame(page, 'C-5')) return;
 
     const hasRing = await page.evaluate(() => (window as any).__lampGameFluencyRing !== undefined);
     expect(hasRing).toBe(true);
@@ -345,15 +300,7 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     await expect(page.locator('canvas')).toBeVisible();
 
     // Wait for game engine to initialize (same pattern as D-7/D-8)
-    const isReady = await page.waitForFunction(
-      () => typeof (window as any).__lampGamePuzzle === 'function' || document.body.innerText.includes('Failed to light'),
-      { timeout: 30000 },
-    ).then(() => true).catch(() => false);
-
-    if (!isReady) {
-      console.log('C-6: Game failed to initialize');
-      return;
-    }
+    if (!await requireReadyGame(page, 'C-6')) return;
 
     const puzzle = await page.evaluate(() => (window as any).__lampGamePuzzle?.());
     expect(puzzle).toBeDefined();
@@ -363,15 +310,7 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
   test('BUG FIX: Skip button does not overlap word tiles - right margin exclusion zone', async ({ page }) => {
     await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
 
-    const isReady = await page.waitForFunction(
-      () => typeof (window as any).__lampGamePuzzle === 'function' || document.body.innerText.includes('Failed to light'),
-      { timeout: 30000 },
-    ).then(() => true).catch(() => false);
-
-    if (!isReady) {
-      console.log('Skip button test: Game failed to initialize');
-      return;
-    }
+    if (!await requireReadyGame(page, 'Skip button test')) return;
 
     // Get canvas dimensions
     const canvas = page.locator('canvas');
@@ -416,15 +355,7 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
   test('BUG FIX: Level indicator updates correctly when game state changes', async ({ page }) => {
     await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
 
-    const isReady = await page.waitForFunction(
-      () => typeof (window as any).__lampGamePuzzle === 'function' || document.body.innerText.includes('Failed to light'),
-      { timeout: 30000 },
-    ).then(() => true).catch(() => false);
-
-    if (!isReady) {
-      console.log('Level indicator test: Game failed to initialize');
-      return;
-    }
+    if (!await requireReadyGame(page, 'Level indicator test')) return;
 
     // Pre-seed with some XP to be at Level 1 (level threshold is 100 XP)
     await page.evaluate(() => {
@@ -437,15 +368,7 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     // Reload the game to pick up the new state
     await page.reload({ waitUntil: 'domcontentloaded' });
 
-    const isReady2 = await page.waitForFunction(
-      () => typeof (window as any).__lampGamePuzzle === 'function' || document.body.innerText.includes('Failed to light'),
-      { timeout: 30000 },
-    ).then(() => true).catch(() => false);
-
-    if (!isReady2) {
-      console.log('Level indicator test: Game failed to initialize after reload');
-      return;
-    }
+    if (!await requireReadyGame(page, 'Level indicator test (after reload)')) return;
 
     // The HUD should display "Level 1" not "Level 0"
     // The HUD text format is "Game Stats: Level X • Y XP • Session Combos: xZ"
@@ -469,15 +392,7 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
   test('BUG FIX: Exactly 12 lighthouses rendered with proper left-to-right lighting sequence', async ({ page }) => {
     await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
 
-    const isReady = await page.waitForFunction(
-      () => typeof (window as any).__lampGamePuzzle === 'function' || document.body.innerText.includes('Failed to light'),
-      { timeout: 30000 },
-    ).then(() => true).catch(() => false);
-
-    if (!isReady) {
-      console.log('Lighthouse test: Game failed to initialize');
-      return;
-    }
+    if (!await requireReadyGame(page, 'Lighthouse test')) return;
 
     // Verify exactly 12 lighthouses are rendered (not more, not less)
     const lighthouseInfo = await page.evaluate(() => {
