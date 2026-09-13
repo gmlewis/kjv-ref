@@ -1,0 +1,1 @@
+import{F as t}from"./index-CLF7ACbd.js";import"./index-upvrNVZe.js";import"./Game-uFr98s9R.js";const o="@@MAT4_STORAGE_F64@@";function r(){return new t(16)}r[o]=!0;export{o as MAT4_STORAGE_F64_BUILD_TAG,r as allocateF64Mat4};
