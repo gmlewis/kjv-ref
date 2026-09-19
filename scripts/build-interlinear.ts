@@ -174,9 +174,50 @@ async function downloadJSON(url: string): Promise<ScrollmapperData> {
 }
 
 // Strip editorial/markup characters from the StatResGNT text (˚ ¶ etc.)
-function cleanText(text: string): string {
+export function cleanText(text: string): string {
   return text
     .replace(/[˚¶]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Strip the editorial apparatus that scrollmapper's TR.json carries inline.
+ *
+ * Four kinds of non-Scriptural material leak through cleanText():
+ *
+ *  1. `[ … ]` epistle subscriptions (hypographai). Textus Receptus editions
+ *     print a scribal colophon after the last verse of each epistle, e.g.
+ *     1Cor.16.24 ends with
+ *       "[προς κορινθιους πρωτη εγραφη απο φιλιππων δια στεφανα …]".
+ *     These are absent from the KJV. The brackets are the source's own marker,
+ *     and they occur in exactly these 14 verses (Rom.16.27, 1Cor.16.24,
+ *     2Cor.13.14, Gal.6.18, Eph.6.24, Phi.4.23, Col.4.18, 1Th.5.28, 2Th.3.18,
+ *     1Tim.6.21, 2Tim.4.22, Titus.3.15, Phmn.1.25, Heb.13.25) — always as a
+ *     trailing span, never mid-verse.
+ *  2. `(C:V)` versification notes the source prints where its numbering
+ *     disagrees with the KJV (e.g. Mat.23.13 opens with "(23:14)"). These are
+ *     cross-references, not text.
+ *  3. `{P-GSM}` and similar morphology codes that leaked out of the apparatus
+ *     (John.9.21, Col.4.10).
+ *  4. Bare Strong's numbers stranded mid-sentence where the source annotates a
+ *     single word (e.g. Mark.6.45 "εμβηναι 1684 εις το πλοιον").
+ *
+ * Greek text itself never contains Arabic digits, braces or parentheses, so
+ * removing them is unambiguous. Not applied to the Hebrew builder: the WLC
+ * text uses none of these forms.
+ *
+ * Remaining upstream quirk, deliberately left alone: the source prints variant
+ * spellings side by side as two words (Mark.6.45 "βηθσαιδαν βηθσαιδα",
+ * Luke.2.4 "ναζαρετ ναζαρεθ"). Removing one would mean guessing which reading
+ * the KJV follows, so both are kept.
+ */
+export function stripGreekApparatus(text: string): string {
+  return text
+    .replace(/\s*\[[^\]]*\]\s*$/, '')  // (1) trailing epistle subscription
+    .replace(/\(\d+:\d+\)/g, '')       // (2) inline versification notes
+    .replace(/\{[^}]*\}/g, '')         // (3) stray morphology codes
+    .replace(/\b\d+\b/g, '')           // (4) stray Strong's numbers
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -226,7 +267,7 @@ async function buildGreek(): Promise<Record<string, string>> {
 
     for (const chapter of book.chapters) {
       for (const verse of chapter.verses) {
-        const text = cleanText(verse.text);
+        const text = stripGreekApparatus(cleanText(verse.text));
         if (!text) continue;
         const key = `${abbr}.${chapter.chapter}.${verse.verse}`;
         result[key] = text;
@@ -260,4 +301,8 @@ async function main() {
   console.log('\nDone!\n');
 }
 
-main().catch(e => { console.error(e); process.exit(1); });
+// Guard the network downloads so the pure helpers above can be imported by
+// unit tests without triggering a fetch.
+if (import.meta.main) {
+  main().catch(e => { console.error(e); process.exit(1); });
+}

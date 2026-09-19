@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { parseTAHOTLine, parseTAGNTLine } from './build-interlinear-words';
+import { describe, it, expect, vi } from 'vitest';
+import {
+  parseTAHOTLine,
+  parseTAGNTLine,
+  stripEpistleColophons,
+  EPISTLE_COLOPHON_VERSES,
+  type BookWordMap,
+} from './build-interlinear-words';
 
 // ─── TAHOT (Hebrew OT) ────────────────────────────────────────────────────────
 
@@ -130,5 +136,129 @@ describe('parseTAGNTLine', () => {
 
   it('returns null for a line with too few columns', () => {
     expect(parseTAGNTLine('Mat.1.1#01=NKO\tword')).toBeNull();
+  });
+
+  // ─── Versification markers ────────────────────────────────────────────────
+  // STEPBible's primary numbers are the English (NRSV) versification. A
+  // "[K.J]" marker carries the KJV numbering, which is what the app displays.
+  // The old regex /\.(\d+)#/ failed to match any of these, silently dropping
+  // every word of the verse.
+
+  it('keys a "[K.J]" marker to the KJV verse number', () => {
+    // Mat.20.5[20.4] holds the tail of KJV Matthew 20:4 — "and they went their way".
+    const result = parseTAGNTLine(makeNTLine('Mat.20.5[20.4]#01=NKO', 'οἱ (hoi)', 'the'));
+    expect(result).not.toBeNull();
+    expect(result!.verseKey).toBe('Mat.20.4');
+  });
+
+  it('keys a chapter-boundary "[K.J]" marker to the KJV verse number', () => {
+    // 2Co.13.13[13.14] is KJV 2 Corinthians 13:14 (the chapter is one shorter).
+    expect(parseTAGNTLine(makeNTLine('2Co.13.13[13.14]#01=NKO'))!.verseKey).toBe('2Cor.13.14');
+  });
+
+  it('ignores a "{K.J}" marker and keeps the primary verse number', () => {
+    // Braces name the Byzantine/"others" numbering, not the KJV.
+    expect(parseTAGNTLine(makeNTLine('Rom.16.27{14.26}#01=NKO'))!.verseKey).toBe('Rom.16.27');
+    expect(parseTAGNTLine(makeNTLine('1Ti.6.21{6.22}#01=NKO'))!.verseKey).toBe('1Tim.6.21');
+  });
+
+  it('ignores a "(K.J)" marker and keeps the primary verse number', () => {
+    // Parentheses name the Nestle-Aland numbering.
+    expect(parseTAGNTLine(makeNTLine('Mrk.12.15(12.14)#01=NKO'))!.verseKey).toBe('Mark.12.15');
+  });
+
+  // ─── Editorial marks ──────────────────────────────────────────────────────
+  // ¶, ¬ and the [[…]] disputed-passage brackets are markup, not text. Left in
+  // they render literally, e.g. "[[ὤφθη" at Luke 22:43.
+
+  it('strips a pilcrow from the word and gloss', () => {
+    const result = parseTAGNTLine(makeNTLine('Mat.1.11#01=NKO', 'Βαβυλῶνος.¶ (Babylōnos)', 'to Babylon.¶'));
+    expect(result!.entry[0]).toBe('Βαβυλῶνος.');
+    expect(result!.entry[3]).toBe('to Babylon.');
+  });
+
+  it('strips disputed-passage brackets but keeps the words inside them', () => {
+    // The KJV prints Mark 16:9-20, so the words must survive.
+    const opening = parseTAGNTLine(makeNTLine('Mrk.16.9#01=NKO', '[[Ἀναστὰς (Anastas)', 'Having risen'));
+    expect(opening!.entry[0]).toBe('Ἀναστὰς');
+    const closing = parseTAGNTLine(makeNTLine('Mrk.16.8#01=NKO', 'ἀμήν.¶]] (amēn)', 'Amen.'));
+    expect(closing!.entry[0]).toBe('ἀμήν.');
+  });
+
+  it('strips a line-break marker', () => {
+    const result = parseTAGNTLine(makeNTLine('Mat.11.17#01=NKO', 'ὠρχήσασθε,¶¬ (ōrchēsasthe)', 'danced'));
+    expect(result!.entry[0]).toBe('ὠρχήσασθε,');
+  });
+});
+
+// ─── TR epistle colophons (hypographai) ──────────────────────────────────────
+
+describe('stripEpistleColophons', () => {
+  const TR = 'NA28+NA27+Tyn+SBL+WH+Treg+TR+Byz';
+  const word = (w: string) => [w, 'G0001', 'x', 'gloss', 'N-NSM'] as [string, string, string, string, string];
+
+  /** Build the maps stripEpistleColophons expects for a single verse. */
+  function build(verseKey: string, words: [string, string][]) {
+    const abbr = verseKey.slice(0, verseKey.indexOf('.'));
+    const allBooks = new Map<string, BookWordMap>([[abbr, { [verseKey]: words.map(([w]) => word(w)) }]]);
+    const editions = new Map<string, string[]>([[verseKey, words.map(([, e]) => e)]]);
+    return { allBooks, editions };
+  }
+
+  it('covers the fourteen epistles that carry a subscription', () => {
+    expect([...EPISTLE_COLOPHON_VERSES].sort()).toEqual(
+      [
+        '1Cor.16.24', '1Th.5.28', '1Tim.6.21', '2Cor.13.14', '2Th.3.18', '2Tim.4.22',
+        'Col.4.18', 'Eph.6.24', 'Gal.6.18', 'Heb.13.25', 'Phmn.1.25', 'Phi.4.23',
+        'Rom.16.27', 'Titus.3.15',
+      ].sort()
+    );
+  });
+
+  it('cuts the colophon and keeps the closing "ἀμήν"', () => {
+    // 1Cor.16.24: "… ἐν Χριστῷ Ἰησοῦ. ἀμήν [πρὸς Κορινθίους πρώτη ἐγράφη …]"
+    const { allBooks, editions } = build('1Cor.16.24', [
+      ['ἡ', TR], ['ἀγάπη', TR], ['ἀμήν', TR],
+      ['πρός', 'TR'], ['Κορινθίους', 'TR'], ['πρώτη', 'TR'], ['ἐγράφη', 'TR'],
+    ]);
+    expect(stripEpistleColophons(allBooks, editions)).toBe(4);
+    expect(allBooks.get('1Cor')!['1Cor.16.24'].map(e => e[0])).toEqual(['ἡ', 'ἀγάπη', 'ἀμήν']);
+  });
+
+  it('keeps a TR-only "ἀμήν" that precedes the colophon (Eph.6.24)', () => {
+    // The KJV prints "… in sincerity. Amen." — STEPBible tags that Amen TR-only,
+    // so it sits inside the TR-only tail and must survive.
+    const { allBooks, editions } = build('Eph.6.24', [
+      ['ἀφθαρσίᾳ', TR], ['ἀμήν', 'TR'],
+      ['πρός', 'TR'], ['Εφέσιους', 'TR'], ['ἐγράφη', 'TR'],
+    ]);
+    expect(stripEpistleColophons(allBooks, editions)).toBe(3);
+    expect(allBooks.get('Eph')!['Eph.6.24'].map(e => e[0])).toEqual(['ἀφθαρσίᾳ', 'ἀμήν']);
+  });
+
+  it('leaves TR-only Scripture alone when the verse is not an epistle ending', () => {
+    // Act.9.5 ends "… σκληρόν σοι πρὸς κέντρα λακτίζειν" — TR-only, but the KJV
+    // prints it, so nothing may be cut.
+    const { allBooks, editions } = build('Acts.9.5', [
+      ['εἶπεν', TR], ['σκληρόν', 'TR'], ['σοι', 'TR'], ['πρός', 'TR'], ['κέντρα', 'TR'], ['λακτίζειν', 'TR'],
+    ]);
+    expect(stripEpistleColophons(allBooks, editions)).toBe(0);
+    expect(allBooks.get('Acts')!['Acts.9.5']).toHaveLength(6);
+  });
+
+  it('leaves the verse intact when there is no TR-only tail to cut', () => {
+    const { allBooks, editions } = build('1Cor.16.24', [['ἡ', TR], ['ἀγάπη', TR]]);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(stripEpistleColophons(allBooks, editions)).toBe(0);
+    expect(allBooks.get('1Cor')!['1Cor.16.24']).toHaveLength(2);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no opener found in 1Cor.16.24'));
+    warn.mockRestore();
+  });
+
+  it('warns rather than silently shipping a colophon when the verse is missing', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(stripEpistleColophons(new Map(), new Map())).toBe(0);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no words found for Rom.16.27'));
+    warn.mockRestore();
   });
 });

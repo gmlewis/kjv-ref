@@ -392,3 +392,67 @@ test.describe('Books — chapter view', () => {
     await expect(frame.locator('button:has-text("Practice range")')).toHaveCount(0);
   });
 });
+
+test.describe('Books — interlinear original-language text', () => {
+  /** Turn the chapter-level interlinear toggle on and return the verse's text. */
+  async function interlinearText(frame: import('@playwright/test').Page, verseId: string) {
+    const verse = frame.locator(`#${verseId}`);
+    await expect(verse).toBeVisible({ timeout: 10_000 });
+
+    // The toggle is chapter-level, not per-verse. It defaults to off.
+    await frame.locator('button:has-text("Interlinear Off")').first().click();
+
+    // Word-level data renders one span per word; the plain-text fallback
+    // renders a single span. Joining covers both.
+    const parts = verse.locator('.interlinear-word-text');
+    await expect(parts.first()).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(async () => (await parts.allInnerTexts()).join(' ').trim(), { timeout: 15_000 })
+      .not.toBe('');
+    // The source data is decomposed (NFD); normalise so literals compare cleanly.
+    return (await parts.allInnerTexts()).join(' ').replace(/\s+/g, ' ').trim().normalize('NFC');
+  }
+
+  // The TR editions print a scribal colophon (hypographe) after the last verse
+  // of each epistle — "πρὸς Κορινθίους πρώτη ἐγράφη ἀπὸ Φιλίππων …". It is not
+  // Scripture and the KJV does not print it, but both interlinear sources
+  // carried it, so it ran on past the English "Amen."
+  test('interlinear Greek stops at the end of the verse, not the TR colophon', async ({ page }) => {
+    const frame = await openApp(page, '/kjv-ref/books/1%20Corinthians/16#v24');
+    await frame.locator('[class*="animate-spin"]').waitFor({ state: 'hidden', timeout: 15_000 }).catch(() => {});
+
+    const text = await interlinearText(frame, 'v24');
+    expect(text).toContain('ἀγάπη');          // ἡ ἀγάπη μου …
+    expect(text.endsWith('ἀμήν')).toBe(true); // … ἐν Χριστῷ Ἰησοῦ. ἀμήν
+    expect(text).not.toContain('Κορινθίους'); // no πρὸς Κορινθίους colophon
+    expect(text).not.toContain('Φιλίππων');
+    expect(text).not.toContain('¶');
+  });
+
+  // 2 Corinthians 13:13-14 gained word data only once the STEPBible
+  // versification markers were parsed, so this guards the KJV numbering too.
+  test('interlinear Greek for an epistle ending is present and not truncated', async ({ page }) => {
+    const frame = await openApp(page, '/kjv-ref/books/2%20Corinthians/13#v14');
+    await frame.locator('[class*="animate-spin"]').waitFor({ state: 'hidden', timeout: 15_000 }).catch(() => {});
+
+    const text = await interlinearText(frame, 'v14');
+    expect(text).toContain('χάρις');          // Ἡ χάρις τοῦ κυρίου …
+    expect(text.endsWith('ἀμήν')).toBe(true);
+    expect(text).not.toContain('Κορινθίους');
+  });
+
+  test('interlinear Hebrew renders without editorial marks', async ({ page }) => {
+    // TAHOT marks disputed passages with [[…]] and paragraph breaks with ¶.
+    const frame = await openApp(page, '/kjv-ref/books/Genesis/1#v1');
+    await frame.locator('[class*="animate-spin"]').waitFor({ state: 'hidden', timeout: 15_000 }).catch(() => {});
+
+    const text = await interlinearText(frame, 'v1');
+    expect(text).not.toContain('¶');
+    expect(text).not.toContain('[[');
+    expect(text).not.toContain(']]');
+    // Compare consonants only — the text carries niqqud and cantillation.
+    const consonants = text.replace(/[\u0591-\u05C7]/g, '');
+    expect(consonants).toContain('בראשית');   // "In the beginning"
+    expect(consonants).toContain('אלהים');    // "God"
+  });
+});
