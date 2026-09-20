@@ -591,9 +591,11 @@ export default function Game() {
 
       {/* Skip-and-swap verse: a circular right-arrow button on the right edge,
           vertically centered. Swaps the current verse for a different random
-          one from the queue without advancing the lamp — the skipped verse is
-          moved to the end of the queue and deferred so it isn't immediately
-          re-chosen. (A right-to-left swipe on the canvas does the same.) */}
+          one, without advancing the lamp. The replacement is a verse the player
+          has not been shown yet and the skipped verse is dropped from this
+          game's queue entirely (and deferred for the next session), so no verse
+          can appear on two lamps of one session. (A right-to-left swipe on the
+          canvas does the same.) */}
       {status === 'ready' && !summary && (
         <button
           type="button"

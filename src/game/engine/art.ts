@@ -188,8 +188,12 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
     for (let y = 0; y < 48; y++) {
       const wave = Math.floor(2 * Math.sin(y / 4));
       const wx = 8 + wave;
-      drawRect(buf, 16, 48, wx - 3, y, 6, 1, 240, 253, 244, 240); // bright foam core
+      // Spray first, bright foam core second: drawRect overwrites pixels rather
+      // than blending, so painting the 6px core before the 10px spray that
+      // contains it erased every core pixel and left a flat translucent-blue
+      // band (the waterfall read as a blue lightning bolt, not as water).
       drawRect(buf, 16, 48, wx - 5, y, 10, 1, 56, 189, 248, 160); // cyan spray
+      drawRect(buf, 16, 48, wx - 3, y, 6, 1, 240, 253, 244, 240); // bright foam core
     }
     frames.push(spec);
   }
@@ -424,10 +428,25 @@ export function createGameSpriteFrames(): SpriteFrameSpec[] {
       if (isCentralTower) wallY = hillY - 26;
 
       for (let y = wallY; y < 64; y++) {
-        const r = y < hillY ? 245 : 30;
-        const g = y < hillY ? 158 : 41;
-        const b = y < hillY ? 11 : 59;
-        setPixel(buf, 128, x, y, r, g, b, 250);
+        if (y < hillY) {
+          // Golden citadel wall above the hill line.
+          setPixel(buf, 128, x, y, 245, 158, 11, 250);
+        } else {
+          // The hill the citadel stands on, drawn with the same emerald ramp as
+          // the 'hills'/'forest_hills' layers so this sprite reads as terrain.
+          // It used to be a flat dark slate (30,41,59), a colour used nowhere
+          // else in the landscape: the opaque full-width band it painted under
+          // the citadel showed up as a hard-edged black box pasted over the
+          // hills, hiding the layers behind it instead of joining them.
+          const factor = (y - hillY) / (64 - hillY || 1);
+          setPixel(
+            buf, 128, x, y,
+            Math.floor(5 + factor * 25),
+            Math.floor(150 + factor * 45),
+            Math.floor(100 + factor * 35),
+            250,
+          );
+        }
       }
 
       if (x >= 58 && x <= 70) {

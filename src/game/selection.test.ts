@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { selectNextLamps, replaceQueueSlot } from './selection';
+import { selectNextLamps, replaceQueueSlot, moveQueueSlot, distinctVerses } from './selection';
 import { KJV_VERSES } from '../data/kjv-verses';
 import type { ProgressEntry, DueEntry } from './types';
 
@@ -114,5 +114,101 @@ describe('replaceQueueSlot', () => {
     expect(next.length).toBe(queue.length);
     expect(next[0].reference).toBe('John 3:16');
     expect(skipped).toEqual([queue[0].reference]);
+  });
+});
+
+describe('distinctVerses', () => {
+  it('drops later repeats of a reference, keeping the first in order', () => {
+    const out = distinctVerses([ref('John 3:16'), ref('Psalm 23:1'), ref('John 3:16'), ref('Genesis 1:1')]);
+    expect(out.map(v => v.reference)).toEqual(['John 3:16', 'Psalm 23:1', 'Genesis 1:1']);
+  });
+
+  it('leaves a list with no repeats untouched', () => {
+    const verses = [ref('John 3:16'), ref('Psalm 23:1')];
+    expect(distinctVerses(verses).map(v => v.reference)).toEqual(verses.map(v => v.reference));
+  });
+
+  it('handles an empty list', () => {
+    expect(distinctVerses([])).toEqual([]);
+  });
+
+  it('keeps selectNextLamps distinct when the pool names a verse twice', () => {
+    // A custom road built from a list that repeats a verse must not be able to
+    // put that verse on two lamps of one session.
+    const repeated = [...pool, ref('John 3:16'), ref('Psalm 23:1')];
+    const out = selectNextLamps({
+      pool: repeated, progress: [], due: [], dailyGoalCompleted: false, limit: 12,
+    });
+    const refs = out.map(v => v.reference);
+    expect(refs).toEqual([...new Set(refs)]);
+    expect(out.length).toBe(pool.length);
+  });
+});
+
+describe('moveQueueSlot', () => {
+  const session = () => KJV_VERSES.slice(0, 12);
+
+  it('moves the replacement instead of copying it, so nothing is duplicated', () => {
+    const queue = session();
+    const replacement = queue[6];
+    const { queue: next, skipped } = moveQueueSlot(queue, 2, 1, replacement);
+
+    // The replacement sits at the current slot and appears exactly once, so the
+    // player cannot meet it again later in the session.
+    expect(next[2].reference).toBe(replacement.reference);
+    const refs = next.map(v => v.reference);
+    expect(refs.filter(r => r === replacement.reference).length).toBe(1);
+    expect(refs).toEqual([...new Set(refs)]);
+    // The old slot is gone (everything shifted up by one past it).
+    expect(next.length).toBe(queue.length - 1);
+    expect(skipped).toEqual([queue[2].reference]);
+  });
+
+  it('drops the skipped verse for the rest of the session', () => {
+    const queue = session();
+    const { queue: next } = moveQueueSlot(queue, 5, 1, queue[9]);
+    expect(next.map(v => v.reference)).not.toContain(queue[5].reference);
+  });
+
+  it('keeps the session winnable (queueIndex reaches the shortened length)', () => {
+    const queue = session();
+    const queueIndex = 12; // last lamp on screen; index 11 is its slot
+    const start = queueIndex - 1;
+    const { queue: next } = moveQueueSlot(queue, start, 1, queue[start]);
+    expect(start + 1).toBeGreaterThanOrEqual(next.length);
+  });
+
+  it('is a no-op when the replacement is not in the queue', () => {
+    const queue = session();
+    const { queue: next, skipped } = moveQueueSlot(queue, 2, 1, ref('John 3:16'));
+    expect(next.map(v => v.reference)).toEqual(queue.map(v => v.reference));
+    expect(skipped).toEqual([]);
+  });
+
+  it('collapses a multi-verse chain slot, shortening by the chain length', () => {
+    const queue = session();
+    const { queue: next, skipped } = moveQueueSlot(queue, 4, 3, queue[8]);
+    expect(skipped.length).toBe(3);
+    expect(next.length).toBe(queue.length - 3);
+    expect(next[4].reference).toBe(queue[8].reference);
+  });
+
+  it('preserves the original queue (no in-place mutation)', () => {
+    const queue = session();
+    const before = queue.map(v => v.reference);
+    moveQueueSlot(queue, 3, 1, queue[7]);
+    expect(queue.map(v => v.reference)).toEqual(before);
+  });
+
+  it('refuses a replacement from before the slot instead of shuffling the queue', () => {
+    // Callers take replacements from the current lamp onwards. An earlier one
+    // cannot be moved into the slot: lifting it out shifts the slot left, and
+    // the helper cannot re-anchor the caller's `queueIndex`, so the caller would
+    // re-present the verse after the slot — a repeat. Better to stay put.
+    const queue = session();
+    const before = queue.map(v => v.reference);
+    const { queue: next, skipped } = moveQueueSlot(queue, 3, 1, queue[1]);
+    expect(next.map(v => v.reference)).toEqual(before);
+    expect(skipped).toEqual([]);
   });
 });

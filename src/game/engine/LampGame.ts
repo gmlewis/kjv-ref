@@ -57,7 +57,7 @@ import type {
 } from '@babylonjs/lite';
 import type { KJVVerse } from '../../data/kjv-verses';
 import type { ProgressEntry, DueEntry, TilePuzzle, ScaffoldLayer } from '../types';
-import { selectNextLamps, replaceQueueSlot } from '../selection';
+import { selectNextLamps, replaceQueueSlot, moveQueueSlot, distinctVerses } from '../selection';
 import { getGameLayer, buildTilePuzzle, buildMultiVersePuzzle } from '../scaffold';
 import { scoreTilePuzzle, performanceRating, computeXp, applyCombo, levelForXp } from '../scoring';
 import { loadGameState, saveGameState } from '../state';
@@ -158,6 +158,25 @@ const HEADER_Y = 60;
 const SLOT_AREA_TOP = 175;
 const BANK_BOTTOM_PAD = 96;
 const BORDER_T = 2; // outline thickness (CSS px) for blank slot drop-targets
+
+/**
+ * Total horizontal camera travel across one session, in CSS px — the "scroll
+ * gently as you advance" of PracticeModeGameIdeas.md, spread over the whole
+ * journey (~11px per lamp on desktop) rather than a fixed jolt per verse.
+ *
+ * Every parallax layer is drawn this much wider than the canvas on each side,
+ * so a layer can never expose a gap at an edge no matter where the camera sits:
+ * the layer spans [center - W/2 - PAN, center + W/2 + PAN] and the camera can
+ * only offset it by at most PAN.
+ *
+ * The 12 lighthouses are deliberately NOT scrolled — they are the session's
+ * progress board and have to stay on screen, lit left-to-right. Dragging them
+ * along with the camera (and with a per-verse step larger than their spacing)
+ * was what pushed most of the row off the left edge and left the right half of
+ * the screen empty.
+ */
+const PARALLAX_PAN_DESKTOP = 120;
+const PARALLAX_PAN_MOBILE = 80;
 
 // ---------------------------------------------------------------------------
 // Color helpers. Palette colors are sRGB hex; sprites tint a white 1x1 atlas
@@ -267,6 +286,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     limit: 12,
   });
   if (queue.length === 0) queue = opts.pool.slice(0, 12); // fallback: no due, goal done
+  // Hard session invariant: the 12 lamps are 12 DISTINCT verses. `selectNextLamps`
+  // already returns distinct verses; this also covers the fallback above and any
+  // repeat a custom road pool might carry, so a verse can never occupy two lamps.
+  queue = distinctVerses(queue).slice(0, 12);
   let queueIndex = 0;
   // Number of queue positions the currently-displayed lamp occupies. 1 for a
   // single verse; >1 when a stage-5 chain reconstructed multiple consecutive
@@ -797,6 +820,11 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
     const isDark = theme === 'dark';
 
+    // Parallax layers are drawn wider than the canvas so the camera pan (which
+    // is bounded by PARALLAX_PAN) can never pull an edge into view. See the
+    // PARALLAX_PAN_* comment.
+    const layerW = W + 2 * (isMobile ? PARALLAX_PAN_MOBILE : PARALLAX_PAN_DESKTOP);
+
     // Sky Background (Atmospheric gradient sky)
     if (!skyGradientSprite) {
       skyGradientSprite = addSprite2D(spriteLayer, {
@@ -868,14 +896,14 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     if (!mountainSprite) {
       mountainSprite = addSprite2D(spriteLayer, {
         positionPx: [W / 2, pathY - 54],
-        sizePx: [W, 80],
+        sizePx: [layerW, 80],
         color: isDark ? [1, 1, 1, 0.8] : [1, 1, 1, 0.55],
         frame: frameIndex('mountain'),
       });
     } else {
       updateSprite2D(mountainSprite, {
         positionPx: [W / 2, pathY - 54],
-        sizePx: [W, 80],
+        sizePx: [layerW, 80],
         color: isDark ? [1, 1, 1, 0.8] : [1, 1, 1, 0.55],
         frame: frameIndex('mountain'),
       });
@@ -885,14 +913,14 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     if (!forestHillsSprite) {
       forestHillsSprite = addSprite2D(spriteLayer, {
         positionPx: [W / 2, pathY - 32],
-        sizePx: [W, 64],
+        sizePx: [layerW, 64],
         color: isDark ? [1, 1, 1, 0.95] : [1, 1, 1, 0.85],
         frame: frameIndex('forest_hills'),
       });
     } else {
       updateSprite2D(forestHillsSprite, {
         positionPx: [W / 2, pathY - 32],
-        sizePx: [W, 64],
+        sizePx: [layerW, 64],
         color: isDark ? [1, 1, 1, 0.95] : [1, 1, 1, 0.85],
         frame: frameIndex('forest_hills'),
       });
@@ -936,14 +964,14 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     if (!oceanWaterSprite) {
       oceanWaterSprite = addSprite2D(spriteLayer, {
         positionPx: [W / 2, pathY + 16],
-        sizePx: [W, 36],
+        sizePx: [layerW, 36],
         color: [1, 1, 1, 0.95],
         frame: frameIndex('ocean_water'),
       });
     } else {
       updateSprite2D(oceanWaterSprite, {
         positionPx: [W / 2, pathY + 16],
-        sizePx: [W, 36],
+        sizePx: [layerW, 36],
         color: [1, 1, 1, 0.95],
         frame: frameIndex('ocean_water'),
       });
@@ -953,14 +981,14 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     if (!pathSprite) {
       pathSprite = addSprite2D(spriteLayer, {
         positionPx: [W / 2, pathY],
-        sizePx: [W - 2 * margin, 24],
+        sizePx: [layerW - 2 * margin, 24],
         color: [1, 1, 1, 0.95],
         frame: frameIndex('path_stone'),
       });
     } else {
       updateSprite2D(pathSprite, {
         positionPx: [W / 2, pathY],
-        sizePx: [W - 2 * margin, 24],
+        sizePx: [layerW - 2 * margin, 24],
         color: [1, 1, 1, 0.95],
         frame: frameIndex('path_stone'),
       });
@@ -1240,7 +1268,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   function updateParallaxPositions() {
     if (disposed) return;
     const [W, H] = canvasSize();
-    const { isMobile, margin } = getResponsiveMetrics(W, H);
+    const { isMobile } = getResponsiveMetrics(W, H);
     const pathY = isMobile ? H - 84 : H - 64;
 
     // Distant Mountain Ridge (Parallax Factor 0.2)
@@ -1285,54 +1313,13 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       });
     }
 
-    // Coastal Lighthouses & Beacons along the path (Parallax Factor 1.0)
-    // Cap at 12 lighthouses (the session limit) even if queue somehow exceeds it
-    const lampCount = Math.min(12, queue.length);
-    if (lampCount > 0) {
-      const lampStep = (W - 4 * margin) / Math.max(1, lampCount - 1);
-      const activeIndex = Math.max(0, Math.min(queueIndex - 1, lampCount - 1));
-
-      let haloIdx = 0;
-      let beamIdx = 0;
-
-      for (let i = 0; i < lampCount; i++) {
-        const isCurrent = i === activeIndex;
-        const qv = queue[i];
-        const isSessionLit = sessionLitRefs.has(qv.reference) || i < activeIndex;
-
-        const baseLx = 2 * margin + i * lampStep;
-        const currentLx = baseLx - cameraScrollX * 1.0;
-
-        const lw = isMobile ? (isCurrent ? 36 : 28) : (isCurrent ? 52 : 40);
-        const lh = isMobile ? (isCurrent ? 72 : 56) : (isCurrent ? 104 : 80);
-        const lanternCenterY = pathY - lh + (isMobile ? 12 : 18);
-
-        if ((isSessionLit || isCurrent) && haloIdx < lampHaloSprites.length) {
-          updateSprite2D(lampHaloSprites[haloIdx++], {
-            positionPx: [currentLx, lanternCenterY],
-          });
-        }
-
-        if ((isSessionLit || isCurrent) && beamIdx < beaconBeamSprites.length) {
-          const beamW = isCurrent ? (isMobile ? 96 : 140) : (isMobile ? 72 : 100);
-          updateSprite2D(beaconBeamSprites[beamIdx++].sprite, {
-            positionPx: [currentLx + beamW / 2 - 4, lanternCenterY - 4],
-          });
-        }
-
-        if (isCurrent && fluencyRingSprite) {
-          updateSprite2D(fluencyRingSprite, {
-            positionPx: [currentLx, lanternCenterY],
-          });
-        }
-
-        if (i < lighthouseSprites.length) {
-          updateSprite2D(lighthouseSprites[i], {
-            positionPx: [currentLx, pathY - lh / 2 + 6],
-          });
-        }
-      }
-    }
+    // The lighthouses and everything attached to them (halo, beacon beam,
+    // fluency ring, flame) are NOT scrolled. They are the session's progress
+    // board: all 12 stay on screen and light up left-to-right, and each lamp's
+    // decorations are laid out at its own tower position by `buildPuzzle`. Moving
+    // only some of them here — the towers and halos but not the flames, and by a
+    // step larger than their own spacing — is what used to drag the row off the
+    // left edge and leave flames floating over empty sky.
   }
 
   function frameLoop() {
@@ -1617,15 +1604,17 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     if (correct) {
       if (verse) sessionLitRefs.add(verse.reference);
       playLampLitSound(combo);
-      // Create particle burst at the active lighthouse position
+      // Create particle burst at the active lighthouse position. The lamp row is
+      // anchored to the canvas (never parallax-scrolled) and capped at 12 lamps,
+      // so this must use the same capped index and layout as `buildPuzzle` — a
+      // larger queue length would put the burst off the end of the row.
       const [W, H] = canvasSize();
-      const { isMobile } = getResponsiveMetrics(W, H);
-      const lampCount = queue.length;
-      const activeIndex = Math.max(0, queueIndex - 1);
-      if (lampCount > 0 && activeIndex < lampCount) {
-        const margin = isMobile ? 12 : 24;
+      const { isMobile, margin } = getResponsiveMetrics(W, H);
+      const lampCount = Math.min(12, queue.length);
+      const activeIndex = Math.max(0, Math.min(queueIndex - 1, lampCount - 1));
+      if (lampCount > 0) {
         const lampStep = (W - 4 * margin) / Math.max(1, lampCount - 1);
-        const lx = 2 * margin + activeIndex * lampStep - cameraScrollX;
+        const lx = 2 * margin + activeIndex * lampStep;
         const lh = isMobile ? (activeIndex === queueIndex - 1 ? 72 : 56) : (activeIndex === queueIndex - 1 ? 104 : 80);
         const lanternCenterY = (isMobile ? H - 84 : H - 64) - lh + (isMobile ? 12 : 18);
         createParticleBurst(lx, lanternCenterY, 16 + combo * 2);
@@ -1892,7 +1881,12 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       }
       teardownPuzzle();
       const [W] = canvasSize();
-      headerData = createDefaultTextData(font, HEADER_FONT, 'Journey Complete! All 12 Lamps Lit!', textColor(palette.accent), { align: 'center' });
+      // The count comes from the queue rather than a hardcoded 12: a swap that
+      // finds no verse the player hasn't seen moves an upcoming verse into the
+      // current slot and shortens the queue (see `moveQueueSlot`), so a session
+      // can legitimately finish a lamp early.
+      const lampWord = queue.length === 1 ? 'Lamp' : 'Lamps';
+      headerData = createDefaultTextData(font, HEADER_FONT, `Journey Complete! All ${queue.length} ${lampWord} Lit!`, textColor(palette.accent), { align: 'center' });
       headerLayer = createTextLayer(headerData, { positionPx: { x: (W - headerData.width) / 2, y: HEADER_Y } });
       addTextRendererLayer(textRenderer, headerLayer);
 
@@ -1920,10 +1914,21 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // Fresh per-verse tile-bank seed so the word shuffle varies each session.
     puzzleSeed = (Math.random() * 2 ** 31) | 0;
 
-    // Task C-4: Parallax camera scroll offset tracking verse progression
+    // Task C-4: Parallax camera scroll offset tracking verse progression.
+    // The pan is the whole session's travel (PARALLAX_PAN_*) scaled by how far
+    // along the journey the current lamp is — a gentle drift of the landscape
+    // rather than a per-verse jump that walks the world off the screen.
     const [W, H] = canvasSize();
     const { isMobile } = getResponsiveMetrics(W, H);
-    targetCameraScrollX = Math.max(0, (queueIndex - 1) * (isMobile ? 80 : 120));
+    const lampCount = Math.min(12, queue.length);
+    const activeIndex = Math.max(0, Math.min(queueIndex - 1, lampCount - 1));
+    const pan = isMobile ? PARALLAX_PAN_MOBILE : PARALLAX_PAN_DESKTOP;
+    // `reducedMotion` is the host's `prefers-reduced-motion` (see
+    // PracticeModeGameIdeas.md, "Reduced motion": disable parallax). Hold the
+    // camera at the start of the journey so the landscape never drifts.
+    targetCameraScrollX = opts.reducedMotion
+      ? 0
+      : lampCount > 1 ? (activeIndex / (lampCount - 1)) * pan : 0;
 
     buildPuzzle(v, chainVerses.length > 1 ? chainVerses : null);
 
@@ -2074,31 +2079,51 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       if (qv) skippedRefs.add(qv.reference);
     }
 
-    // Pick a replacement: prefer an upcoming verse already in the queue (the
-    // user asked to swap for "a different random one that exists in the
-    // queue"), skipping anything already lit this session, previously deferred,
-    // or already skipped this session (a verse the player said "not now" to
-    // must not come back for the rest of THIS game). Fall back to the full host
-    // pool if the queue has no fresh candidates (e.g. last lamp).
+    // Pick a replacement the player has not been shown yet.
+    //
+    // A session is 12 lamps showing 12 DISTINCT verses — a verse the player has
+    // already met must never come back as one of them. That rules out the two
+    // obvious sources: a verse already lit this session, and a verse that is
+    // merely QUEUED for a later lamp (swapping a copy of one of those into the
+    // current slot is what used to make already-solved verses reappear later in
+    // the game). So the replacement comes from the host pool's unused verses —
+    // verses outside the queue entirely. A deferred verse ("not now") is
+    // avoided when anything else is left, but is still better than a repeat.
+    const inQueue = new Set(queue.map((v) => v.reference));
     const deferredSet = new Set(gameState.deferredRefs ?? []);
-    const isCandidate = (v: KJVVerse) =>
+    const isUnused = (v: KJVVerse) =>
       !skippedRefs.has(v.reference) &&
       !sessionLitRefs.has(v.reference) &&
       !sessionSkippedRefs.has(v.reference) &&
-      !deferredSet.has(v.reference);
-    let candidates = queue.slice(queueIndex).filter(isCandidate);
-    if (candidates.length === 0) candidates = opts.pool.filter(isCandidate);
-    if (candidates.length === 0) return; // nothing to swap to — stay put
+      !inQueue.has(v.reference);
+    let candidates = opts.pool.filter((v) => isUnused(v) && !deferredSet.has(v.reference));
+    if (candidates.length === 0) candidates = opts.pool.filter(isUnused);
 
-    const replacement = candidates[Math.floor(Math.random() * candidates.length)];
-
-    // The replacement takes the current lamp's slot IN PLACE, so the queue
-    // length — and therefore the "queueIndex >= queue.length" win condition —
-    // is preserved no matter how many times the player skips. The skipped
-    // verse is dropped from the queue (not re-appended, which would both
-    // resurrect it later this game and make the final lamp unreachable) and
+    // The skipped verse is dropped from the queue (not re-appended, which would
+    // both resurrect it later this game and make the final lamp unreachable) and
     // recorded so it can't be re-picked as a replacement or re-presented.
-    const swapped = replaceQueueSlot(queue, start, currentChainLen, replacement);
+    let swapped: { queue: KJVVerse[]; skipped: string[] };
+    let replacement: KJVVerse;
+    if (candidates.length > 0) {
+      // The replacement takes the current lamp's slot IN PLACE, so the queue
+      // length — and therefore the "queueIndex >= queue.length" win condition —
+      // is preserved no matter how many times the player skips.
+      replacement = candidates[Math.floor(Math.random() * candidates.length)];
+      swapped = replaceQueueSlot(queue, start, currentChainLen, replacement);
+    } else {
+      // The pool has nothing left that the player hasn't already been shown, so
+      // MOVE an upcoming verse into this slot instead of repeating one. The
+      // queue loses the slot it vacated (the session ends one lamp early), which
+      // the win condition already handles.
+      const usable = (v: KJVVerse) =>
+        !skippedRefs.has(v.reference) &&
+        !sessionLitRefs.has(v.reference) &&
+        !sessionSkippedRefs.has(v.reference);
+      const upcoming = queue.slice(queueIndex).filter(usable);
+      if (upcoming.length === 0) return; // nothing to swap to — stay put
+      replacement = upcoming[Math.floor(Math.random() * upcoming.length)];
+      swapped = moveQueueSlot(queue, start, currentChainLen, replacement);
+    }
     queue = swapped.queue;
     for (const ref of swapped.skipped) {
       sessionSkippedRefs.add(ref);
@@ -2135,6 +2160,35 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   }
 
   (window as any).__lampGamePuzzle = () => puzzle;
+
+  // Read-only debug handles for the session's verse queue and the current
+  // puzzle's geometry. They let e2e tests assert on the *session* (which 12
+  // verses were queued, in what order, with what duplicates) and drive a real
+  // pointer tap at a tile's on-screen position, rather than only inspecting the
+  // puzzle the engine happens to be showing.
+  (window as any).__lampGameQueue = () => queue.map((v) => v.reference);
+  (window as any).__lampGameQueueIndex = () => queueIndex;
+  (window as any).__lampGameTiles = () =>
+    tiles.map((t) => ({
+      id: t.id,
+      word: t.word,
+      display: t.display,
+      homeX: t.homeX,
+      homeY: t.homeY,
+      w: t.w,
+      h: t.h,
+      placedSlotIndex: t.placedSlotIndex,
+    }));
+  (window as any).__lampGameSlots = () =>
+    slots.map((s) => ({
+      index: s.index,
+      word: s.word,
+      preFilled: s.preFilled,
+      x: s.x,
+      y: s.y,
+      w: s.w,
+      h: s.h,
+    }));
 
   return { dispose, setTheme, setStage, skipLamp, swapVerse: swapCurrentVerse, getPuzzle: () => puzzle };
 }

@@ -21,12 +21,35 @@ export interface SelectionInput {
 }
 
 /**
+ * Drop later verses that repeat an earlier verse's reference, preserving order.
+ *
+ * A session's lamps are drawn from one queue and every lamp must show a verse
+ * the player has not seen yet this session, so a pool that carries a repeat (a
+ * custom road built from a list that names the same verse twice, say) must not
+ * be able to put one verse on two lamps.
+ */
+export function distinctVerses(verses: KJVVerse[]): KJVVerse[] {
+  const seen = new Set<string>();
+  const out: KJVVerse[] = [];
+  for (const v of verses) {
+    if (seen.has(v.reference)) continue;
+    seen.add(v.reference);
+    out.push(v);
+  }
+  return out;
+}
+
+/**
  * Swap the verse(s) occupying the current lamp's queue slot for `replacement`.
  *
- * The replacement takes the slot **in place**, so the queue length is preserved.
- * That is what keeps the session winnable: a session is complete once
- * `queueIndex >= queue.length`, so a swap that lengthened the queue would push
- * the final lamp permanently out of reach and the game would cycle forever.
+ * `replacement` must NOT already be in `queue` — the caller guarantees it by
+ * picking an unused verse (see `swapCurrentVerse`). The replacement takes the
+ * slot **in place** and the skipped verse(s) are dropped, so for a single-verse
+ * lamp the queue length is preserved. That is what keeps the session winnable:
+ * a session is complete once `queueIndex >= queue.length`, so a swap that
+ * lengthened the queue would push the final lamp permanently out of reach and
+ * the game would cycle forever. (A chain slot collapses the queue by
+ * `chainLen - 1`, since one verse replaces several.)
  *
  * The skipped verse(s) are dropped from the queue entirely rather than
  * re-appended: the player said "not now", so they must not reappear for the
@@ -45,6 +68,46 @@ export function replaceQueueSlot(
   const next = [...queue];
   const at = Math.max(0, Math.min(start, next.length));
   const len = Math.max(1, Math.min(chainLen, next.length - at));
+  const removed = next.splice(at, len);
+  next.splice(at, 0, replacement);
+  return { queue: next, skipped: removed.map((v) => v.reference) };
+}
+
+/**
+ * Swap the verse(s) at the current lamp's slot for a verse that is ALREADY in
+ * the queue, by **moving** it: the replacement is lifted out of its position in
+ * the queue and re-inserted at the current slot. Nothing is duplicated, so the
+ * player never meets the same verse twice in one session.
+ *
+ * This is the fallback for when the pool holds no verse the player hasn't
+ * already been shown — every remaining verse is either queued, lit, or skipped
+ * (a custom road shorter than a session, say). The queue then ends up
+ * `chainLen` verses shorter, i.e. the session finishes one lamp early rather
+ * than repeating a verse; the `queueIndex >= queue.length` win condition already
+ * handles a short queue.
+ *
+ * The skipped verse(s) are returned as `skipped`, exactly as
+ * {@link replaceQueueSlot} reports them.
+ */
+export function moveQueueSlot(
+  queue: KJVVerse[],
+  start: number,
+  chainLen: number,
+  replacement: KJVVerse,
+): { queue: KJVVerse[]; skipped: string[] } {
+  const next = [...queue];
+  const at = Math.max(0, Math.min(start, next.length));
+  const from = next.findIndex((v) => v.reference === replacement.reference);
+  if (from < 0) return { queue: next, skipped: [] };
+  // The replacement has to come from the current lamp onwards. Lifting an
+  // earlier one out would shift the slot left, and this helper cannot re-anchor
+  // the caller's `queueIndex` to match: the caller would keep pointing at the
+  // slot index, which now holds the verse after the slot, and re-present a verse
+  // the player has already seen — the exact repeat this path exists to prevent.
+  // Refuse the move rather than shuffle the queue into that state.
+  if (from < at) return { queue: next, skipped: [] };
+  const len = Math.max(1, Math.min(chainLen, next.length - at));
+  next.splice(from, 1);
   const removed = next.splice(at, len);
   next.splice(at, 0, replacement);
   return { queue: next, skipped: removed.map((v) => v.reference) };
@@ -119,5 +182,7 @@ export function selectNextLamps(input: SelectionInput): KJVVerse[] {
     ordered = ordered.filter(verse => isDue(verse.reference));
   }
 
-  return ordered.slice(0, Math.max(0, limit));
+  // Distinct: a session's lamps are one verse each, so a pool carrying a repeat
+  // must not be able to fill two lamps with the same verse.
+  return distinctVerses(ordered).slice(0, Math.max(0, limit));
 }

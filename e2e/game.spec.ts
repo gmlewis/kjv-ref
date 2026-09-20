@@ -307,6 +307,194 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
     expect(puzzle?.reference).toBeTruthy();
   });
 
+  test('BUG FIX: swapping a verse in place never repeats a verse in the session', async ({ page }) => {
+    // The circular right-arrow button (`swapVerse`) stays on the current lamp and
+    // replaces the verse in that slot. It used to draw the replacement from the
+    // verses still QUEUED for later lamps and copy it into the current slot, so
+    // that verse was then presented twice — and an already-solved one came back.
+    await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
+
+    if (!await requireReadyGame(page, 'Swap-repeat test')) return;
+
+    const readQueue = () =>
+      page.evaluate(() => (window as any).__lampGameQueue?.() ?? []) as Promise<string[]>;
+
+    const before = await readQueue();
+    expect(before.length).toBeGreaterThan(1);
+    // A session shows each verse on exactly one lamp.
+    expect(new Set(before).size).toBe(before.length);
+
+    const swapBtn = page.locator('button[aria-label="Skip to a different verse"]');
+    await expect(swapBtn).toBeVisible();
+    const swappedOut = before[0]; // the verse on the current lamp at boot
+    await swapBtn.click();
+    await page.waitForTimeout(900);
+
+    const after = await readQueue();
+
+    // Still no duplicate, and the verse the player passed over is gone from the
+    // queue entirely — it must not come back later in this game.
+    expect(new Set(after).size).toBe(after.length);
+    expect(after).not.toContain(swappedOut);
+    // The replacement is a verse the player had not been shown yet — drawn from
+    // outside the queue, not a copy of one that was already queued for later.
+    expect(after.filter((r) => !before.includes(r))).toHaveLength(1);
+    // Swapping in place keeps the lamp count, so the session stays winnable.
+    expect(after).toHaveLength(before.length);
+  });
+
+  test('BUG FIX: "Skip this lamp" never brings the skipped verse back', async ({ page }) => {
+    // The HUD's `Skip this lamp` button counts as a miss and advances the
+    // journey. This is the path the reported bug showed up on: verses that had
+    // already been solved came back as later lamps. The button is only offered
+    // after the player has struggled, so this test earns it by submitting the
+    // words wrongly first.
+    await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
+
+    if (!await requireReadyGame(page, 'Skip-lamp test')) return;
+
+    const readState = () =>
+      page.evaluate(() => ({
+        ref: (window as any).__lampGamePuzzle?.()?.reference ?? '',
+        queue: ((window as any).__lampGameQueue?.() ?? []) as string[],
+        queueIndex: (window as any).__lampGameQueueIndex?.() ?? 0,
+      })) as Promise<{ ref: string; queue: string[]; queueIndex: number }>;
+
+    const readPuzzle = () =>
+      page.evaluate(() => ({
+        slots: ((window as any).__lampGameSlots?.() ?? []) as Array<{
+          word: string;
+          preFilled: boolean;
+        }>,
+        tiles: ((window as any).__lampGameTiles?.() ?? []) as Array<{
+          id: number;
+          word: string;
+          homeX: number;
+          homeY: number;
+          w: number;
+          h: number;
+          placedSlotIndex: number | null;
+        }>,
+      }));
+
+    const canvas = page.locator('canvas');
+    const skipButton = page.getByRole('button', { name: 'Skip this lamp' });
+
+    // The boot lands on the stage-0 read-along, which has no word bank: any tap
+    // advances it to the word-ordering stage the affordance belongs to.
+    if ((await readPuzzle()).tiles.length === 0) {
+      await canvas.click();
+      await page.waitForTimeout(2400);
+    }
+
+    const before = await readState();
+    expect(before.ref).toBeTruthy();
+
+    // The affordance only appears once the player has struggled (two wrong
+    // submissions), so the test earns it the way a player does. Tapping a bank
+    // tile sends it to the first open slot, so shifting every slot's word one
+    // place along fills the row completely and wrongly.
+    const submitWrongly = async (): Promise<boolean> => {
+      const { slots, tiles } = await readPuzzle();
+      if (new Set(slots.map((s) => s.word)).size < 2) return false;
+      const used = new Set<number>();
+      for (const slot of slots) {
+        if (slot.preFilled) continue;
+        const want = slots[(slots.indexOf(slot) + 1) % slots.length].word;
+        const tile = tiles.find(
+          (t) => t.word === want && t.placedSlotIndex == null && !used.has(t.id),
+        );
+        if (!tile) return false;
+        used.add(tile.id);
+        await canvas.click({
+          position: {
+            x: Math.round(tile.homeX + tile.w / 2),
+            y: Math.round(tile.homeY + tile.h / 2),
+          },
+        });
+        await page.waitForTimeout(80);
+      }
+      return true;
+    };
+
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (!await submitWrongly()) break;
+      await page.waitForTimeout(1200); // 350ms resolve + the miss banner
+      if (await skipButton.isVisible().catch(() => false)) break;
+      await canvas.click(); // dismiss the banner; tiles return to the bank
+      await page.waitForTimeout(600);
+    }
+
+    await expect(skipButton).toBeVisible();
+    await skipButton.click();
+    // The dialog's own button is named exactly "Skip"; the HUD button's
+    // accessible name is "Skip this lamp", so exact matching is unambiguous.
+    await page.getByRole('button', { name: 'Skip', exact: true }).click();
+    await page.waitForTimeout(2500);
+
+    const after = await readState();
+    // The journey moved on, and it moved on to a DIFFERENT verse.
+    expect(after.queueIndex).toBeGreaterThan(before.queueIndex);
+    expect(after.ref).not.toBe(before.ref);
+    // The lamp shows the verse queued for it.
+    expect(after.ref).toBe(after.queue[after.queueIndex - 1]);
+
+    // The session's invariant: each verse holds exactly one lamp of the twelve,
+    // and nothing still ahead of the player is a verse already presented — the
+    // skipped verse sits behind the cursor instead of being re-queued later.
+    expect(new Set(after.queue).size).toBe(after.queue.length);
+    const presented = new Set([before.ref, after.ref]);
+    for (const ahead of after.queue.slice(after.queueIndex)) {
+      expect(presented.has(ahead)).toBe(false);
+    }
+  });
+
+  test('BUG FIX: parallax pan stays inside the drawn landscape', async ({ page }) => {
+    await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
+
+    if (!await requireReadyGame(page, 'Parallax bounds test')) return;
+
+    const readScroll = () =>
+      page.evaluate(() => (window as any).__lampGameCameraScrollX ?? 0) as Promise<number>;
+
+    // The camera pans at most PARALLAX_PAN (120 desktop / 80 mobile) across the
+    // whole session; every parallax layer is drawn that much wider than the
+    // canvas, so no layer can expose an empty edge. Before the fix the scroll
+    // was a fixed 120px *per verse*, which walked the world off the screen.
+    const viewport = page.viewportSize();
+    const pan = (viewport?.width ?? 1280) < 560 ? 80 : 120;
+
+    for (let i = 0; i < 6; i++) {
+      const scroll = await readScroll();
+      expect(scroll).toBeGreaterThanOrEqual(0);
+      expect(scroll).toBeLessThanOrEqual(pan);
+      await page.locator('canvas').click();
+      await page.waitForTimeout(700);
+    }
+    const finalScroll = await readScroll();
+    expect(finalScroll).toBeLessThanOrEqual(pan);
+  });
+
+  test('BUG FIX: prefers-reduced-motion holds the landscape still', async ({ page }) => {
+    // The design doc asks for parallax to be disabled under reduced motion, and
+    // the host already passes `reducedMotion` into the engine options — this
+    // checks the engine actually honours it instead of drifting anyway.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
+
+    if (!await requireReadyGame(page, 'Reduced-motion test')) return;
+
+    const readScroll = () =>
+      page.evaluate(() => (window as any).__lampGameCameraScrollX ?? 0) as Promise<number>;
+
+    expect(await readScroll()).toBe(0);
+    for (let i = 0; i < 6; i++) {
+      await page.locator('canvas').click();
+      await page.waitForTimeout(700);
+      expect(await readScroll()).toBe(0);
+    }
+  });
+
   test('BUG FIX: Skip button does not overlap word tiles - right margin exclusion zone', async ({ page }) => {
     await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
 
