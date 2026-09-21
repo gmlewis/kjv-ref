@@ -103,6 +103,24 @@ body {
   box-shadow: 0 8px 32px rgba(31, 38, 135, 0.15);
 }
 
+/*
+ * An opaque variant of `.glassmorphism`, for the cards that float directly over
+ * the game canvas. The canvas paints the verse, the scenery and the lamp row
+ * *behind* these cards, and at 92%/88% opacity the canvas glyphs showed through
+ * and made the verse unreadable — the single defect the player reported from
+ * the live game. Cards that already sit inside a `bg-black/*` scrim (the skip
+ * confirm, the summary, the loading and error overlays) do not need it.
+ *
+ * Written as a *compound* selector (`.glassmorphism.glassmorphism-solid`) and
+ * applied alongside the base class, because the dark-mode text colors further
+ * down key off `html.dark .glassmorphism ...` — a standalone class name would
+ * drop those rules and leave dark text on the dark background.
+ */
+.glassmorphism.glassmorphism-solid {
+  background-color: #ffffff;
+  backdrop-filter: none;
+}
+
 .glassmorphism-dark {
   background-color: rgba(30, 41, 59, 0.8);
   backdrop-filter: blur(20px);
@@ -241,6 +259,11 @@ html.dark .glassmorphism {
   background-color: rgba(15, 23, 42, 0.88);
   border-color: rgba(148, 163, 184, 0.12);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* Opaque in dark mode too — same reasoning as the light-mode rule above. */
+html.dark .glassmorphism.glassmorphism-solid {
+  background-color: #0f172a;
 }
 
 html.dark .stat-card {

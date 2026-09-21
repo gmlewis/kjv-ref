@@ -13,9 +13,21 @@ bunx playwright install chromium   # one-time, for e2e
 ## Development
 
 ```bash
-bun run dev          # Vite dev server at http://localhost:3000
+bun run dev          # Vite dev server at http://localhost:3000/kjv-ref/
 ./run.sh             # dev server + auto-opens Chrome tab
 ```
+
+Note the `/kjv-ref/` base path — the bare root answers 302 with an empty body.
+
+`vite.config.ts` sets `server.strictPort: true`, so a dev server that cannot
+claim port 3000 exits rather than silently moving to 3001. Without it, a stray
+dev server left running from an earlier session keeps 3000, the new one is
+quietly pushed to 3001, and the browser ends up talking to the stale one — which
+also serves a months-old module graph whose dep-optimizer URLs no longer match
+`node_modules/.vite` (it shows up as `504 (Outdated Optimize Dep)` on `recharts`
+and `lucide-react`). If you hit that, find the squatter with
+`lsof -nP -iTCP:3000 -sTCP:LISTEN` and clear the cache with
+`rm -rf node_modules/.vite`.
 
 ## Build
 

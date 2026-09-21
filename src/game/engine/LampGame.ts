@@ -30,7 +30,10 @@ import {
   createDefaultTextData,
   updateDefaultTextData,
   disposeDefaultTextData,
-  createTextLayer,
+  // These three are aliased as `*Raw` and shadowed below by local wrappers that
+  // convert CSS pixels to backing-store pixels. Nothing else in this file may
+  // call the raw versions.
+  createTextLayer as createTextLayerRaw,
   createTextRenderer,
   registerTextRenderer,
   unregisterTextRenderer,
@@ -41,8 +44,9 @@ import {
   createSpriteRenderer,
   registerSpriteRenderer,
   disposeSpriteRenderer,
-  addSprite2D,
-  updateSprite2D,
+  spriteBlendAdditive,
+  addSprite2D as addSprite2DRaw,
+  updateSprite2D as updateSprite2DRaw,
   removeSprite2D,
 } from '@babylonjs/lite';
 import type {
@@ -51,6 +55,7 @@ import type {
   SpriteRenderer,
   Sprite2DLayer,
   Sprite2DHandle,
+  Sprite2DProps,
   TextRenderer,
   TextLayer,
   DefaultTextData,
@@ -65,7 +70,8 @@ import { playTileSnapSound, playTileErrorSound, playLampLitSound } from './audio
 import type { PerformanceRating } from '../scoring';
 import { paletteFor } from './theme';
 import type { GameTheme } from './theme';
-import { createGameSpriteFrames } from './art';
+import { ART_METRICS, createGameSpriteFrames, TOWER_ASPECT, TOWER_LANTERN_ABOVE_FOOT } from './art';
+import { SCENERY_BANDS, SCENERY_BAND_CSS_WIDTH } from './scenery';
 import { fluencyDurationMs, isFluentNow } from '../fluency';
 
 /** Result of one lamp resolve, reported to the host so it can write progress. */
@@ -178,6 +184,18 @@ const BORDER_T = 2; // outline thickness (CSS px) for blank slot drop-targets
 const PARALLAX_PAN_DESKTOP = 120;
 const PARALLAX_PAN_MOBILE = 80;
 
+/**
+ * Upper bound on the backing-store-to-CSS-pixel ratio the canvas renders at.
+ *
+ * The engine used to be created with `maxDevicePixelRatio: 1`, which made the
+ * backing store exactly the CSS-pixel size — that is why every coordinate in
+ * this file can be written in CSS pixels. On a phone at DPR 2.62 the canvas was
+ * then upscaled 2.62x by the compositor, which is why the art read as soft.
+ * Rendering at the device's real ratio makes the glyphs and edges crisp; the cap
+ * keeps a DPR-4 desktop from allocating a 4x surface for no visible gain.
+ */
+const RENDER_SCALE_CAP = 3;
+
 // ---------------------------------------------------------------------------
 // Color helpers. Palette colors are sRGB hex; sprites tint a white 1x1 atlas
 // (sRGB-normalized values), text colors are linear RGBA per the Lite text API.
@@ -238,7 +256,13 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     );
   }
 
-  const engine: EngineContext = await createEngine(canvas, { maxDevicePixelRatio: 1 });
+  // Sprites are single-sampled whatever this says, so the only render target
+  // MSAA multiplies is the text pass; glyph coverage is analytic in the shader,
+  // so 1 costs nothing visually and saves 4x on that pass.
+  const engine: EngineContext = await createEngine(canvas, {
+    maxDevicePixelRatio: RENDER_SCALE_CAP,
+    msaaSamples: 1,
+  });
   const font: Font = await loadFont(`${import.meta.env.BASE_URL}fonts/Inter.ttf`);
 
   let theme: GameTheme = opts.theme;
@@ -248,13 +272,40 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   // Vector art atlas generated from art.ts frames.
   const spriteFrames = createGameSpriteFrames();
   const frameMap = new Map<string, number>(spriteFrames.map((f, i) => [f.name, i]));
-  const frameIndex = (name: string): number => frameMap.get(name) ?? 0;
+  const frameIndex = (name: string): number => {
+    const index = frameMap.get(name);
+    // Not `?? 0`: frame 0 is the 1x1 white pixel, so a typo here used to draw a
+    // plain white quad somewhere in the scene instead of failing. The name
+    // inventory is asserted in art.test.ts; this is the backstop.
+    if (index === undefined) throw new Error(`Unknown sprite frame: ${name}`);
+    return index;
+  };
 
-  const atlas = createSpriteAtlasFromFrames(engine, spriteFrames, { srgb: true });
+  // The atlas is shelf-packed left-to-right and a frame *wider* than the shelf
+  // cannot be placed at all — the packer throws. Its default shelf is 1024 px and
+  // the scenery bands are authored at device density (~1624 px on the reference
+  // phone), so the default would fail at boot. Derive the shelf from the frames
+  // themselves so it can never drift behind the art again.
+  const widestFramePx = spriteFrames.reduce((w, f) => Math.max(w, f.width), 1);
+  const atlas = createSpriteAtlasFromFrames(engine, spriteFrames, {
+    srgb: true,
+    maxWidthPx: Math.max(2048, widestFramePx + 16),
+  });
   (window as any).__lampGameSpriteAtlas = atlas;
   const spriteLayer: Sprite2DLayer = createSprite2DLayer(atlas, { capacity: 512, depth: 'none' });
+  // The additive layer: halos, beacon beams, flames, the pools and reflections on
+  // the causeway, and the celebration particles. They are painted with `order: 1`
+  // so they draw after the base layer, and additively so light *stacks* instead
+  // of replacing what is behind it — that is what makes twelve reflections merge
+  // into the glow along the whole waterline.
+  const glowLayer: Sprite2DLayer = createSprite2DLayer(atlas, {
+    capacity: 192,
+    depth: 'none',
+    order: 1,
+    blendMode: spriteBlendAdditive,
+  });
   const spriteRenderer: SpriteRenderer = createSpriteRenderer(engine, {
-    layers: [spriteLayer],
+    layers: [spriteLayer, glowLayer],
     clear: true,
   });
   registerSpriteRenderer(spriteRenderer);
@@ -328,22 +379,30 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let feedbackBgSprite: Sprite2DHandle | null = null;
   let slotBottomY = 220;
   let bankTopY = 500;
-  let bgSprite: Sprite2DHandle | null = null;
-  let skyGradientSprite: Sprite2DHandle | null = null;
-  let moonSprite: Sprite2DHandle | null = null;
-  let mountainSprite: Sprite2DHandle | null = null;
-  let hillsSprite: Sprite2DHandle | null = null;
-  let forestHillsSprite: Sprite2DHandle | null = null;
-  let oceanWaterSprite: Sprite2DHandle | null = null;
-  let waterfallSprite: Sprite2DHandle | null = null;
-  let citySprite: Sprite2DHandle | null = null;
-  let pathSprite: Sprite2DHandle | null = null;
-  let skyStarSprites: Array<{ sprite: Sprite2DHandle; phase: number; speed: number }> = [];
-  let lampSprites: Sprite2DHandle[] = [];
+  // The four scenery bands. `sky` covers the canvas and never pans; the other three
+  // are the far shore, the water and the causeway, and they pan by their own factors
+  // (`SCENERY_BANDS`). Their vertical placement is anchored to `pathY`, so a taller
+  // canvas shows more water rather than moving the road.
+  let skySprite: Sprite2DHandle | null = null;
+  let farSprite: Sprite2DHandle | null = null;
+  let midSprite: Sprite2DHandle | null = null;
+  let nearSprite: Sprite2DHandle | null = null;
   let lighthouseSprites: Sprite2DHandle[] = [];
   let lampHaloSprites: Sprite2DHandle[] = [];
+  // The shadow a tower casts on the causeway, the pool a lit lamp throws on it, and
+  // the reflection below it. All three are per-lamp (they do not pan), so they are
+  // sprites rather than part of the bands.
+  let lampShadowSprites: Sprite2DHandle[] = [];
+  let lampPoolSprites: Sprite2DHandle[] = [];
+  let lampReflectSprites: Array<{ sprite: Sprite2DHandle; baseX: number; baseY: number; baseH: number; phase: number }> = [];
   let lampFlameSprites: Array<{ sprite: Sprite2DHandle; baseX: number; baseY: number; baseSize: number }> = [];
-  let beaconBeamSprites: Array<{ sprite: Sprite2DHandle; baseX: number; baseY: number; phase: number; isCurrent: boolean }> = [];
+  // `rotation` pivots about the sprite's centre, and the beam's apex is the bottom
+  // centre of its frame — so the centre is derived from the apex per frame.
+  // `apexX`/`apexY` are where the beam's light comes from (the lantern); `h` is the
+  // frame's height and `restSweep` the angle it rests at. The engine animates the
+  // angle and re-derives the box centre from the apex, because `rotation` pivots
+  // about the centre while the art's apex is at the bottom centre of the frame.
+  let beaconBeamSprites: Array<{ sprite: Sprite2DHandle; apexX: number; apexY: number; h: number; phase: number; isCurrent: boolean; restSweep: number }> = [];
   let fluencyRingSprite: Sprite2DHandle | null = null;
   let particleSprites: Array<{ sprite: Sprite2DHandle; vx: number; vy: number; life: number; x: number; y: number; r: number; g: number; b: number }> = [];
   let cameraScrollX = 0;
@@ -424,6 +483,72 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   // =========================================================================
   function canvasSize(): [number, number] {
     return [canvas.clientWidth || canvas.width || 1, canvas.clientHeight || canvas.height || 1];
+  }
+
+  // =========================================================================
+  // CSS pixels -> backing-store pixels.
+  //
+  // Every sprite position/size and every text layer anchor is interpreted by the
+  // engine in *backing-store* pixels: the sprite vertex shader divides
+  // `positionPx` by the render target's size, and the text MVP is built as
+  // `2*scale/targetWidth` — both of which are `canvas.width`/`canvas.height`.
+  // With the old `maxDevicePixelRatio: 1` those two were the same number as the
+  // CSS size, which is why the whole file could be written in CSS pixels. Now
+  // that the surface renders at the device's real ratio, `dpr` is the only
+  // difference between the two, and every value handed to the engine is scaled
+  // at the choke points below.
+  //
+  // Layout maths stay in CSS pixels everywhere — including pointer hit-testing,
+  // which measures with getBoundingClientRect() — so nothing outside this block
+  // has to know the ratio exists.
+  // =========================================================================
+
+  /** Backing-store pixels per CSS pixel, as the surface actually sized itself. */
+  function surfaceScale(): number {
+    const cssW = canvas.clientWidth || 0;
+    const storeW = canvas.width || 0;
+    if (cssW <= 0 || storeW <= 0) return 1;
+    const scale = storeW / cssW;
+    return Number.isFinite(scale) && scale > 0 ? Math.min(scale, 4) : 1;
+  }
+
+  let dpr = 1;
+
+  /** CSS px -> backing-store px. */
+  const S = (v: number): number => v * dpr;
+
+  function addSprite2D(layer: Sprite2DLayer, props: Sprite2DProps): Sprite2DHandle {
+    return addSprite2DRaw(layer, {
+      ...props,
+      positionPx: [S(props.positionPx[0]), S(props.positionPx[1])],
+      ...(props.sizePx ? { sizePx: [S(props.sizePx[0]), S(props.sizePx[1])] } : {}),
+    });
+  }
+
+  function updateSprite2D(sprite: Sprite2DHandle, patch: Partial<Sprite2DProps>): void {
+    const scaled: Partial<Sprite2DProps> = { ...patch };
+    if (patch.positionPx) scaled.positionPx = [S(patch.positionPx[0]), S(patch.positionPx[1])];
+    if (patch.sizePx) scaled.sizePx = [S(patch.sizePx[0]), S(patch.sizePx[1])];
+    updateSprite2DRaw(sprite, scaled);
+  }
+
+  /** The additive-layer counterparts of the two above. Same CSS-px contract. */
+  function addGlowSprite(props: Sprite2DProps): Sprite2DHandle {
+    return addSprite2D(glowLayer, props);
+  }
+
+  /**
+   * Create a text layer anchored at a CSS-pixel point.
+   *
+   * The glyphs come from an analytic curve shader rather than a glyph bitmap, so
+   * `scale: dpr` renders true vector coverage at the surface's resolution — the
+   * crispness win — while `data.width` stays in CSS pixels and every existing
+   * layout calculation keeps working unchanged.
+   */
+  function createTextLayer(data: DefaultTextData, x: number = 0, y: number = 0): TextLayer {
+    const layer = createTextLayerRaw(data, { positionPx: { x: S(x), y: S(y) } });
+    layer.scale = dpr;
+    return layer;
   }
 
   function getResponsiveMetrics(W: number, H: number) {
@@ -588,8 +713,8 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // and bottom of font descenders at cellY + cellH - 9px, producing exact 9px equal top & bottom padding.
     const baselineY = cellY + cellH / 2 + fontSizePx * 0.25;
     layer.positionPx = {
-      x: cellX + Math.max(0, (cellW - data.width) / 2),
-      y: baselineY,
+      x: S(cellX + Math.max(0, (cellW - data.width) / 2)),
+      y: S(baselineY),
     };
   }
   function setTilePos(t: TileView, x: number, y: number) {
@@ -625,7 +750,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       const vy = Math.sin(angle) * speed - 30; // upward bias
       const size = 6 + Math.random() * 8;
       const col = colors[Math.floor(Math.random() * colors.length)];
-      const sprite = addSprite2D(spriteLayer, {
+      const sprite = addGlowSprite({
         positionPx: [x, y],
         sizePx: [size, size],
         color: [col[0] / 255, col[1] / 255, col[2] / 255, 1],
@@ -686,60 +811,36 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       removeSprite2D(feedbackBgSprite);
       feedbackBgSprite = null;
     }
-    for (const ls of lampSprites) removeSprite2D(ls);
-    lampSprites = [];
     for (const lhs of lighthouseSprites) removeSprite2D(lhs);
     lighthouseSprites = [];
     for (const lhs of lampHaloSprites) removeSprite2D(lhs);
     lampHaloSprites = [];
+    for (const s of lampShadowSprites) removeSprite2D(s);
+    lampShadowSprites = [];
+    for (const s of lampPoolSprites) removeSprite2D(s);
+    lampPoolSprites = [];
+    for (const r of lampReflectSprites) removeSprite2D(r.sprite);
+    lampReflectSprites = [];
     for (const lfs of lampFlameSprites) removeSprite2D(lfs.sprite);
     lampFlameSprites = [];
     for (const bb of beaconBeamSprites) removeSprite2D(bb.sprite);
     beaconBeamSprites = [];
-    for (const ss of skyStarSprites) removeSprite2D(ss.sprite);
-    skyStarSprites = [];
     for (const p of particleSprites) removeSprite2D(p.sprite);
     particleSprites = [];
     if (fluencyRingSprite) {
       removeSprite2D(fluencyRingSprite);
       fluencyRingSprite = null;
     }
-    if (skyGradientSprite) {
-      removeSprite2D(skyGradientSprite);
-      skyGradientSprite = null;
+    for (const [sprite, clear] of [
+      [skySprite, () => { skySprite = null; }],
+      [farSprite, () => { farSprite = null; }],
+      [midSprite, () => { midSprite = null; }],
+      [nearSprite, () => { nearSprite = null; }],
+    ] as const) {
+      if (!sprite) continue;
+      removeSprite2D(sprite);
+      clear();
     }
-    if (moonSprite) {
-      removeSprite2D(moonSprite);
-      moonSprite = null;
-    }
-    if (mountainSprite) {
-      removeSprite2D(mountainSprite);
-      mountainSprite = null;
-    }
-    if (hillsSprite) {
-      removeSprite2D(hillsSprite);
-      hillsSprite = null;
-    }
-    if (forestHillsSprite) {
-      removeSprite2D(forestHillsSprite);
-      forestHillsSprite = null;
-    }
-    if (oceanWaterSprite) {
-      removeSprite2D(oceanWaterSprite);
-      oceanWaterSprite = null;
-    }
-    if (waterfallSprite) {
-      removeSprite2D(waterfallSprite);
-      waterfallSprite = null;
-    }
-    if (citySprite) {
-      removeSprite2D(citySprite);
-      citySprite = null;
-    }
-    lampSprites = [];
-    lampHaloSprites = [];
-    lampFlameSprites = [];
-    skyStarSprites = [];
     slots = [];
     tiles = [];
     puzzle = null;
@@ -755,6 +856,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     chainVerses: KJVVerse[] | null = null,
     minStage: ScaffoldLayer = 0,
   ) {
+    // The surface is resized before a rebuild (ResizeObserver -> resizeEngine ->
+    // relayout), so this is the one place the ratio can change. Read it after the
+    // resize and before any sprite or text layer is created.
+    dpr = surfaceScale();
     teardownPuzzle();
     verse = v;
 
@@ -820,189 +925,106 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     const areaX = margin;
     const areaW = W - 2 * margin;
 
-    const isDark = theme === 'dark';
+    // One sunset for both themes: there is no `isDark` branch in the scenery any
+    // more, and the palette above is what colours the text and the cards.
 
-    // Parallax layers are drawn wider than the canvas so the camera pan (which
-    // is bounded by PARALLAX_PAN) can never pull an edge into view. See the
+    // Parallax layers are drawn wider than the canvas so the camera pan (which is
+    // bounded by PARALLAX_PAN) can never pull an edge into view. See the
     // PARALLAX_PAN_* comment.
-    const layerW = W + 2 * (isMobile ? PARALLAX_PAN_MOBILE : PARALLAX_PAN_DESKTOP);
-
-    // Sky Background (Atmospheric gradient sky)
-    if (!skyGradientSprite) {
-      skyGradientSprite = addSprite2D(spriteLayer, {
-        positionPx: [W / 2, H / 2],
-        sizePx: [W, H],
-        color: [1, 1, 1, 1],
-        frame: frameIndex(isDark ? 'sky_dark' : 'sky_light'),
-      });
-    } else {
-      updateSprite2D(skyGradientSprite, {
-        positionPx: [W / 2, H / 2],
-        sizePx: [W, H],
-        color: [1, 1, 1, 1],
-        frame: frameIndex(isDark ? 'sky_dark' : 'sky_light'),
-      });
-    }
-
-    // Celestial Moon (Dark mode upper-right sky)
-    if (isDark && !moonSprite) {
-      moonSprite = addSprite2D(spriteLayer, {
-        positionPx: [W * 0.88, H * 0.14],
-        sizePx: [36, 36],
-        color: [1, 1, 1, 0.95],
-        frame: frameIndex('moon'),
-      });
-    } else if (isDark && moonSprite) {
-      updateSprite2D(moonSprite, {
-        positionPx: [W * 0.88, H * 0.14],
-        sizePx: [36, 36],
-        color: [1, 1, 1, 0.95],
-        frame: frameIndex('moon'),
-      });
-    }
-
-    // Dark mode atmospheric vignette (subtle darkness at screen edges)
-    if (isDark) {
-      // This is handled by CSS on the canvas container for performance
-      // The Babylon engine focuses on sprite rendering
-    }
-
-    // Celestial Starfield (Dark mode twinkling stars)
-    if (isDark && skyStarSprites.length === 0) {
-      const starPositions = [
-        [0.06, 0.08], [0.18, 0.14], [0.32, 0.06], [0.46, 0.12],
-        [0.58, 0.07], [0.72, 0.16], [0.82, 0.08], [0.94, 0.18],
-        [0.12, 0.22], [0.28, 0.26], [0.52, 0.24], [0.66, 0.28],
-        [0.78, 0.22], [0.88, 0.26], [0.38, 0.18], [0.04, 0.28],
-      ];
-      for (const [rx, ry] of starPositions) {
-        const phase = Math.random() * Math.PI * 2;
-        const speed = 0.5 + Math.random() * 1.5; // radians per second
-        skyStarSprites.push({
-          sprite: addSprite2D(spriteLayer, {
-            positionPx: [W * rx, H * ry],
-            sizePx: [12, 12],
-            color: [1, 1, 1, 0.85],
-            frame: frameIndex('star'),
-          }),
-          phase,
-          speed,
-        });
-      }
-    }
+    //
+    // The bands are authored at `SCENERY_BAND_CSS_WIDTH`, which on a phone is
+    // already wider than the canvas plus the pan — so this takes the larger of
+    // the two rather than re-deriving the width from the pan. Deriving it would
+    // draw the 620-px-wide art 572 px wide, an 8% horizontal squeeze that walks
+    // the sun and the citadel off the positions they were approved at. On a
+    // desktop canvas the pan does win, and the bands stretch horizontally; that
+    // is the known limitation of authoring one band set for the phone.
+    const pan = isMobile ? PARALLAX_PAN_MOBILE : PARALLAX_PAN_DESKTOP;
+    const layerW = Math.max(W + 2 * (pan + 24), SCENERY_BAND_CSS_WIDTH);
 
     // Walking Path Y-position (Prominent lower-third of canvas)
     const pathY = isMobile ? H - 84 : H - 64;
 
-    // Distant Mountain Ridge Scenery
-    if (!mountainSprite) {
-      mountainSprite = addSprite2D(spriteLayer, {
-        positionPx: [W / 2, pathY - 54],
-        sizePx: [layerW, 80],
-        color: isDark ? [1, 1, 1, 0.8] : [1, 1, 1, 0.55],
-        frame: frameIndex('mountain'),
+    // ---------------------------------------------------------------------
+    // The scene: the sunset sky, then three parallax bands (far shore, water,
+    // causeway). Every band's vertical placement is derived from `pathY` and
+    // its extents come from `SCENERY_BANDS`, so the art and the placement
+    // cannot disagree about where the ridge or the shoreline is.
+    //
+    // The bands pan; the sky does not. `updateParallaxPositions` owns the
+    // horizontal placement — this block only has to get them on screen so the
+    // first frame is right.
+    // ---------------------------------------------------------------------
+    const bandBox = (top: number, height: number) => ({
+      positionPx: [W / 2, top + height / 2] as [number, number],
+      sizePx: [layerW, height] as [number, number],
+    });
+
+    if (!skySprite) {
+      skySprite = addSprite2D(spriteLayer, {
+        positionPx: [W / 2, H / 2],
+        sizePx: [W, H],
+        color: [1, 1, 1, 1],
+        frame: frameIndex('sky'),
       });
     } else {
-      updateSprite2D(mountainSprite, {
-        positionPx: [W / 2, pathY - 54],
-        sizePx: [layerW, 80],
-        color: isDark ? [1, 1, 1, 0.8] : [1, 1, 1, 0.55],
-        frame: frameIndex('mountain'),
+      updateSprite2D(skySprite, {
+        positionPx: [W / 2, H / 2],
+        sizePx: [W, H],
+        color: [1, 1, 1, 1],
+        frame: frameIndex('sky'),
       });
     }
 
-    // Lush Emerald Forest Hillsides
-    if (!forestHillsSprite) {
-      forestHillsSprite = addSprite2D(spriteLayer, {
-        positionPx: [W / 2, pathY - 32],
-        sizePx: [layerW, 64],
-        color: isDark ? [1, 1, 1, 0.95] : [1, 1, 1, 0.85],
-        frame: frameIndex('forest_hills'),
+    // Far shore: ridge, woodland, waterfall and citadel, baked as one picture.
+    const farTop = pathY + SCENERY_BANDS.far.top;
+    const farH = SCENERY_BANDS.far.bottom - SCENERY_BANDS.far.top;
+    const farBox = bandBox(farTop, farH);
+    if (!farSprite) {
+      farSprite = addSprite2D(spriteLayer, {
+        ...farBox,
+        color: [1, 1, 1, 1],
+        frame: frameIndex('scenery_far'),
       });
     } else {
-      updateSprite2D(forestHillsSprite, {
-        positionPx: [W / 2, pathY - 32],
-        sizePx: [layerW, 64],
-        color: isDark ? [1, 1, 1, 0.95] : [1, 1, 1, 0.85],
-        frame: frameIndex('forest_hills'),
-      });
+      updateSprite2D(farSprite, { ...farBox, frame: frameIndex('scenery_far') });
     }
 
-    // Cascading Waterfall Stream on the Hillside
-    if (!waterfallSprite) {
-      waterfallSprite = addSprite2D(spriteLayer, {
-        positionPx: [W * 0.22, pathY - 22],
-        sizePx: [16, 44],
-        color: [1, 1, 1, 0.95],
-        frame: frameIndex('waterfall'),
+    // Water, from the shoreline to whatever the bottom of the canvas is. The
+    // frame is authored for 86 CSS px; stretching it to the live height is how
+    // a taller canvas shows more water instead of raw sky below the waves.
+    const midTop = pathY + SCENERY_BANDS.mid.top;
+    const midBox = bandBox(midTop, H - midTop);
+    if (!midSprite) {
+      midSprite = addSprite2D(spriteLayer, {
+        ...midBox,
+        color: [1, 1, 1, 1],
+        frame: frameIndex('scenery_mid'),
       });
     } else {
-      updateSprite2D(waterfallSprite, {
-        positionPx: [W * 0.22, pathY - 22],
-        sizePx: [16, 44],
-        color: [1, 1, 1, 0.95],
-        frame: frameIndex('waterfall'),
-      });
+      updateSprite2D(midSprite, { ...midBox, frame: frameIndex('scenery_mid') });
     }
 
-    // Illuminated City on a Hill Citadel Skyline
-    if (!citySprite) {
-      citySprite = addSprite2D(spriteLayer, {
-        positionPx: [W * 0.76, pathY - 60],
-        sizePx: [160, 64],
-        color: isDark ? [1, 1, 1, 0.95] : [0.9, 0.9, 1, 0.75],
-        frame: frameIndex('city'),
+    // The causeway itself, on the ground plane. It overhangs the water by 2 px,
+    // which is what hides the seam between the two bands.
+    const nearTop = pathY + SCENERY_BANDS.near.top;
+    const nearH = SCENERY_BANDS.near.bottom - SCENERY_BANDS.near.top;
+    const nearBox = bandBox(nearTop, nearH);
+    if (!nearSprite) {
+      nearSprite = addSprite2D(spriteLayer, {
+        ...nearBox,
+        color: [1, 1, 1, 1],
+        frame: frameIndex('scenery_near'),
       });
     } else {
-      updateSprite2D(citySprite, {
-        positionPx: [W * 0.76, pathY - 60],
-        sizePx: [160, 64],
-        color: isDark ? [1, 1, 1, 0.95] : [0.9, 0.9, 1, 0.75],
-        frame: frameIndex('city'),
-      });
-    }
-
-    // Shimmering Blue Coastal Ocean Water Body
-    if (!oceanWaterSprite) {
-      oceanWaterSprite = addSprite2D(spriteLayer, {
-        positionPx: [W / 2, pathY + 16],
-        sizePx: [layerW, 36],
-        color: [1, 1, 1, 0.95],
-        frame: frameIndex('ocean_water'),
-      });
-    } else {
-      updateSprite2D(oceanWaterSprite, {
-        positionPx: [W / 2, pathY + 16],
-        sizePx: [layerW, 36],
-        color: [1, 1, 1, 0.95],
-        frame: frameIndex('ocean_water'),
-      });
-    }
-
-    // Textured Cobblestone Path Bar
-    if (!pathSprite) {
-      pathSprite = addSprite2D(spriteLayer, {
-        positionPx: [W / 2, pathY],
-        sizePx: [layerW - 2 * margin, 24],
-        color: [1, 1, 1, 0.95],
-        frame: frameIndex('path_stone'),
-      });
-    } else {
-      updateSprite2D(pathSprite, {
-        positionPx: [W / 2, pathY],
-        sizePx: [layerW - 2 * margin, 24],
-        color: [1, 1, 1, 0.95],
-        frame: frameIndex('path_stone'),
-      });
+      updateSprite2D(nearSprite, { ...nearBox, frame: frameIndex('scenery_near') });
     }
 
     // Header (reference) + prompt.
     headerData = createDefaultTextData(font, headerFont, v.reference, textColor(palette.text), {
       align: 'center',
     });
-    headerLayer = createTextLayer(headerData, {
-      positionPx: { x: (W - headerData.width) / 2, y: headerY + headerFont * 0.65 },
-    });
+    headerLayer = createTextLayer(headerData, (W - headerData.width) / 2, headerY + headerFont * 0.65);
     addTextRendererLayer(textRenderer, headerLayer);
 
     // HUD summary (Level, XP, Combo) - captured for updateHud() to refresh.
@@ -1010,9 +1032,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       ? `Lvl ${gameState.level} • ${gameState.xp} XP • Combos: x${combo}`
       : `Game Stats: Level ${gameState.level} • ${gameState.xp} XP • Session Combos: x${combo}`;
     hudData = createDefaultTextData(font, hudFont, makeHudText(), textColor(palette.text, 0.8), { align: 'center' });
-    hudLayer = createTextLayer(hudData, {
-      positionPx: { x: (W - hudData.width) / 2, y: hudY + hudFont * 0.65 },
-    });
+    hudLayer = createTextLayer(hudData, (W - hudData.width) / 2, hudY + hudFont * 0.65);
     addTextRendererLayer(textRenderer, hudLayer);
 
     // Render Majestic Coastal Lighthouses & Radiant Beacons along the path
@@ -1020,46 +1040,80 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     const lampCount = Math.min(12, queue.length);
     const lampStep = (W - 4 * margin) / Math.max(1, lampCount - 1);
     const activeIndex = Math.max(0, Math.min(queueIndex - 1, lampCount - 1));
+    // The tower's foot, and the three heights it can be drawn at. Only the
+    // *height* is chosen here — the width is derived from it through
+    // `TOWER_ASPECT`, so the frame is never stretched off its authored shape.
+    const footY = pathY + 6;
+    const towerH = isMobile
+      ? { current: 96, lit: 78, unlit: 74 }
+      : { current: 144, lit: 117, unlit: 111 };
     for (let i = 0; i < lampCount; i++) {
       const qv = queue[i];
       const isCurrent = i === activeIndex;
       const isSessionLit = sessionLitRefs.has(qv.reference) || i < activeIndex;
+      const lit = isSessionLit || isCurrent;
 
       const lx = 2 * margin + i * lampStep;
+      const lh = isCurrent ? towerH.current : lit ? towerH.lit : towerH.unlit;
+      const lw = lh * TOWER_ASPECT;
+      // The light is the only thing tying these separate sprites together: the
+      // halo, the flame, the ring and the beam's pivot all belong on the lantern
+      // room, which the frame draws at a fixed fraction of its own height.
+      const lanternCenterY = footY - TOWER_LANTERN_ABOVE_FOOT * lh;
 
-      // Responsive lighthouse tower dimensions (tall & impressive on desktop!)
-      const lw = isMobile ? (isCurrent ? 36 : 28) : (isCurrent ? 52 : 40);
-      const lh = isMobile ? (isCurrent ? 72 : 56) : (isCurrent ? 104 : 80);
-      const lanternCenterY = pathY - lh + (isMobile ? 12 : 18);
+      // The tower's contact shadow, on the causeway under its foot. Without it
+      // the towers sit *on* the road rather than *in* it.
+      lampShadowSprites.push(addSprite2D(spriteLayer, {
+        positionPx: [lx, footY + 0.5],
+        sizePx: [lw * 2, 7],
+        color: [1, 1, 1, 0.9],
+        frame: frameIndex('lamp_shadow'),
+      }));
 
-      if (isSessionLit || isCurrent) {
+      if (lit) {
         // Radiant Beacon Light Halo around top lantern room
-        const haloSize = isCurrent ? (isMobile ? 84 : 120) : (isMobile ? 64 : 88);
-        const haloSprite = addSprite2D(spriteLayer, {
+        const haloSize = isCurrent ? 116 : 80;
+        lampHaloSprites.push(addGlowSprite({
           positionPx: [lx, lanternCenterY],
           sizePx: [haloSize, haloSize],
           color: isCurrent ? [1, 0.85, 0.2, 0.95] : [0.95, 0.75, 0.2, 0.65],
           frame: frameIndex('glow_halo'),
-        });
-        lampHaloSprites.push(haloSprite);
+        }));
 
-        // Sweeping Beacon Light Beam extending into the sky
-        const beamW = isCurrent ? (isMobile ? 96 : 140) : (isMobile ? 72 : 100);
-        const beamH = isCurrent ? (isMobile ? 48 : 70) : (isMobile ? 36 : 50);
-        const baseX = lx + beamW / 2 - 4;
-        const baseY = lanternCenterY - 4;
-        const beamSprite = addSprite2D(spriteLayer, {
-          positionPx: [baseX, baseY],
-          sizePx: [beamW, beamH],
-          color: isCurrent ? [1, 0.95, 0.5, 0.9] : [1, 0.85, 0.3, 0.6],
-          frame: frameIndex('beacon_beam'),
+        // Sweeping Beacon Light Beam extending into the sky. The frame's apex is
+        // the bottom centre of its box and `rotation` pivots about that box's
+        // centre, so the centre is placed where rotating the apex onto the lantern
+        // puts it. (Negated: the engine's positive angle is counter-clockwise on
+        // screen, the art was approved with the opposite sign.)
+        const beamW = isCurrent ? 132 : 104;
+        const beamH = isCurrent ? 80 : 62;
+        const sweep = (i % 2 === 0 ? -1 : 1) * (isCurrent ? 0.3 : 0.2);
+        const apexX = lx;
+        const apexY = lanternCenterY - 4;
+        const centreX = apexX + Math.sin(sweep) * (beamH / 2);
+        const centreY = apexY - Math.cos(sweep) * (beamH / 2);
+        beaconBeamSprites.push({
+          sprite: addGlowSprite({
+            positionPx: [centreX, centreY],
+            sizePx: [beamW, beamH],
+            rotation: -sweep,
+            color: isCurrent ? [1, 0.95, 0.5, 0.9] : [1, 0.85, 0.3, 0.6],
+            frame: frameIndex('beacon_beam'),
+          }),
+          apexX,
+          apexY,
+          h: beamH,
+          phase: i * 0.5,
+          isCurrent,
+          restSweep: sweep,
         });
-        beaconBeamSprites.push({ sprite: beamSprite, baseX, baseY, phase: i * 0.5, isCurrent });
       }
 
       if (isCurrent) {
-        // Task C-5: Fluency Ring Timer around active lighthouse lantern room
-        fluencyRingSprite = addSprite2D(spriteLayer, {
+        // Task C-5: Fluency Ring Timer around active lighthouse lantern room.
+        // On the additive layer: it is light, and it has to read *through* the
+        // halo behind it rather than being dimmed by it.
+        fluencyRingSprite = addGlowSprite({
           positionPx: [lx, lanternCenterY],
           sizePx: [isMobile ? 64 : 84, isMobile ? 64 : 84],
           color: [1, 0.85, 0.2, 0.95],
@@ -1068,29 +1122,54 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       }
 
       // Base Coastal Lighthouse Tower Sprite
-      const houseFrame = isSessionLit || isCurrent ? frameIndex('lighthouse_lit') : frameIndex('lighthouse_unlit');
+      const houseFrame = lit ? frameIndex('lighthouse_lit') : frameIndex('lighthouse_unlit');
       const lhSprite = addSprite2D(spriteLayer, {
-        positionPx: [lx, pathY - lh / 2 + 6],
+        positionPx: [lx, footY - lh / 2],
         sizePx: [lw, lh],
         color: [1, 1, 1, 1],
         frame: houseFrame,
       });
       lighthouseSprites.push(lhSprite);
 
-      // Add animated flame sprite on top of lit lighthouses
-      if (isSessionLit || isCurrent) {
-        const flameY = lanternCenterY - 10;
-        const flameSize = isMobile ? 14 : 20;
+      if (lit) {
+        // The flame sits *inside* the lantern glass, which the frame draws at 10%
+        // of the tower's height — hence the size, and hence centring it on the
+        // lantern rather than floating it above.
+        const flameSize = lh * 0.1;
         lampFlameSprites.push({
-          sprite: addSprite2D(spriteLayer, {
-            positionPx: [lx, flameY],
+          sprite: addGlowSprite({
+            positionPx: [lx, lanternCenterY],
             sizePx: [flameSize, flameSize],
             color: [1, 0.9, 0.3, 0.9],
             frame: frameIndex('flame'),
           }),
           baseX: lx,
-          baseY: flameY,
+          baseY: lanternCenterY,
           baseSize: flameSize,
+        });
+
+        // The warm pool the lamp throws on the causeway, and its reflection in
+        // the water below. Twelve of these merging along the waterline is what
+        // the shore glow in the approved study actually is.
+        lampPoolSprites.push(addGlowSprite({
+          positionPx: [lx, pathY + 14],
+          sizePx: [88, 22],
+          color: [1, 1, 1, 0.22 * 0.85],
+          frame: frameIndex('lamp_pool'),
+        }));
+
+        const reflectTop = pathY + 16;
+        lampReflectSprites.push({
+          sprite: addGlowSprite({
+            positionPx: [lx, (reflectTop + H) / 2],
+            sizePx: [28, H - reflectTop],
+            color: [1, 1, 1, 0.24 * 0.85],
+            frame: frameIndex('lamp_reflection'),
+          }),
+          baseX: lx,
+          baseY: (reflectTop + H) / 2,
+          baseH: H - reflectTop,
+          phase: i * 0.7,
         });
       }
     }
@@ -1109,9 +1188,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     slots = puzzle.slots.map((s, i) => {
       const pos = slotPos[i];
       const w = slotWidths[i];
-      const color = s.preFilled
-        ? spriteColor(palette.tile, 0.85)
-        : spriteColor(palette.slot, 0.6);
+      // The plate tints itself: `tile_bg`/`slot_bg` carry the cream (or amber)
+      // face and the gold rules in their own pixels. A `color` tint here would
+      // multiply that away — which is why the palette-derived tint this used to
+      // compute was never passed to the sprite, and is gone.
       const sprite = addSprite2D(spriteLayer, {
         positionPx: [pos.x + w / 2, pos.y + cellH / 2],
         sizePx: [w, cellH],
@@ -1132,7 +1212,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       if (s.preFilled) {
         const data = createDefaultTextData(font, wordFont, s.word, textColor('#0f172a', 0.85));
         view.textData = data;
-        view.textLayer = createTextLayer(data, {});
+        view.textLayer = createTextLayer(data);
         placeText(view.textLayer, data, pos.x, pos.y, w, cellH, wordFont);
         view.textLayer.opacity = 0.85;
         addTextRendererLayer(textRenderer, view.textLayer);
@@ -1183,7 +1263,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
         const pos = tilePos[i];
         const w = tileWidths[i];
         const data = createDefaultTextData(font, wordFont, t.display, textColor('#0f172a', 1));
-        const textLayer = createTextLayer(data, {});
+        const textLayer = createTextLayer(data);
         const sprite = addSprite2D(spriteLayer, {
           positionPx: [pos.x + w / 2, pos.y + cellH / 2],
           sizePx: [w, cellH],
@@ -1213,6 +1293,12 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
     puzzleStartMs = performance.now();
     resolving = false;
+
+    // The bands were just placed at the un-panned centre. If the camera has
+    // already drifted (a relayout or a theme swap mid-session), re-apply it —
+    // otherwise the scenery snaps back to the start of the journey and only
+    // catches up on the next verse.
+    updateParallaxPositions();
   }
 
   // Re-position everything for the current puzzle on resize.
@@ -1244,7 +1330,6 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     (window as any).__lampGameFluencyRing = fluencyRingSprite;
     (window as any).__lampGameParticles = particleSprites;
     (window as any).__lampGameLighthouses = lighthouseSprites;
-    (window as any).__lampGameLamps = lampSprites;
   }
 
   /** Update the HUD text to reflect the current gameState (level, xp, combo). */
@@ -1259,9 +1344,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     disposeDefaultTextData(hudData);
     removeTextRendererLayer(textRenderer, hudLayer);
     const newData = createDefaultTextData(font, hudFont, hudText, textColor(palette.text, 0.8), { align: 'center' });
-    const newLayer = createTextLayer(newData, {
-      positionPx: { x: (W - newData.width) / 2, y: hudY + hudFont * 0.65 },
-    });
+    const newLayer = createTextLayer(newData, (W - newData.width) / 2, hudY + hudFont * 0.65);
     addTextRendererLayer(textRenderer, newLayer);
     hudData = newData;
     hudLayer = newLayer;
@@ -1273,55 +1356,32 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     const { isMobile } = getResponsiveMetrics(W, H);
     const pathY = isMobile ? H - 84 : H - 64;
 
-    // Distant Mountain Ridge (Parallax Factor 0.2)
-    if (mountainSprite) {
-      updateSprite2D(mountainSprite, {
-        positionPx: [W / 2 - cameraScrollX * 0.2, pathY - 54],
+    // The sky never pans: it is the far distance, and it covers the canvas.
+    // Only the three bands move, each by its own factor.
+    if (farSprite) {
+      updateSprite2D(farSprite, {
+        positionPx: [W / 2 - cameraScrollX * SCENERY_BANDS.far.parallax, pathY + (SCENERY_BANDS.far.top + SCENERY_BANDS.far.bottom) / 2],
       });
     }
-
-    // Illuminated City on a Hill Citadel Skyline (Parallax Factor 0.35)
-    if (citySprite) {
-      updateSprite2D(citySprite, {
-        positionPx: [W * 0.76 - cameraScrollX * 0.35, pathY - 60],
+    if (midSprite) {
+      updateSprite2D(midSprite, {
+        positionPx: [W / 2 - cameraScrollX * SCENERY_BANDS.mid.parallax, (pathY + SCENERY_BANDS.mid.top + H) / 2],
       });
     }
-
-    // Lush Emerald Forest Hillsides (Parallax Factor 0.5)
-    if (forestHillsSprite) {
-      updateSprite2D(forestHillsSprite, {
-        positionPx: [W / 2 - cameraScrollX * 0.5, pathY - 32],
-      });
-    }
-
-    // Cascading Waterfall Stream (Parallax Factor 0.5)
-    if (waterfallSprite) {
-      updateSprite2D(waterfallSprite, {
-        positionPx: [W * 0.22 - cameraScrollX * 0.5, pathY - 22],
-      });
-    }
-
-    // Ocean Water (Parallax Factor 0.8)
-    if (oceanWaterSprite) {
-      updateSprite2D(oceanWaterSprite, {
-        positionPx: [W / 2 - cameraScrollX * 0.8, pathY + 16],
-      });
-    }
-
-    // Cobblestone Path (Parallax Factor 1.0)
-    if (pathSprite) {
-      updateSprite2D(pathSprite, {
-        positionPx: [W / 2 - cameraScrollX * 1.0, pathY],
+    if (nearSprite) {
+      updateSprite2D(nearSprite, {
+        positionPx: [W / 2 - cameraScrollX * SCENERY_BANDS.near.parallax, pathY + (SCENERY_BANDS.near.top + SCENERY_BANDS.near.bottom) / 2],
       });
     }
 
     // The lighthouses and everything attached to them (halo, beacon beam,
-    // fluency ring, flame) are NOT scrolled. They are the session's progress
-    // board: all 12 stay on screen and light up left-to-right, and each lamp's
-    // decorations are laid out at its own tower position by `buildPuzzle`. Moving
-    // only some of them here — the towers and halos but not the flames, and by a
-    // step larger than their own spacing — is what used to drag the row off the
-    // left edge and leave flames floating over empty sky.
+    // fluency ring, flame, shadow, pool, reflection) are NOT scrolled. They are
+    // the session's progress board: all 12 stay on screen and light up
+    // left-to-right, and each lamp's decorations are laid out at its own tower
+    // position by `buildPuzzle`. Moving only some of them here — the towers and
+    // halos but not the flames, and by a step larger than their own spacing — is
+    // what used to drag the row off the left edge and leave flames floating over
+    // empty sky.
   }
 
   function frameLoop() {
@@ -1358,21 +1418,12 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       }
     }
 
-    // Twinkle stars in dark mode
-    for (const star of skyStarSprites) {
-      star.phase += star.speed * dt;
-      const opacity = 0.4 + 0.6 * Math.sin(star.phase);
-      updateSprite2D(star.sprite, {
-        color: [1, 1, 1, Math.max(0.1, opacity)],
-      });
-    }
-
     // Animate lighthouse flames (flickering)
     const flameTime = now / 1000;
     for (let i = 0; i < lampFlameSprites.length; i++) {
       const flame = lampFlameSprites[i];
       const flicker = 0.8 + 0.2 * Math.sin(flameTime * 8 + i);
-      const sway = 0.05 * Math.cos(flameTime * 6 + i * 0.5);
+      const sway = 0.5 * Math.cos(flameTime * 6 + i * 0.5);
       updateSprite2D(flame.sprite, {
         positionPx: [flame.baseX + sway, flame.baseY],
         color: [1, 0.85 + 0.15 * flicker, 0.3, 0.9],
@@ -1380,15 +1431,29 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       });
     }
 
-    // Animate beacon beams (slow sweeping rotation)
+    // Animate beacon beams (slow sweeping rotation about the lantern)
     const beamTime = now / 1000;
     for (const beam of beaconBeamSprites) {
-      const sweep = Math.sin(beamTime * 0.5 + beam.phase) * (beam.isCurrent ? 15 : 8);
+      const sweep =
+        beam.restSweep + Math.sin(beamTime * 0.5 + beam.phase) * (beam.isCurrent ? 0.22 : 0.12);
       const alphaPulse = 0.7 + 0.3 * Math.sin(beamTime * 2 + beam.phase);
       const baseColor = beam.isCurrent ? [1, 0.95, 0.5, 0.9] : [1, 0.85, 0.3, 0.6];
       updateSprite2D(beam.sprite, {
-        positionPx: [beam.baseX + sweep, beam.baseY],
+        positionPx: [
+          beam.apexX + Math.sin(sweep) * (beam.h / 2),
+          beam.apexY - Math.cos(sweep) * (beam.h / 2),
+        ],
+        rotation: -sweep,
         color: [baseColor[0], baseColor[1], baseColor[2], baseColor[3] * alphaPulse],
+      });
+    }
+
+    // The reflections on the water breathe, out of phase with each other, so the
+    // waterline glow shimmers instead of sitting there as twelve static stripes.
+    for (const refl of lampReflectSprites) {
+      const pulse = 0.8 + 0.2 * Math.sin(beamTime * 1.3 + refl.phase);
+      updateSprite2D(refl.sprite, {
+        color: [1, 1, 1, 0.24 * 0.85 * pulse],
       });
     }
 
@@ -1716,7 +1781,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       frame: 0,
     });
 
-    feedbackLayer = createTextLayer(feedbackData, {});
+    feedbackLayer = createTextLayer(feedbackData);
     placeText(feedbackLayer, feedbackData, (W - pillW) / 2, bannerCenterY - pillH / 2, pillW, pillH, feedbackFontSize);
     addTextRendererLayer(textRenderer, feedbackLayer);
 
@@ -1867,7 +1932,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       teardownPuzzle();
       const [W] = canvasSize();
       headerData = createDefaultTextData(font, HEADER_FONT, 'No verses available', textColor(palette.text), { align: 'center' });
-      headerLayer = createTextLayer(headerData, { positionPx: { x: (W - headerData.width) / 2, y: HEADER_Y } });
+      headerLayer = createTextLayer(headerData, (W - headerData.width) / 2, HEADER_Y);
       addTextRendererLayer(textRenderer, headerLayer);
       return;
     }
@@ -1889,11 +1954,11 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       // can legitimately finish a lamp early.
       const lampWord = queue.length === 1 ? 'Lamp' : 'Lamps';
       headerData = createDefaultTextData(font, HEADER_FONT, `Journey Complete! All ${queue.length} ${lampWord} Lit!`, textColor(palette.accent), { align: 'center' });
-      headerLayer = createTextLayer(headerData, { positionPx: { x: (W - headerData.width) / 2, y: HEADER_Y } });
+      headerLayer = createTextLayer(headerData, (W - headerData.width) / 2, HEADER_Y);
       addTextRendererLayer(textRenderer, headerLayer);
 
       promptData = createDefaultTextData(font, PROMPT_FONT, 'Tap Play Again for a new journey, or Exit', textColor(palette.text), { align: 'center' });
-      promptLayer = createTextLayer(promptData, { positionPx: { x: (W - promptData.width) / 2, y: HEADER_Y + 44 } });
+      promptLayer = createTextLayer(promptData, (W - promptData.width) / 2, HEADER_Y + 44);
       addTextRendererLayer(textRenderer, promptLayer);
       return;
     }

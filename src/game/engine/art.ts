@@ -1,516 +1,399 @@
-export interface SpriteFrameSpec {
-  name: string;
-  width: number;
-  height: number;
-  pixels: Uint8Array;
-}
+/**
+ * The sprite atlas: every frame the game draws, painted at boot.
+ *
+ * The atlas is assembled in a fixed order because `frame: 0` is the 1x1 white
+ * pixel that the slot borders and the feedback pill are drawn with — index 0 is
+ * pinned, new frames are appended.
+ *
+ * Frames are painted at a density matched to how large they are drawn, so the
+ * scene is crisp at a phone's native resolution instead of being upscaled from
+ * throwaway placeholder sizes (the old bands were 128 px wide and were stretched
+ * across a 1080-px screen). See `scenery.ts` for the landscape itself and
+ * `paint.ts` for the primitives.
+ */
+import { Band, clamp01, edge, hash, hex, mix, smooth, type FrameSpec } from './paint';
+import { createSceneryFrames, SKY_FRAME } from './scenery';
 
-function createBlankFrame(name: string, width: number, height: number): {
-  spec: SpriteFrameSpec;
-  buf: Uint8Array;
-} {
-  const buf = new Uint8Array(width * height * 4);
-  return { spec: { name, width, height, pixels: buf }, buf };
-}
+export type SpriteFrameSpec = FrameSpec;
 
-function setPixel(
-  buf: Uint8Array,
-  w: number,
-  x: number,
-  y: number,
-  r: number,
-  g: number,
-  b: number,
-  a: number = 255,
-) {
-  if (x < 0 || x >= w || y < 0) return;
-  const idx = (y * w + x) * 4;
-  if (idx < 0 || idx >= buf.length) return;
-  buf[idx] = Math.min(255, Math.max(0, Math.round(r)));
-  buf[idx + 1] = Math.min(255, Math.max(0, Math.round(g)));
-  buf[idx + 2] = Math.min(255, Math.max(0, Math.round(b)));
-  buf[idx + 3] = Math.min(255, Math.max(0, Math.round(a)));
-}
+/**
+ * The lighthouse tower's authored box, in CSS px, and its density. The aspect is
+ * what the engine's `lw`/`lh` must match (all three tower states are the same
+ * shape; only the lantern glass and the plinth differ).
+ */
+const LH_W = 28;
+const LH_H = 100;
+const LH_S = 3.2;
 
-function drawRect(
-  buf: Uint8Array,
-  w: number,
-  h: number,
-  rx: number,
-  ry: number,
-  rw: number,
-  rh: number,
-  r: number,
-  g: number,
-  b: number,
-  a: number = 255,
-) {
-  for (let y = ry; y < ry + rh; y++) {
-    for (let x = rx; x < rx + rw; x++) {
-      setPixel(buf, w, x, y, r, g, b, a);
-    }
+/**
+ * How far above its foot a tower's lantern room sits, as a fraction of the drawn
+ * height. Exported because the engine has to put the halo, the flame, the
+ * fluency ring and the beam's pivot exactly there — they are separate sprites, so
+ * the number is the only thing tying the light to the lantern.
+ */
+export const TOWER_LANTERN_ABOVE_FOOT = 0.849;
+
+/** The tower's width:height ratio, so the engine can derive one from the other. */
+export const TOWER_ASPECT = LH_W / LH_H;
+
+/** The beam's authored box: apex at the bottom centre, fanning up. */
+const BEAM_W = 132;
+const BEAM_H = 80;
+const BEAM_S = 2.0;
+
+/** The halo's authored box, and the ring's, and the flame's, in CSS px. */
+const HALO_CSS = 116;
+const RING_CSS = 64;
+const FLAME_CSS = 16;
+const OBJ_S = 2.67;
+
+/**
+ * The three per-lamp light sprites. They cannot be baked into the scenery bands
+ * because they belong to a lamp, and lamps do not pan with the scenery — and the
+ * pool and the reflection are the two things the approved study is prettiest for.
+ *
+ * `LAMP_SHADOW_*` is authored for a tower of `LAMP_SHADOW_LW` CSS px half-width and
+ * is stretched to whatever the live tower is; the other two are drawn at their
+ * authored size.
+ */
+const LAMP_SHADOW_LW = 20;
+const LAMP_POOL_CSS = 88;
+const LAMP_REFLECT_W = 28;
+const LAMP_REFLECT_H = 72;
+const LAMP_S = 2.62;
+
+// ---------------------------------------------------------------------------
+// Lighthouses
+// ---------------------------------------------------------------------------
+function paintLighthouse(b: Band, lit: boolean) {
+  // The sunset's "warm" tower palette: cream masonry with crimson bands, dark
+  // slate roof, ironwork almost black against the sky.
+  const cream = hex('#f6e6d4');
+  const band = hex('#b4402c');
+  const slate = hex('#3b2231');
+  const iron = hex('#2e2130');
+  const stone = hex('#4b3a3c');
+  // Every tower is drawn from this one frame, so the sun is on the left of all of
+  // them. In the live row the sun sits over lamp 3, so the four leftmost towers are
+  // lit from the wrong side — a ~30% brightness swing on their side shading, and
+  // the only way to fix it is a second frame, which is not worth the atlas space.
+  const lightSide = -1;
+
+  const lx = LH_W / 2;
+  const footY = LH_H;
+  // The finial is the tallest thing drawn, at 1.095 * lh above the foot, so the
+  // tower exactly fills the frame when lh = LH_H / 1.095.
+  const lh = LH_H / 1.095;
+  const plinthH = lh * 0.07;
+  const bodyBot = footY - plinthH;
+  const deckY = footY - lh * 0.86;
+  const glassTop = deckY - lh * 0.12;
+  const glassBot = deckY - lh * 0.02;
+
+  // Plinth
+  b.box(lx - LH_W * 0.53, bodyBot, lx + LH_W * 0.53, footY + 1, (x, y) => {
+    const cover = edge(y, bodyBot);
+    if (cover <= 0) return null;
+    const side = clamp01((x - (lx - LH_W * 0.53)) / (LH_W * 1.06));
+    return [mix(stone, hex('#000000'), 0.15 + side * 0.3), cover];
+  });
+
+  // Tapered tower: 78% of its base width at the gallery, with two crimson bands.
+  b.box(lx - LH_W * 0.5, deckY - 1, lx + LH_W * 0.5, bodyBot + 1, (x, y) => {
+    const tt = clamp01((y - deckY) / (bodyBot - deckY));
+    const halfW = LH_W * 0.5 * (0.78 + 0.22 * tt);
+    if (Math.abs(x - lx) > halfW) return null;
+    const cover = smooth(halfW, halfW - 0.5, Math.abs(x - lx));
+    const side = clamp01((x - (lx - halfW)) / (halfW * 2));
+    const light = 0.74 + 0.34 * (lightSide < 0 ? 1 - side : side);
+    const banded = (tt > 0.2 && tt < 0.32) || (tt > 0.56 && tt < 0.68);
+    const baseShade = mix(banded ? band : cream, hex('#000000'), tt * 0.14);
+    return [[baseShade[0] * light, baseShade[1] * light, baseShade[2] * light], cover];
+  });
+
+  // Gallery deck (a thin iron disc that overhangs) and its railing.
+  b.box(lx - LH_W * 0.62, deckY - 2.4, lx + LH_W * 0.62, deckY + 1.2, (x, y) => {
+    const cover =
+      smooth(1.8, 1.2, Math.abs(y - (deckY - 0.6))) *
+      smooth(LH_W * 0.62, LH_W * 0.62 - 0.7, Math.abs(x - lx));
+    return cover <= 0 ? null : [mix(iron, hex('#ffffff'), 0.18), cover];
+  });
+  for (let p = -2; p <= 2; p++) {
+    const px = lx + p * LH_W * 0.245;
+    b.box(px - 0.35, deckY - lh * 0.055, px + 0.35, deckY - 1.2, (x, y) => {
+      if (Math.abs(x - px) > 0.35 || y > deckY - 1.2) return null;
+      return [mix(iron, hex('#ffffff'), 0.22), 0.85];
+    });
   }
+  b.box(lx - LH_W * 0.58, deckY - lh * 0.055, lx + LH_W * 0.58, deckY - lh * 0.045, (x, y) => {
+    if (Math.abs(y - (deckY - lh * 0.05)) > 0.4 || Math.abs(x - lx) > LH_W * 0.58) return null;
+    return [mix(iron, hex('#ffffff'), 0.25), 0.8];
+  });
+
+  // Lantern room: narrower than the deck, dark mullions, warm glass.
+  b.box(lx - LH_W * 0.34, glassTop, lx + LH_W * 0.34, glassBot, (x, y) => {
+    const halfW = LH_W * 0.3;
+    if (Math.abs(x - lx) > halfW) return null;
+    const cover = smooth(halfW, halfW - 0.5, Math.abs(x - lx));
+    if (Math.abs(Math.abs(x - lx) - halfW * 0.82) < 0.5) return [iron, cover * 0.9];
+    if (!lit) return [mix(hex('#4a5c72'), hex('#7d90a6'), 0.4), cover];
+    const core = 1 - smooth(0, halfW * 1.1, Math.abs(x - lx));
+    return [mix(hex('#ffbe4d'), hex('#fffdf0'), core * 0.95), cover];
+  });
+
+  // Roof cone (apex up) + finial
+  b.box(lx - LH_W * 0.46, glassTop - lh * 0.085, lx + LH_W * 0.46, glassTop + 0.5, (x, y) => {
+    const py = (y - (glassTop - lh * 0.085)) / (lh * 0.085);
+    if (py < 0 || py > 1.05) return null;
+    const halfW = LH_W * 0.42 * py;
+    if (halfW <= 0.05 || Math.abs(x - lx) > halfW) return null;
+    const cover = smooth(halfW, halfW - 0.5, Math.abs(x - lx)) * smooth(-0.05, 0.06, py);
+    if (cover <= 0) return null;
+    const side = clamp01((x - (lx - halfW)) / (halfW * 2));
+    return [mix(slate, hex('#ffffff'), (lightSide < 0 ? 1 - side : side) * 0.2), cover];
+  });
+  b.box(lx - 0.5, glassTop - lh * 0.115, lx + 0.5, glassTop - lh * 0.075, () => [
+    mix(iron, hex('#ffffff'), 0.3),
+    0.9,
+  ]);
 }
 
-function drawCircle(
-  buf: Uint8Array,
-  w: number,
-  h: number,
-  cx: number,
-  cy: number,
-  radius: number,
-  r: number,
-  g: number,
-  b: number,
-  a: number = 255,
-) {
-  const r2 = radius * radius;
-  for (let y = Math.floor(cy - radius); y <= Math.ceil(cy + radius); y++) {
-    for (let x = Math.floor(cx - radius); x <= Math.ceil(cx + radius); x++) {
-      const dx = x - cx;
-      const dy = y - cy;
-      if (dx * dx + dy * dy <= r2) {
-        setPixel(buf, w, x, y, r, g, b, a);
-      }
-    }
-  }
+// ---------------------------------------------------------------------------
+// Beacon light
+// ---------------------------------------------------------------------------
+/**
+ * The beam is a wedge with its apex at the *bottom centre* of the frame, fanning
+ * up and out, and its alpha reaches zero on all three open edges — so a rotating
+ * quad can never show a cut edge. The engine pivots it about that apex with
+ * `rotation`, which is why the apex has to be a fixed point of the art rather
+ * than of the placement maths.
+ *
+ * Source-over, not additive: this frame is drawn as a sprite in its own right, so
+ * it has to carry its own alpha. (Additive here would leave the frame fully
+ * transparent — it was invisible in the first composite for exactly that reason.)
+ */
+function paintBeam(b: Band) {
+  const apexX = BEAM_W / 2;
+  const apexY = BEAM_H;
+  b.box(0, 0, BEAM_W, BEAM_H, (x, y) => {
+    const dy = apexY - y;
+    if (dy < 4) return null;
+    const dx = Math.abs(x - apexX);
+    const spread = 0.34 + dy * 0.006;
+    const reach = dy * spread + 8;
+    if (dy > BEAM_H || dx > reach) return null;
+    const a = (1 - clamp01(dy / BEAM_H)) * (1 - clamp01(dx / reach)) * 0.2;
+    return a <= 0.012 ? null : [hex('#ffe9a8'), a];
+  });
 }
 
+/**
+ * The halo is the harness's two glows in one sprite: a wide amber bloom with a
+ * near-white core, so a lit lamp reads as a lamp rather than as a bright disc.
+ *
+ * The core's alpha is deliberately *not* 1. This frame is drawn on the additive
+ * layer, where the contribution is `colour * alpha` added to whatever is behind
+ * it: an opaque near-white core (alpha 1 on a mid-bright background) saturates
+ * to a flat white rectangle, which is exactly what the first additive composite
+ * showed — twelve blown-out boxes instead of twelve lamps. Capping the peak at
+ * ~0.6 keeps a hot core that still reads as blown-out at the very centre while
+ * letting the tower's lantern glass and the sky show through around it.
+ */
+function paintHalo(b: Band) {
+  const r = HALO_CSS / 2;
+  const c = b.width / 2 / b.density;
+  b.box(0, 0, HALO_CSS, HALO_CSS, (x, y) => {
+    const d = Math.hypot(x - c, y - c) / r;
+    if (d >= 1) return null;
+    const bloom = Math.pow(1 - d, 2.0) * 0.85;
+    const core = 1 - smooth(0, 0.3, d);
+    const alpha = Math.min(0.6, bloom * 0.75 + core * 0.5);
+    return [mix(hex('#ffb347'), hex('#fff8de'), core), alpha];
+  });
+}
+
+/** The fluency ring: a thin gold arc that reads as a timer, not as a halo. */
+function paintRing(b: Band) {
+  const c = RING_CSS / 2;
+  const radius = RING_CSS * 0.42;
+  const thickness = 2;
+  b.box(0, 0, RING_CSS, RING_CSS, (x, y) => {
+    const d = Math.hypot(x - c, y - c);
+    if (Math.abs(d - radius) > thickness) return null;
+    return [hex('#fbbf24'), (1 - Math.abs(d - radius) / thickness) * 0.9];
+  });
+}
+
+/** A teardrop flame: the flicker the engine animates inside the lantern glass. */
+function paintFlame(b: Band) {
+  const c = FLAME_CSS / 2;
+  b.box(0, 0, FLAME_CSS, FLAME_CSS, (x, y) => {
+    // A teardrop, widening downward then rounding off at the base.
+    const t = clamp01((y - 1.5) / (FLAME_CSS - 3.5));
+    const halfW = c * 0.78 * Math.pow(t, 0.55) * (1 - smooth(0.82, 1, t) * 0.35);
+    const dx = Math.abs(x - c);
+    if (dx > halfW) return null;
+    const cover = smooth(halfW, halfW - 0.35, dx);
+    const d = Math.hypot((x - c) / (c * 0.8), (y - (FLAME_CSS - 4)) / (c * 1.1));
+    const core = 1 - smooth(0, 0.62, d);
+    return [mix(mix(hex('#ea580c'), hex('#f59e0b'), t), hex('#fef3c7'), core), cover];
+  });
+}
+
+/**
+ * The shadow a tower casts on the causeway. Authored for `LAMP_SHADOW_LW` px of
+ * half-width, so the engine stretches it to the live tower's width — without it the
+ * towers sit *on* the road rather than *in* it.
+ */
+function paintLampShadow(b: Band) {
+  const w = LAMP_SHADOW_LW * 2;
+  const h = 8;
+  b.box(0, 0, w, h, (x, y) => {
+    const d = Math.hypot((x - w / 2) / LAMP_SHADOW_LW, (y - h / 2) / (h / 2));
+    return d >= 1 ? null : [hex('#000000'), (1 - d) * 0.36];
+  });
+}
+
+/** The warm pool a lit lamp throws on the causeway in front of it. */
+function paintLampPool(b: Band) {
+  const h = 22;
+  b.box(0, 0, LAMP_POOL_CSS, h, (x, y) => {
+    const d = Math.hypot((x - LAMP_POOL_CSS / 2) / (LAMP_POOL_CSS / 2 - 8), (y - h / 2) / (h / 2 - 2));
+    return d >= 1 ? null : [hex('#ffbe5c'), Math.pow(1 - d, 1.5)];
+  });
+}
+
+/**
+ * A lit lamp's reflection on the water: a warm column under the tower, broken up by
+ * the surface. Drawn by the engine as an additive sprite so twelve of them merge into
+ * the broad glow the study has along the whole waterline.
+ */
+function paintLampReflection(b: Band) {
+  b.box(0, 0, LAMP_REFLECT_W, LAMP_REFLECT_H, (x, y) => {
+    const d = Math.abs(x - LAMP_REFLECT_W / 2) / (LAMP_REFLECT_W / 2);
+    const sparkle = 0.6 + 0.4 * hash(Math.round(x / 2), Math.round(y / 2));
+    const fade = Math.pow(1 - Math.min(1, d), 2) * (0.55 + 0.45 * (1 - y / LAMP_REFLECT_H));
+    return [hex('#ffc257'), fade * sparkle];
+  });
+}
+
+/**
+ * Word cards. Both plates are painted with **horizontal features only** — the
+ * frames are stretched horizontally to each word's natural width, so anything
+ * with a vertical edge in it (a side border, a corner) would come out a different
+ * thickness on every tile. The gold rule top and bottom is the whole decoration;
+ * the slot's outline is drawn as four edge sprites by the engine.
+ */
+const PLATE_W = 512;
+const PLATE_H = 96;
+/** Rows of the 96-row frame taken by the top and bottom rules: ~1.9 CSS px when
+ * a 36 px card is drawn from this frame, and still visible on a 52 px one. */
+const PLATE_RULE = 5;
+
+function paintPlate(b: Band, kind: 'tile' | 'slot') {
+  const tile = kind === 'tile';
+  const face = tile ? mix(hex('#fef3c7'), hex('#e9d9a8'), 0.5) : hex('#f59e0b');
+  b.box(0, 0, PLATE_W, PLATE_H, (_x, y) => {
+    if (y < PLATE_RULE) return [tile ? hex('#d97706') : hex('#fbbf24'), 1];
+    if (y > PLATE_H - PLATE_RULE) return [tile ? hex('#b45309') : hex('#f59e0b'), 1];
+    const t = (y - PLATE_RULE) / (PLATE_H - 2 * PLATE_RULE);
+    return [mix(face, tile ? hex('#e9d9a8') : hex('#d97706'), t * 0.4), tile ? 1 : 0.22];
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Frame assembly
+// ---------------------------------------------------------------------------
 export function createGameSpriteFrames(): SpriteFrameSpec[] {
   const frames: SpriteFrameSpec[] = [];
 
-  // 0. 'w' — 1x1 white pixel
-  frames.push({
-    name: 'w',
-    width: 1,
-    height: 1,
-    pixels: new Uint8Array([255, 255, 255, 255]),
-  });
+  // 0. 'w' — 1x1 white pixel. PINNED at index 0: the slot borders and the
+  // feedback pill are drawn as `frame: 0` quads tinted by `color`.
+  frames.push({ name: 'w', width: 1, height: 1, pixels: new Uint8Array([255, 255, 255, 255]) });
 
-  // 1. 'sky_dark' — 64x128 serene royal midnight indigo & deep violet gradient (zero red/foreboding)
+  // 1-4. The scene: sky, then the three parallax bands. The engine draws these
+  // in this order (sky behind far behind mid behind near).
+  frames.push(...createSceneryFrames());
+
+  // 5. 'lighthouse_unlit' / 'lighthouse_lit'
   {
-    const { spec, buf } = createBlankFrame('sky_dark', 64, 128);
-    for (let y = 0; y < 128; y++) {
-      const t = y / 128;
-      // Top: deep midnight navy #020617 (2, 6, 23) -> Mid: royal indigo #1e1b4b (30, 27, 75) -> Horizon violet #3730a3 (55, 48, 163)
-      const r = 2 + t * 53;
-      const g = 6 + t * 42;
-      const b = 23 + t * 140;
-      for (let x = 0; x < 64; x++) {
-        setPixel(buf, 64, x, y, r, g, b, 255);
-      }
-    }
-    frames.push(spec);
-  }
-
-  // 2. 'sky_light' — 64x128 clear radiant morning sky gradient
-  {
-    const { spec, buf } = createBlankFrame('sky_light', 64, 128);
-    for (let y = 0; y < 128; y++) {
-      const t = y / 128;
-      // Top: ocean sky blue #0284c7 (2, 132, 199) -> Bottom: warm morning sky #e0f2fe (224, 242, 254)
-      const r = 2 + t * 222;
-      const g = 132 + t * 110;
-      const b = 199 + t * 55;
-      for (let x = 0; x < 64; x++) {
-        setPixel(buf, 64, x, y, r, g, b, 255);
-      }
-    }
-    frames.push(spec);
-  }
-
-  // 3. 'moon' — 32x32 glowing golden crescent moon
-  {
-    const { spec, buf } = createBlankFrame('moon', 32, 32);
-    drawCircle(buf, 32, 32, 16, 16, 13, 254, 240, 138, 255);
-    for (let y = 0; y < 32; y++) {
-      for (let x = 0; x < 32; x++) {
-        const dx = x - 21;
-        const dy = y - 12;
-        if (dx * dx + dy * dy <= 11 * 11) {
-          setPixel(buf, 32, x, y, 0, 0, 0, 0);
-        }
-      }
-    }
-    frames.push(spec);
-  }
-
-  // 4. 'ocean_water' — 128x32 shimmering blue & cyan coastal water surface
-  {
-    const { spec, buf } = createBlankFrame('ocean_water', 128, 32);
-    for (let y = 0; y < 32; y++) {
-      const t = y / 32;
-      const r = 2 + t * 10;
-      const g = 132 - t * 40;
-      const b = 199 - t * 20;
-      for (let x = 0; x < 128; x++) {
-        setPixel(buf, 128, x, y, r, g, b, 240);
-      }
-    }
-    // Water ripples & sea foam lines
-    for (let x = 0; x < 128; x += 16) {
-      drawRect(buf, 128, 32, x, 4, 8, 2, 224, 242, 254, 200);
-      drawRect(buf, 128, 32, x + 6, 12, 10, 2, 186, 230, 253, 180);
-      drawRect(buf, 128, 32, x + 2, 20, 6, 2, 224, 242, 254, 160);
-    }
-    frames.push(spec);
-  }
-
-  // 5. 'forest_hills' — 128x64 lush emerald green rolling hills with pine trees
-  {
-    const { spec, buf } = createBlankFrame('forest_hills', 128, 64);
-    for (let x = 0; x < 128; x++) {
-      const hillH = 32 + 14 * Math.sin((x / 128) * Math.PI * 2.2);
-      const topY = 64 - Math.floor(hillH);
-      for (let y = topY; y < 64; y++) {
-        const factor = (y - topY) / (64 - topY || 1);
-        const r = Math.floor(5 + factor * 20);
-        const g = Math.floor(150 + factor * 40);
-        const b = Math.floor(105 + factor * 30);
-        setPixel(buf, 128, x, y, r, g, b, 250);
-      }
-      // Pine tree silhouettes along ridge
-      if (x % 14 === 0 && topY > 8) {
-        const tx = x;
-        const ty = topY;
-        for (let i = 0; i < 10; i++) {
-          const tw = Math.max(1, 5 - Math.floor(i / 2));
-          drawRect(buf, 128, 64, tx - Math.floor(tw / 2), ty - i, tw, 1, 4, 120, 87, 255);
-        }
-      }
-    }
-    frames.push(spec);
-  }
-
-  // 6. 'waterfall' — 16x48 cascading white/cyan foam waterfall stream
-  {
-    const { spec, buf } = createBlankFrame('waterfall', 16, 48);
-    for (let y = 0; y < 48; y++) {
-      const wave = Math.floor(2 * Math.sin(y / 4));
-      const wx = 8 + wave;
-      // Spray first, bright foam core second: drawRect overwrites pixels rather
-      // than blending, so painting the 6px core before the 10px spray that
-      // contains it erased every core pixel and left a flat translucent-blue
-      // band (the waterfall read as a blue lightning bolt, not as water).
-      drawRect(buf, 16, 48, wx - 5, y, 10, 1, 56, 189, 248, 160); // cyan spray
-      drawRect(buf, 16, 48, wx - 3, y, 6, 1, 240, 253, 244, 240); // bright foam core
-    }
-    frames.push(spec);
-  }
-
-  // 7. 'lighthouse_unlit' — 48x96 coastal lighthouse tower
-  {
-    const { spec, buf } = createBlankFrame('lighthouse_unlit', 48, 96);
-    // Stone foundation base
-    drawRect(buf, 48, 96, 8, 80, 32, 16, 51, 65, 85);
-    drawRect(buf, 48, 96, 10, 76, 28, 4, 71, 85, 105);
-
-    // Tapered tower body (white with crimson bands)
-    for (let y = 24; y < 76; y++) {
-      const progress = (y - 24) / 52;
-      const wAtY = Math.round(18 + progress * 8);
-      const startX = Math.round(24 - wAtY / 2);
-
-      const isCrimsonBand = (y >= 32 && y <= 44) || (y >= 56 && y <= 66);
-      const cr = isCrimsonBand ? 185 : 241;
-      const cg = isCrimsonBand ? 28 : 245;
-      const cb = isCrimsonBand ? 28 : 249;
-
-      for (let x = startX; x < startX + wAtY; x++) {
-        const sideFactor = (x - startX) / wAtY;
-        const shade = 1 - sideFactor * 0.25;
-        setPixel(buf, 48, x, y, cr * shade, cg * shade, cb * shade, 255);
-      }
-    }
-
-    // Balcony walkway platform & railing
-    drawRect(buf, 48, 96, 12, 22, 24, 3, 30, 41, 59);
-    drawRect(buf, 48, 96, 11, 18, 26, 4, 71, 85, 105);
-    for (let x = 12; x <= 36; x += 4) {
-      setPixel(buf, 48, x, 19, 15, 23, 42);
-      setPixel(buf, 48, x, 20, 15, 23, 42);
-    }
-
-    // Lantern room glass & cupola dome roof
-    drawRect(buf, 48, 96, 15, 8, 18, 10, 100, 116, 139);
-    drawRect(buf, 48, 96, 17, 9, 14, 8, 148, 163, 184, 180);
-    drawCircle(buf, 48, 96, 24, 8, 8, 185, 28, 28);
-    setPixel(buf, 48, 24, 0, 245, 158, 11);
-    setPixel(buf, 48, 24, 1, 245, 158, 11);
-    frames.push(spec);
-  }
-
-  // 8. 'lighthouse_lit' — 48x96 lit coastal lighthouse tower with glowing lantern room
-  {
-    const { spec, buf } = createBlankFrame('lighthouse_lit', 48, 96);
-    // Stone foundation base
-    drawRect(buf, 48, 96, 8, 80, 32, 16, 180, 83, 9);
-    drawRect(buf, 48, 96, 10, 76, 28, 4, 217, 119, 6);
-
-    // Tapered tower body (white with bright crimson bands)
-    for (let y = 24; y < 76; y++) {
-      const progress = (y - 24) / 52;
-      const wAtY = Math.round(18 + progress * 8);
-      const startX = Math.round(24 - wAtY / 2);
-
-      const isCrimsonBand = (y >= 32 && y <= 44) || (y >= 56 && y <= 66);
-      const cr = isCrimsonBand ? 225 : 255;
-      const cg = isCrimsonBand ? 29 : 251;
-      const cb = isCrimsonBand ? 72 : 235;
-
-      for (let x = startX; x < startX + wAtY; x++) {
-        const sideFactor = (x - startX) / wAtY;
-        const shade = 1 - sideFactor * 0.2;
-        setPixel(buf, 48, x, y, cr * shade, cg * shade, cb * shade, 255);
-      }
-    }
-
-    // Balcony walkway platform & railing
-    drawRect(buf, 48, 96, 12, 22, 24, 3, 217, 119, 6);
-    drawRect(buf, 48, 96, 11, 18, 26, 4, 245, 158, 11);
-
-    // Lantern room: BRILLIANT GOLDEN/WHITE GLOWING BEACON
-    drawRect(buf, 48, 96, 15, 8, 18, 10, 245, 158, 11);
-    drawRect(buf, 48, 96, 16, 9, 16, 8, 254, 240, 138, 255);
-    drawCircle(buf, 48, 96, 24, 13, 5, 255, 255, 255, 255);
-
-    // Crimson dome cupola
-    drawCircle(buf, 48, 96, 24, 8, 8, 225, 29, 72);
-    setPixel(buf, 48, 24, 0, 254, 240, 138);
-    setPixel(buf, 48, 24, 1, 254, 240, 138);
-    frames.push(spec);
-  }
-
-  // 9. 'beacon_beam' — 128x64 radiant lighthouse light beam
-  {
-    const { spec, buf } = createBlankFrame('beacon_beam', 128, 64);
-    for (let y = 0; y < 64; y++) {
-      for (let x = 0; x < 128; x++) {
-        const angle = Math.atan2(y - 32, x);
-        const dist = Math.hypot(x, y - 32);
-        if (Math.abs(angle) < 0.35 && dist > 2) {
-          const angleFactor = 1 - Math.abs(angle) / 0.35;
-          const distFactor = Math.max(0, 1 - dist / 128);
-          const alpha = Math.floor(angleFactor * distFactor * 220);
-          setPixel(buf, 128, x, y, 254, 240, 138, alpha);
-        }
-      }
-    }
-    frames.push(spec);
-  }
-
-  // 10. 'lamp_unlit' & 'lamp_lit' (backward compatibility)
-  {
-    const { spec, buf } = createBlankFrame('lamp_unlit', 32, 32);
-    drawCircle(buf, 32, 32, 16, 16, 8, 100, 116, 139);
-    frames.push(spec);
+    const b = new Band('lighthouse_unlit', 0, 0, LH_W, LH_H, LH_S);
+    paintLighthouse(b, false);
+    frames.push(b.frame());
   }
   {
-    const { spec, buf } = createBlankFrame('lamp_lit', 32, 32);
-    drawCircle(buf, 32, 32, 16, 16, 8, 245, 158, 11);
-    frames.push(spec);
+    const b = new Band('lighthouse_lit', 0, 0, LH_W, LH_H, LH_S);
+    paintLighthouse(b, true);
+    frames.push(b.frame());
   }
 
-  // 11. 'flame' — 16x16 teardrop flame
+  // 6. 'beacon_beam'
   {
-    const { spec, buf } = createBlankFrame('flame', 16, 16);
-    drawCircle(buf, 16, 16, 8, 10, 5, 234, 88, 12, 220);
-    drawCircle(buf, 16, 16, 8, 8, 3, 245, 158, 11, 240);
-    drawCircle(buf, 16, 16, 8, 6, 2, 254, 240, 138, 255);
-    setPixel(buf, 16, 8, 3, 255, 255, 255);
-    frames.push(spec);
+    const b = new Band('beacon_beam', 0, 0, BEAM_W, BEAM_H, BEAM_S);
+    paintBeam(b);
+    frames.push(b.frame());
   }
 
-  // 12. 'glow_halo' — 96x96 large radiant golden beacon halo
+  // 7. 'glow_halo'
   {
-    const { spec, buf } = createBlankFrame('glow_halo', 96, 96);
-    const cx = 48;
-    const cy = 48;
-    const maxR = 46;
-    for (let y = 0; y < 96; y++) {
-      for (let x = 0; x < 96; x++) {
-        const dist = Math.hypot(x - cx, y - cy);
-        if (dist <= maxR) {
-          const factor = 1 - dist / maxR;
-          const alpha = Math.floor(Math.pow(factor, 1.4) * 240);
-          setPixel(buf, 96, x, y, 251, 191, 36, alpha);
-        }
-      }
-    }
-    frames.push(spec);
+    const b = new Band('glow_halo', 0, 0, HALO_CSS, HALO_CSS, OBJ_S);
+    paintHalo(b);
+    frames.push(b.frame());
   }
 
-  // 12b. 'fluency_ring' — 64x64 glowing ring arc for Task C-5 fluency timer
+  // 8. 'fluency_ring'
   {
-    const { spec, buf } = createBlankFrame('fluency_ring', 64, 64);
-    const cx = 32;
-    const cy = 32;
-    const outerR = 30;
-    const innerR = 24;
-    for (let y = 0; y < 64; y++) {
-      for (let x = 0; x < 64; x++) {
-        const dist = Math.hypot(x - cx, y - cy);
-        if (dist >= innerR && dist <= outerR) {
-          const ringFactor = 1 - Math.abs(dist - 27) / 3;
-          const alpha = Math.floor(ringFactor * 255);
-          setPixel(buf, 64, x, y, 245, 158, 11, alpha);
-        }
-      }
-    }
-    frames.push(spec);
+    const b = new Band('fluency_ring', 0, 0, RING_CSS, RING_CSS, OBJ_S);
+    paintRing(b);
+    frames.push(b.frame());
   }
 
-  // 13. 'star' — 16x16 4-point star
+  // 9. 'flame'
   {
-    const { spec, buf } = createBlankFrame('star', 16, 16);
-    const cx = 8;
-    const cy = 8;
-    for (let i = 0; i < 16; i++) {
-      const dist = Math.abs(i - 8);
-      const alpha = Math.max(0, 255 - dist * 30);
-      setPixel(buf, 16, i, cy, 255, 255, 255, alpha);
-      setPixel(buf, 16, cx, i, 255, 255, 255, alpha);
-    }
-    drawCircle(buf, 16, 16, 8, 8, 2, 255, 255, 255, 255);
-    frames.push(spec);
+    const b = new Band('flame', 0, 0, FLAME_CSS, FLAME_CSS, 3);
+    paintFlame(b);
+    frames.push(b.frame());
   }
 
-  // 14. 'mountain' — 128x64 layered mountain peaks
+  // 10-12. The per-lamp light: the shadow it casts, the pool on the road, and the
+  // reflection on the water.
   {
-    const { spec, buf } = createBlankFrame('mountain', 128, 64);
-    for (let x = 0; x < 128; x++) {
-      const h1 = 44 * Math.exp(-Math.pow((x - 35) / 22, 2));
-      const h2 = 52 * Math.exp(-Math.pow((x - 85) / 28, 2));
-      const peakY = 64 - Math.floor(Math.max(h1, h2));
-      for (let y = peakY; y < 64; y++) {
-        const factor = (y - peakY) / (64 - peakY || 1);
-        const r = Math.floor(45 + factor * 30);
-        const g = Math.floor(55 + factor * 35);
-        const b = Math.floor(120 + factor * 40);
-        setPixel(buf, 128, x, y, r, g, b, 245);
-      }
-    }
-    frames.push(spec);
+    const b = new Band('lamp_shadow', 0, 0, LAMP_SHADOW_LW * 2, 8, LAMP_S);
+    paintLampShadow(b);
+    frames.push(b.frame());
+  }
+  {
+    const b = new Band('lamp_pool', 0, 0, LAMP_POOL_CSS, 22, LAMP_S);
+    paintLampPool(b);
+    frames.push(b.frame());
+  }
+  {
+    const b = new Band('lamp_reflection', 0, 0, LAMP_REFLECT_W, LAMP_REFLECT_H, LAMP_S);
+    paintLampReflection(b);
+    frames.push(b.frame());
   }
 
-  // 15. 'hills' — 128x64 coastal green rolling hills (alias for forest_hills)
-  {
-    const { spec, buf } = createBlankFrame('hills', 128, 64);
-    for (let x = 0; x < 128; x++) {
-      const hillH = 28 + 14 * Math.sin((x / 128) * Math.PI * 2.5);
-      const topY = 64 - Math.floor(hillH);
-      for (let y = topY; y < 64; y++) {
-        const factor = (y - topY) / (64 - topY || 1);
-        const r = Math.floor(5 + factor * 25);
-        const g = Math.floor(150 + factor * 45);
-        const b = Math.floor(100 + factor * 35);
-        setPixel(buf, 128, x, y, r, g, b, 250);
-      }
-    }
-    frames.push(spec);
-  }
-
-  // 16. 'city' — 128x64 illuminated City on a Hill citadel skyline
-  {
-    const { spec, buf } = createBlankFrame('city', 128, 64);
-    for (let x = 0; x < 128; x++) {
-      const hillH = 22 + Math.floor(12 * Math.sin((x / 128) * Math.PI));
-      const hillY = 64 - hillH;
-
-      const isCentralTower = x >= 56 && x <= 72;
-      const isLeftTower = x >= 32 && x <= 42;
-      const isRightTower = x >= 86 && x <= 96;
-      const isBuilding = x >= 24 && x <= 104;
-
-      let wallY = hillY;
-      if (isBuilding) wallY = hillY - 8;
-      if (isLeftTower || isRightTower) wallY = hillY - 18;
-      if (isCentralTower) wallY = hillY - 26;
-
-      for (let y = wallY; y < 64; y++) {
-        if (y < hillY) {
-          // Golden citadel wall above the hill line.
-          setPixel(buf, 128, x, y, 245, 158, 11, 250);
-        } else {
-          // The hill the citadel stands on, drawn with the same emerald ramp as
-          // the 'hills'/'forest_hills' layers so this sprite reads as terrain.
-          // It used to be a flat dark slate (30,41,59), a colour used nowhere
-          // else in the landscape: the opaque full-width band it painted under
-          // the citadel showed up as a hard-edged black box pasted over the
-          // hills, hiding the layers behind it instead of joining them.
-          const factor = (y - hillY) / (64 - hillY || 1);
-          setPixel(
-            buf, 128, x, y,
-            Math.floor(5 + factor * 25),
-            Math.floor(150 + factor * 45),
-            Math.floor(100 + factor * 35),
-            250,
-          );
-        }
-      }
-
-      if (x >= 58 && x <= 70) {
-        const dx = x - 64;
-        const domeY = hillY - 26;
-        for (let dy = -6; dy <= 0; dy++) {
-          if (dx * dx + dy * dy <= 36) {
-            setPixel(buf, 128, x, domeY + dy, 251, 191, 36, 255);
-          }
-        }
-      }
-
-      if ((isCentralTower || isLeftTower || isRightTower) && x % 4 === 0) {
-        setPixel(buf, 128, x, wallY + 4, 254, 240, 138, 255);
-        setPixel(buf, 128, x, wallY + 8, 254, 240, 138, 255);
-      }
-    }
-    frames.push(spec);
-  }
-
-  // 17. 'path_stone' — 64x32 rich cobblestone path texture
-  {
-    const { spec, buf } = createBlankFrame('path_stone', 64, 32);
-    drawRect(buf, 64, 32, 0, 0, 64, 32, 120, 113, 108, 255);
-    for (let y = 0; y < 32; y += 8) {
-      const shift = (y / 8) % 2 === 0 ? 0 : 8;
-      for (let x = shift; x < 64; x += 16) {
-        drawRect(buf, 64, 32, x + 1, y + 1, 14, 6, 178, 172, 168, 255);
-        drawRect(buf, 64, 32, x + 2, y + 2, 12, 2, 224, 221, 219, 255);
-      }
-    }
-    drawRect(buf, 64, 32, 0, 0, 64, 2, 245, 158, 11, 255);
-    frames.push(spec);
-  }
-
-  // 18. 'tile_bg' — 64x32 warm golden parchment word card
-  {
-    const { spec, buf } = createBlankFrame('tile_bg', 64, 32);
-    for (let y = 0; y < 32; y++) {
-      for (let x = 0; x < 64; x++) {
-        setPixel(buf, 64, x, y, 254, 243, 199, 255);
-      }
-    }
-    drawRect(buf, 64, 32, 0, 0, 64, 2, 217, 119, 6, 255);
-    drawRect(buf, 64, 32, 0, 30, 64, 2, 180, 83, 9, 255);
-    drawRect(buf, 64, 32, 0, 0, 2, 32, 217, 119, 6, 255);
-    drawRect(buf, 64, 32, 62, 0, 2, 32, 180, 83, 9, 255);
-    frames.push(spec);
-  }
-
-  // 19. 'slot_bg' — 64x32 word slot drop target card
-  {
-    const { spec, buf } = createBlankFrame('slot_bg', 64, 32);
-    for (let y = 0; y < 32; y++) {
-      for (let x = 0; x < 64; x++) {
-        setPixel(buf, 64, x, y, 245, 158, 11, 55);
-      }
-    }
-    drawRect(buf, 64, 32, 0, 0, 64, 2, 245, 158, 11, 220);
-    drawRect(buf, 64, 32, 0, 30, 64, 2, 245, 158, 11, 220);
-    drawRect(buf, 64, 32, 0, 0, 2, 32, 245, 158, 11, 220);
-    drawRect(buf, 64, 32, 62, 0, 2, 32, 245, 158, 11, 220);
-    frames.push(spec);
+  // 13. 'tile_bg' / 'slot_bg' — the word cards
+  for (const kind of ['tile', 'slot'] as const) {
+    const b = new Band(kind === 'tile' ? 'tile_bg' : 'slot_bg', 0, 0, PLATE_W, PLATE_H, 1);
+    paintPlate(b, kind);
+    frames.push(b.frame());
   }
 
   return frames;
 }
+
+/** Authoring constants the engine needs in order to place the art. */
+export const ART_METRICS = {
+  /** The sky frame's authored size; the engine stretches it across the canvas. */
+  skyFrame: SKY_FRAME,
+  /** The beam's authored box, in CSS px, with its apex at the bottom centre. */
+  beam: { width: BEAM_W, height: BEAM_H },
+  /** The halo's and the ring's authored boxes, in CSS px. */
+  halo: HALO_CSS,
+  ring: RING_CSS,
+  /** The tower shadow's authored half-width — the engine stretches its box. */
+  shadowHalfWidth: LAMP_SHADOW_LW,
+  /** The reflection's authored height, which the engine stretches to the water. */
+  reflectionHeight: LAMP_REFLECT_H,
+} as const;

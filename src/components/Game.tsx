@@ -621,7 +621,11 @@ export default function Game() {
       )}
 
       {showPeek && activeText && (
-        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-20 max-w-lg w-11/12 glassmorphism rounded-2xl p-4 shadow-2xl border border-purple-500/30 text-center animate-fadeIn">
+        // `glassmorphism-solid`: this is the one card that floats over the live
+        // canvas with no scrim behind it, so at 88% opacity in dark mode the
+        // canvas verse showed through and neither the verse nor the canvas text
+        // could be read. Opaque here; every other card sits in a black scrim.
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-20 max-w-lg w-11/12 glassmorphism glassmorphism-solid rounded-2xl p-4 shadow-2xl border border-purple-500/30 text-center animate-fadeIn">
           <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-1">
             {activeRef}
           </p>

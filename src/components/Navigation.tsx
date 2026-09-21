@@ -6,6 +6,7 @@ import { BookOpen, Dumbbell, BarChart3, Trophy, Menu, X, LayoutDashboard, Moon, 
 import { ShortcutsModal, SearchModal } from './KeyboardModals';
 import Tutorial from './Tutorial';
 import { downloadSettings, importSettings } from '../utils/settingsTransfer';
+import { notifyStorageChange } from '../hooks';
 
 function Navigation() {
   const [isOpen, setIsOpen] = useState(false);
@@ -95,6 +96,10 @@ function Navigation() {
         document.documentElement.classList.remove('dark');
         localStorage.setItem('kjv-theme', 'light');
       }
+      // The native 'storage' event only fires in *other* tabs, so without this
+      // the Lamp game's theme subscription never hears about the toggle and the
+      // engine keeps painting the theme it mounted with.
+      notifyStorageChange('kjv-theme');
       return next;
     });
   }, []);
