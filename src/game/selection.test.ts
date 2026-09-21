@@ -33,16 +33,16 @@ describe('selectNextLamps', () => {
     expect(out.length).toBe(2);
   });
 
-  it('dailyGoalCompleted returns only due verses', () => {
+  it('dailyGoalCompleted leads with due verses', () => {
     const due: DueEntry[] = [{ verse: { reference: 'Romans 8:28' }, dueDate: '2026-07-20', interval: 3 }];
     const out = selectNextLamps({ pool, progress: [], due, dailyGoalCompleted: true, limit: 10 });
-    expect(out.length).toBe(1);
     expect(out[0].reference).toBe('Romans 8:28');
+    expect(new Set(out.map(v => v.reference))).toEqual(new Set(pool.map(v => v.reference)));
   });
 
-  it('dailyGoalCompleted with no due returns empty', () => {
+  it('dailyGoalCompleted with no due still fills the session from the pool', () => {
     const out = selectNextLamps({ pool, progress: [], due: [], dailyGoalCompleted: true, limit: 10 });
-    expect(out).toEqual([]);
+    expect(new Set(out.map(v => v.reference))).toEqual(new Set(pool.map(v => v.reference)));
   });
 
   it('verse with no progress entry is treated as 0 recitations', () => {
@@ -57,6 +57,57 @@ describe('selectNextLamps', () => {
     ];
     const out = selectNextLamps({ pool, progress: [], due, dailyGoalCompleted: true, limit: 1 });
     expect(out.length).toBe(1);
+  });
+
+  // The lamp row draws one lighthouse per queue entry, so the length of the
+  // queue is what the player counts on screen. A due list shorter than a session
+  // has to fill from the pool rather than shrink the row to a handful of lamps.
+  describe('a goal-met session is a full row of lamps', () => {
+    const sessionPool = KJV_VERSES.slice(0, 20);
+    const dueOf = (refs: string[]): DueEntry[] =>
+      refs.map(reference => ({ verse: { reference }, dueDate: '2026-07-20', interval: 3 }));
+    const refsOf = (verses: { reference: string }[]) => verses.map(v => v.reference).sort();
+
+    it('fills to the limit from the rest of the pool when few verses are due', () => {
+      const due = dueOf(sessionPool.slice(0, 4).map(v => v.reference));
+      const out = selectNextLamps({
+        pool: sessionPool, progress: [], due, dailyGoalCompleted: true, limit: 12,
+      });
+      expect(out.length).toBe(12);
+      expect(refsOf(out.slice(0, 4))).toEqual(refsOf(due.map(d => d.verse)));
+      expect(new Set(out.map(v => v.reference)).size).toBe(12);
+    });
+
+    it("does not dilute the day's reviews when the due list can fill the row", () => {
+      const due = dueOf(sessionPool.slice(0, 15).map(v => v.reference));
+      const out = selectNextLamps({
+        pool: sessionPool, progress: [], due, dailyGoalCompleted: true, limit: 12,
+      });
+      expect(out.length).toBe(12);
+      expect(out.every(v => due.some(d => d.verse.reference === v.reference))).toBe(true);
+    });
+
+    it('fills from non-deferred verses before deferred ones', () => {
+      const due = dueOf(sessionPool.slice(0, 4).map(v => v.reference));
+      const deferred = sessionPool.slice(4, 17).map(v => v.reference); // 3 candidates left over
+      const out = selectNextLamps({
+        pool: sessionPool, progress: [], due, dailyGoalCompleted: true, deferred, limit: 12,
+      });
+      expect(out.length).toBe(12);
+      // 8 lamps to fill and only 3 verses the player hasn't deferred: the 3 go
+      // first, in the fill, and the deferred ones take the tail.
+      expect(out.slice(4, 7).every(v => !deferred.includes(v.reference))).toBe(true);
+      expect(out.slice(7, 12).every(v => deferred.includes(v.reference))).toBe(true);
+    });
+
+    it('leaves a pool too short to fill the row at its own length', () => {
+      const road = KJV_VERSES.slice(0, 5);
+      const due = dueOf(road.slice(0, 2).map(v => v.reference));
+      const out = selectNextLamps({
+        pool: road, progress: [], due, dailyGoalCompleted: true, limit: 12,
+      });
+      expect(refsOf(out)).toEqual(refsOf(road));
+    });
   });
 });
 

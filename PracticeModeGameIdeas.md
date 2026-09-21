@@ -370,9 +370,12 @@ rest of the app:
    the world). Re-lighting them is the day's main job.
 2. **Least-practiced new verses** — `timesRecited` ascending, within the
    unlocked frontier.
-3. **Daily goal** — the session naturally wraps when the daily goal
-   (`kjv-memorize-daily-goal`) is met, with a celebratory "path lit for today"
-   beat.
+3. **Daily goal** — meeting the daily goal (`kjv-memorize-daily-goal`) puts
+   today's reviews at the front of the session, with a celebratory "path lit for
+   today" beat. It does *not* shorten the session: the rest of the unlocked pool
+   fills the remaining lamps, so a journey is a full row of 12 lamps whenever the
+   pool can supply them (a short due list used to give a 2- or 4-lamp journey,
+   which reads as a broken game rather than a short one).
 
 ### 7.3 Player-curated expansion (the key to "as many as possible")
 
@@ -457,6 +460,18 @@ alongside the existing 7 (so the game is "a mode," entered from `/practice`):
    curated set — the direct answer to "memorize as many as possible."
 
 All three write to the same progress/sessions/achievements plumbing.
+
+The selector chips carry their **names on every platform, phones included**:
+the glyphs alone (compass / lightning / plus) never said which mode was which,
+and these chips are the only place the game names its modes. The active mode is
+the filled chip — amber Journey, orange Race, indigo Road — and **Journey is
+the default** on entry. The chips shrink to 10px on phones and wrap rather than
+run under the top-right Controls HUD (whose own buttons stay icon-only there,
+with their names in `aria-label`/`title`, because five labels do not fit across
+a 360px row): measured at 360/384/412px the three chips end at ~213px against a
+HUD starting at 260/284/312px, and a live Sprint countdown — which adds ~30px
+to the Race chip — drops the Road chip to a second line on a 360px screen
+instead of overlapping anything.
 
 ---
 

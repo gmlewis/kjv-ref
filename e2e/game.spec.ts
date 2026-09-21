@@ -613,4 +613,63 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
 
     expect(lightingOrder.valid).toBe(true);
   });
+
+  test('BUG FIX: a goal-met session is a full row of 12 lamps, not just the due list', async ({ page }) => {
+    // The lamp row draws one lighthouse per queue entry, so the length of the
+    // queue is what the player counts on screen. The rule used to be "once the
+    // day's practice goal is met, the session is only the verses still due" —
+    // and right after finishing those there are only a handful left, so a
+    // goal-met journey came out 2-4 lamps long and read as a broken game. This
+    // seeds that exact state: goal complete, 4 verses due, every one of them
+    // inside the always-unlocked region, so the old rule rendered 4 lighthouses
+    // where the row must be 12.
+    await page.addInitScript(() => {
+      const today = new Date().toISOString().split('T')[0];
+      localStorage.setItem('kjv-memorize-daily-goal', JSON.stringify({
+        date: today, targetVerses: 5, completedVerses: 5, completed: true,
+      }));
+      localStorage.setItem('kjv-memorize-review-schedule', JSON.stringify(
+        ['Genesis 1:1', 'Exodus 20:3', 'Deuteronomy 6:5', 'Psalm 23:1'].map((reference) => ({
+          verse: { reference }, dueDate: '2020-01-01', interval: 3,
+        })),
+      ));
+    });
+    await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
+    if (!await requireReadyGame(page, 'Full-row test')) return;
+
+    const state = await page.evaluate(async () => {
+      // Poll inside the page rather than with `waitForFunction`: the boot this
+      // suite runs on needs uninterrupted main-thread time (see game-ready.ts),
+      // and the lamp row is built with the first puzzle, a beat after the queue.
+      const deadline = Date.now() + 5_000;
+      let lamps = 0;
+      let queue: string[] = [];
+      while (Date.now() < deadline) {
+        lamps = ((window as any).__lampGameLighthouses ?? []).length;
+        queue = ((window as any).__lampGameQueue?.() ?? []) as string[];
+        if (lamps > 0 && queue.length > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return {
+        goal: JSON.parse(localStorage.getItem('kjv-memorize-daily-goal') ?? '{}'),
+        queue,
+        lamps,
+      };
+    });
+
+    // Precondition: the app read a *completed* goal for today. The accessor
+    // resets the day-scoped counters when the stored date is stale, so this
+    // proves the seed survived — without it the test could pass while testing
+    // nothing.
+    expect(state.goal.completed).toBe(true);
+
+    const dueRefs = ['Genesis 1:1', 'Exodus 20:3', 'Deuteronomy 6:5', 'Psalm 23:1'];
+    // The day's reviews lead the session...
+    expect([...state.queue.slice(0, dueRefs.length)].sort()).toEqual([...dueRefs].sort());
+    // ...which is a full row of distinct verses, not the due list alone.
+    expect(state.queue.length).toBe(12);
+    expect(new Set(state.queue).size).toBe(12);
+    // The row on screen matches the session: one lighthouse per queued lamp.
+    expect(state.lamps).toBe(12);
+  });
 });

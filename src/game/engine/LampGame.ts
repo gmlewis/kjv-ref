@@ -285,10 +285,12 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     deferred: gameState.deferredRefs ?? [],
     limit: 12,
   });
-  if (queue.length === 0) queue = opts.pool.slice(0, 12); // fallback: no due, goal done
+  // Belt and braces: `selectNextLamps` fills the session from the pool whenever
+  // the pool can supply a row of lamps, so only an empty pool reaches this.
+  if (queue.length === 0) queue = opts.pool.slice(0, 12);
   // Hard session invariant: the 12 lamps are 12 DISTINCT verses. `selectNextLamps`
-  // already returns distinct verses; this also covers the fallback above and any
-  // repeat a custom road pool might carry, so a verse can never occupy two lamps.
+  // already returns distinct verses; this also covers any repeat a custom road
+  // pool might carry, so a verse can never occupy two lamps.
   queue = distinctVerses(queue).slice(0, 12);
   let queueIndex = 0;
   // Number of queue positions the currently-displayed lamp occupies. 1 for a

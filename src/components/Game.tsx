@@ -183,13 +183,17 @@ export default function Game() {
         if (subMode === 'road' && customRoadPool && customRoadPool.length > 0) {
           pool = customRoadPool;
         } else if (subMode === 'race') {
-          // Sprint mode: prefer mastered / high-streak verses for rapid recall
+          // Sprint mode: prefer mastered / high-streak verses for rapid recall —
+          // but only when they can fill the lamp row themselves. A handful of
+          // mastered verses would make a 4-lamp sprint, and the lamp row draws
+          // one lighthouse per queue entry, so a short queue reads as a broken
+          // session rather than a short one (see the lamp row in LampGame).
           const base = unlockedRegions(starterRegions(), masteredCount).flatMap((r) => r.verses);
           const masteredSet = new Set(
             (progressRef.current ?? []).filter((p: any) => p?.status === 'mastered').map((p: any) => p?.verse?.reference),
           );
           const masteredInPool = base.filter((v) => masteredSet.has(v.reference));
-          pool = masteredInPool.length >= 4 ? masteredInPool : base;
+          pool = masteredInPool.length >= 12 ? masteredInPool : base;
         } else {
           pool = unlockedRegions(starterRegions(), masteredCount).flatMap((r) => r.verses);
           // Auto-merge favorited verses into the Journey pool. Favorites may be
@@ -487,32 +491,40 @@ export default function Game() {
           confusing screen readers). */}
       {status !== 'error' && (
         <>
-      {/* Top Left: Sub-mode Selector chips */}
-      <div className="absolute top-2 left-2 sm:left-4 z-10 flex items-center gap-1">
+      {/* Top Left: Sub-mode Selector chips.
+          The names are shown next to the icons on every platform, phones
+          included — the compass / lightning / plus glyphs never said which
+          mode was which, and these chips are the only place the game names its
+          modes. They are sized to yield rather than crowd out the Controls HUD:
+          at 10px on a phone the three chips measure ~230 CSS px against a
+          ~124 px HUD, and `flex-wrap` sends a chip to a second line instead of
+          letting the row run under the top-right controls (a live Sprint
+          countdown widens the Race chip). */}
+      <div className="absolute top-2 left-2 sm:left-4 z-10 flex flex-wrap items-center gap-0.5 sm:gap-1 max-w-[calc(100vw-9rem)] sm:max-w-none">
         <button
           type="button"
           onClick={startJourney}
           title="Journey Mode — Walk the path and light lamps at your own pace"
-          className={`glassmorphism rounded-full p-1.5 sm:px-3 sm:py-1 text-xs font-bold transition-all flex items-center gap-1 ${
+          className={`glassmorphism rounded-full p-1.5 px-2 sm:px-3 sm:py-1 text-[10px] sm:text-xs font-bold transition-all flex items-center gap-1 ${
             subMode === 'journey' ? 'bg-amber-500 text-white shadow-lg' : 'text-gray-700 dark:text-gray-200 hover:bg-white/20'
           }`}
         >
           <Compass className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Journey</span>
+          <span className="whitespace-nowrap">Journey</span>
         </button>
 
         <button
           type="button"
           onClick={startRace}
           title="Lantern Race — 60-second timed sprint recall"
-          className={`glassmorphism rounded-full p-1.5 sm:px-3 sm:py-1 text-xs font-bold transition-all flex items-center gap-1 ${
+          className={`glassmorphism rounded-full p-1.5 px-2 sm:px-3 sm:py-1 text-[10px] sm:text-xs font-bold transition-all flex items-center gap-1 ${
             subMode === 'race' ? 'bg-orange-500 text-white shadow-lg' : 'text-gray-700 dark:text-gray-200 hover:bg-white/20'
           }`}
         >
           <Zap className="w-3.5 h-3.5 text-yellow-300" />
-          <span className="hidden sm:inline">Race</span>
+          <span className="whitespace-nowrap">Race</span>
           {subMode === 'race' && raceActive && (
-            <span className="text-[10px] font-extrabold bg-black/30 rounded-full px-1 py-0.2">
+            <span className="text-[10px] font-extrabold bg-black/30 rounded-full px-1 py-px whitespace-nowrap">
               {raceSecondsLeft}s
             </span>
           )}
@@ -522,12 +534,12 @@ export default function Game() {
           type="button"
           onClick={() => setShowRoadModal(true)}
           title="Build a Road — Create a custom branch road for any passage"
-          className={`glassmorphism rounded-full p-1.5 sm:px-3 sm:py-1 text-xs font-bold transition-all flex items-center gap-1 ${
+          className={`glassmorphism rounded-full p-1.5 px-2 sm:px-3 sm:py-1 text-[10px] sm:text-xs font-bold transition-all flex items-center gap-1 ${
             subMode === 'road' ? 'bg-indigo-500 text-white shadow-lg' : 'text-gray-700 dark:text-gray-200 hover:bg-white/20'
           }`}
         >
           <Plus className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Road</span>
+          <span className="whitespace-nowrap">Road</span>
         </button>
       </div>
 

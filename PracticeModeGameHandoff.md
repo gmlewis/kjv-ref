@@ -294,10 +294,11 @@ export interface SelectionInput {
   pool: KJVVerse[];            // unlocked-region verses + built-road verses
   progress: ProgressEntry[];
   due: DueEntry[];
-  dailyGoalCompleted: boolean;
+  dailyGoalCompleted: boolean; // due reviews lead the session; the pool fills the rest of the row
   limit: number;
 }
-/** Order: due reviews first, then least-practiced (mirrors Practice.tsx sort). */
+/** Order: due reviews first, then least-practiced (mirrors Practice.tsx sort).
+ *  Always returns `limit` verses when the pool holds that many distinct ones. */
 export function selectNextLamps(input: SelectionInput): KJVVerse[];
 ```
 
@@ -355,7 +356,7 @@ files with zero merge conflict.
 | **A-0** | Shared types | `src/game/types.ts` | `src/game/types.test.ts` (compile/type-level smoke: construct a `TilePuzzle`, `GameState`) | Types compile; a sample object satisfies the shape. | — | — |
 | **A-1** | Scaffold builder (tap-only) | `src/game/scaffold.ts` | `src/game/scaffold.test.ts` | `getGameLayer(0)` → 0; `getGameLayer(10)` → 5; mastered+custom overrides (custom beats mastered); `decoyCountFor` = {0:0,1:0,2:2,3:4,4:6,5:8}; `buildTilePuzzle` at stage 0 pre-fills slots, empty bank; stage 1 bank = shuffled verse words, no decoys; stage 2 bank = verse words + 2 decoys not in the verse; stage 5 +8 decoys; empty pool degrades gracefully (0 decoys); deterministic with seed. | A-0 | A-2..A-6 |
 | **A-2** | Scoring/XP/combo | `src/game/scoring.ts` | `src/game/scoring.test.ts` | `scoreTilePuzzle` correct order → `correct:true, accuracy:100`; wrong order → false; `performanceRating` maps (correct,no-hint,fluent)→excellent, (correct,hint)→good, (wrong)→poor; `computeXp` rises with layer & fluency & combo; `applyCombo` +1 on correct, 0 on wrong; `levelForXp` monotonic. | A-0 | A-1,A-3..A-6 |
-| **A-3** | Lamp selection queue | `src/game/selection.ts` | `src/game/selection.test.ts` | Given a pool with 2 due + 3 not-due, `selectNextLamps` returns due first; among not-due, lower `timesRecited` first; respects `limit`; `dailyGoalCompleted` truncates to 0 (or returns only due) per spec decision. | A-0 | A-1,A-2,A-4..A-6 |
+| **A-3** | Lamp selection queue | `src/game/selection.ts` | `src/game/selection.test.ts` | Given a pool with 2 due + 3 not-due, `selectNextLamps` returns due first; among not-due, lower `timesRecited` first; respects `limit`; `dailyGoalCompleted` leads with due verses and fills the rest of the session from the pool, so a short due list cannot shorten the lamp row (a pool with fewer distinct verses than `limit` — a short custom road — returns exactly what it has). | A-0 | A-1,A-2,A-4..A-6 |
 | **A-4** | Regions & Build-a-Road | `src/game/regions.ts` | `src/game/regions.test.ts` | `starterRegions()` returns 3 regions (easy/medium/hard) with the curated verses partitioned; `unlockedRegions` returns region 1 always, region 2 only when prior mastered ≥ threshold, etc.; `buildRoad` constructs a region from refs; `masteryProgress` counts `status==='mastered'`. | A-0 | A-1..A-3,A-5,A-6 |
 | **A-5** | ~~Voice fuzzy match~~ DROPPED | — | — | Voice was removed (tap-only redesign). No `voice.ts`/`voice.test.ts`. Skip this task. | A-0 | A-1..A-4,A-6 |
 | **A-6** | Game state storage | `src/game/state.ts` | `src/game/state.test.ts` | `loadGameState()` on empty storage returns `DEFAULT_GAME_STATE` with all fields; `saveGameState` then `loadGameState` round-trips; partial/legacy JSON merges defaults for missing keys (e.g. `settings` absent → defaults). | A-0 | A-1..A-5 |

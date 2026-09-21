@@ -11,7 +11,8 @@ export interface SelectionInput {
   pool: KJVVerse[];
   progress: ProgressEntry[];
   due: DueEntry[];
-  /** When true, only due verses are returned (the day's job is re-lighting). */
+  /** When true, the day's reviews lead the session (the day's job is
+   *  re-lighting); the rest of the pool fills the lamps they leave empty. */
   dailyGoalCompleted: boolean;
   limit: number;
   /** References the player swapped out of a recent session ("not now"). They
@@ -131,8 +132,11 @@ export function moveQueueSlot(
  * the start of a run), which made the same 12 lamps show up in the same order
  * every time.
  *
- * If `dailyGoalCompleted` is true, only due verses are returned (capped at
- * `limit`); if there are no due verses, returns `[]`.
+ * Returns a full row of `limit` lamps whenever the pool can supply them. When
+ * `dailyGoalCompleted` is true the day's reviews lead the session and the rest
+ * of the pool fills the lamps they leave empty, so a short due list shortens
+ * nothing. A pool of fewer than `limit` distinct verses — a short custom road —
+ * still returns exactly what it has.
  */
 export function selectNextLamps(input: SelectionInput): KJVVerse[] {
   const { pool, progress, due, dailyGoalCompleted, limit } = input;
@@ -176,13 +180,28 @@ export function selectNextLamps(input: SelectionInput): KJVVerse[] {
     return a.rand - b.rand;
   });
 
-  let ordered = indexed.map(entry => entry.verse);
-
-  if (dailyGoalCompleted) {
-    ordered = ordered.filter(verse => isDue(verse.reference));
-  }
+  const ordered = indexed.map(entry => entry.verse);
 
   // Distinct: a session's lamps are one verse each, so a pool carrying a repeat
   // must not be able to fill two lamps with the same verse.
-  return distinctVerses(ordered).slice(0, Math.max(0, limit));
+  const distinct = distinctVerses(ordered);
+  const take = (verses: KJVVerse[]): KJVVerse[] => verses.slice(0, Math.max(0, limit));
+
+  // Once the day's goal is met, today's reviews are the session's leading group
+  // — the whole point of playing on after the goal — and the rest of the pool
+  // fills the lamps they leave empty. Before that the sorted pool leads (due
+  // first, per the sort above).
+  //
+  // Leading, not capping: a due list shorter than a session (only a few verses
+  // still owed today, which is what the pool looks like right after the goal is
+  // met) used to truncate the session to that many lamps. The lamp row draws one
+  // lighthouse per queue entry, so a 4-lamp queue reads as a broken game rather
+  // than a short one. A pool too small to fill the row — a short custom road —
+  // still presents exactly what it has.
+  const leading = dailyGoalCompleted
+    ? distinct.filter(verse => isDue(verse.reference))
+    : distinct;
+  if (leading.length >= limit) return take(leading);
+  const led = new Set(leading.map(verse => verse.reference));
+  return take([...leading, ...distinct.filter(verse => !led.has(verse.reference))]);
 }
