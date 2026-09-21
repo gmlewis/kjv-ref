@@ -24,6 +24,7 @@
 import {
   createEngine,
   startEngine,
+  stopEngine,
   disposeEngine,
   resizeEngine,
   loadFont,
@@ -68,9 +69,12 @@ import { scoreTilePuzzle, performanceRating, computeXp, applyCombo, levelForXp }
 import { loadGameState, saveGameState } from '../state';
 import { playTileSnapSound, playTileErrorSound, playLampLitSound } from './audio';
 import type { PerformanceRating } from '../scoring';
-import { paletteFor } from './theme';
+import { paletteFor, SCENERY_TEXT_COLORS } from './theme';
 import type { GameTheme } from './theme';
 import { ART_METRICS, createGameSpriteFrames, TOWER_ASPECT, TOWER_LANTERN_ABOVE_FOOT } from './art';
+import { computeGameLayout } from './layout';
+import type { GameLayout } from './layout';
+import { AMBIENT_INTERVAL_MS, shouldKeepRendering } from './idle';
 import { SCENERY_BANDS, SCENERY_BAND_CSS_WIDTH } from './scenery';
 import { fluencyDurationMs, isFluentNow } from '../fluency';
 
@@ -96,6 +100,12 @@ export interface LampGameCallbacks {
   /** Called when the active verse (and its scaffold stage) changes so the host
    *  UI can sync state (Peek feature, stage indicator/selector). */
   onVerseChange?: (verse: KJVVerse, stage: ScaffoldLayer, prompt: string) => void;
+  /** Called when the cosmetic level / XP / session combo changes, so the host can
+   *  render the stats line. The canvas used to draw it as unplated text in the band
+   *  directly above the verse, which over the sunset's mid-tones read badly; as DOM
+   *  text it can be styled, and — because it is inside the band the host measures —
+   *  the verse is now laid out below it rather than behind it. */
+  onStatsChange?: (stats: { level: number; xp: number; combo: number }) => void;
   /** Called when all lamps in the session queue are lit. */
   onSessionComplete?: (stats: { totalXp: number; lampsLit: number; bestCombo: number }) => void;
   /** Called when the "Skip this lamp" affordance should appear or disappear.
@@ -140,6 +150,18 @@ export interface LampGame {
   swapVerse(): void;
   /** Optional getter for current puzzle state (used in E2E tests). */
   getPuzzle?(): TilePuzzle | null;
+  /**
+   * Tell the engine how tall the DOM chrome above the canvas is, in CSS px.
+   *
+   * The canvas draws nothing above this line, so the verse's slots can never
+   * land underneath the DOM — which is what put the verse behind the Peek card
+   * when the engine was guessing the band with a hardcoded 88 px. The host
+   * measures the real band with a ResizeObserver and calls this on every change.
+   *
+   * Re-lays out the current puzzle (a full rebuild, restoring placed tiles) and
+   * ignores changes under 2 px, so observer jitter cannot thrash the scene.
+   */
+  setTopInset(px: number): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -164,6 +186,26 @@ const HEADER_Y = 60;
 const SLOT_AREA_TOP = 175;
 const BANK_BOTTOM_PAD = 96;
 const BORDER_T = 2; // outline thickness (CSS px) for blank slot drop-targets
+
+/**
+ * The lamp row's tower geometry, shared by every site that needs to know where
+ * a lamp's lantern actually is — the row itself in `buildPuzzle` and the
+ * completion particle burst in `resolveCurrent`. Only a tower's *height* is
+ * chosen here; its width is derived from `TOWER_ASPECT` so the art is never
+ * stretched off its authored shape.
+ *
+ * This used to be duplicated: the burst had its own (72/56) heights and its own
+ * lantern offset, which drifted further from the row every time the towers were
+ * repainted, until the particles lit up empty sky beside the tower they were
+ * supposed to be celebrating.
+ */
+const TOWER_H = {
+  mobile: { current: 96, lit: 78, unlit: 74 },
+  desktop: { current: 144, lit: 117, unlit: 111 },
+} as const;
+
+/** The tower's foot sits this far below `pathY`, so it stands in the causeway. */
+const TOWER_FOOT_BELOW_PATH = 6;
 
 /**
  * Total horizontal camera travel across one session, in CSS px — the "scroll
@@ -372,8 +414,8 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let headerData: DefaultTextData | null = null;
   let promptLayer: TextLayer | null = null;
   let promptData: DefaultTextData | null = null;
-  let hudLayer: TextLayer | null = null;
-  let hudData: DefaultTextData | null = null;
+  // No `hudLayer`/`hudData`: the Level/XP/Combo line is DOM text now, held by the
+  // host in React state — see `publishStats`.
   let feedbackLayer: TextLayer | null = null;
   let feedbackData: DefaultTextData | null = null;
   let feedbackBgSprite: Sprite2DHandle | null = null;
@@ -408,6 +450,30 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   let cameraScrollX = 0;
   let targetCameraScrollX = 0;
   let animFrameId: number | null = null;
+
+  // --- Render-loop idling --------------------------------------------------
+  // See `idle.ts` for the policy. These are its inputs and outputs: the loop is
+  // ours (`requestAnimationFrame`), but the frames are the engine's, so idling
+  // means `stopEngine` — the Lite loop re-arms itself unconditionally and has no
+  // dirty check, so a paused scene still costs a full-screen render at native
+  // density every frame unless the engine itself is stopped.
+  let loopRunning = false;
+  let engineRunning = false;
+  /** `performance.now()` of the last visual mutation, i.e. the last `wake()`. */
+  let lastActivityAt = performance.now();
+  /** `performance.now()` of the last ambient sprite update (the 30 fps cadence). */
+  let lastAmbientAt = 0;
+  /** `performance.now()` of the previous `runFrame`, for the real particle delta. */
+  let lastFrameAt = performance.now();
+  /**
+   * True while this module is inside `frameLoop`. Mutations made *by* the loop
+   * (the camera lerp, the ambient pulse) must not count as player activity, or
+   * the scene could never settle.
+   */
+  let inFrameLoop = false;
+  /** True while the tab is hidden: nothing is drawn and nothing is animated. */
+  let hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+
   const sessionLitRefs = new Set<string>();
   // Verses the player skipped (right-arrow / swipe) during THIS session. A skip
   // means "not now" for the rest of this game, so these are never re-presented
@@ -514,10 +580,22 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
   let dpr = 1;
 
+  /**
+   * The measured bottom edge of the DOM chrome, in CSS px, as reported by the
+   * host through `setTopInset`. 0 means "not measured yet", which `layout.ts`
+   * turns into its historical fallback so a boot-time layout is unchanged.
+   */
+  let topInset = 0;
+
   /** CSS px -> backing-store px. */
   const S = (v: number): number => v * dpr;
 
   function addSprite2D(layer: Sprite2DLayer, props: Sprite2DProps): Sprite2DHandle {
+    // Every visual mutation in this file funnels through these wrappers (the
+    // `*Raw` versions are shadowed), so waking here — rather than at each of the
+    // ~60 call sites — is what makes a stopped engine safe: nothing can be drawn
+    // into the scene without a frame being scheduled to show it.
+    wake();
     return addSprite2DRaw(layer, {
       ...props,
       positionPx: [S(props.positionPx[0]), S(props.positionPx[1])],
@@ -526,6 +604,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   }
 
   function updateSprite2D(sprite: Sprite2DHandle, patch: Partial<Sprite2DProps>): void {
+    wake();
     const scaled: Partial<Sprite2DProps> = { ...patch };
     if (patch.positionPx) scaled.positionPx = [S(patch.positionPx[0]), S(patch.positionPx[1])];
     if (patch.sizePx) scaled.sizePx = [S(patch.sizePx[0]), S(patch.sizePx[1])];
@@ -546,55 +625,21 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
    * layout calculation keeps working unchanged.
    */
   function createTextLayer(data: DefaultTextData, x: number = 0, y: number = 0): TextLayer {
+    wake();
     const layer = createTextLayerRaw(data, { positionPx: { x: S(x), y: S(y) } });
     layer.scale = dpr;
     return layer;
   }
 
-  function getResponsiveMetrics(W: number, H: number) {
-    const isMobile = W < 560 || H < 650;
-    const isTiny = W < 380 || H < 580;
-
-    const margin = isMobile ? 12 : 24;
-    const wordFont = isTiny ? 14 : isMobile ? 16 : 22;
-    const headerFont = isTiny ? 16 : isMobile ? 18 : 28;
-    const promptFont = isTiny ? 11 : isMobile ? 12 : 18;
-    const hudFont = isTiny ? 10 : isMobile ? 11 : 14;
-    const cellH = isTiny ? 32 : isMobile ? 36 : 48;
-    const minCellW = isTiny ? 48 : isMobile ? 58 : 84;
-    const cellPad = isMobile ? 8 : 12;
-    const gap = isMobile ? 5 : 10;
-
-    // Dynamic layout math — vertical positions are calculated from font metrics
-    // and the measured DOM overlay height to eliminate arbitrary magic numbers:
-    // 1. Reference header baseline: aligned with top bar buttons.
-    const headerY = Math.round(headerFont * 1.0);
-
-    // 2. Estimated bottom of DOM Stage overlay (top-offset + prompt + stage pill height).
-    const domStageBottom = isMobile ? 88 : 86;
-
-    // 3. HUD Stats baseline: dynamically offset below DOM stage overlay using hudFont scale.
-    const hudY = domStageBottom + Math.round(hudFont * 4.0);
-
-    // 4. Slot Area Top: dynamically offset below HUD Stats baseline using hudFont scale.
-    const slotAreaTop = hudY + Math.round(hudFont * 2.2);
-
-    return {
-      isMobile,
-      isTiny,
-      margin,
-      wordFont,
-      headerFont,
-      promptFont,
-      hudFont,
-      cellH,
-      minCellW,
-      cellPad,
-      gap,
-      headerY,
-      hudY,
-      slotAreaTop,
-    };
+  /**
+   * The vertical stack, from `layout.ts` — pure arithmetic, unit tested there.
+   *
+   * `topInset` is the measured bottom edge of the DOM chrome above the canvas,
+   * pushed in by the host through `setTopInset`. Until it arrives (0), the layout
+   * uses its historical fallback, so a boot-time layout is unchanged.
+   */
+  function getResponsiveMetrics(W: number, H: number): GameLayout {
+    return computeGameLayout(W, H, topInset);
   }
 
   function getCompactBankArea(
@@ -712,6 +757,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // Setting layer.positionPx.y = cellY + (cellH / 2) + (fontSizePx * 0.25) places top of font at cellY + 9px
     // and bottom of font descenders at cellY + cellH - 9px, producing exact 9px equal top & bottom padding.
     const baselineY = cellY + cellH / 2 + fontSizePx * 0.25;
+    wake();
     layer.positionPx = {
       x: S(cellX + Math.max(0, (cellW - data.width) / 2)),
       y: S(baselineY),
@@ -791,14 +837,6 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       disposeDefaultTextData(promptData);
       promptData = null;
     }
-    if (hudLayer) {
-      removeTextRendererLayer(textRenderer, hudLayer);
-      hudLayer = null;
-    }
-    if (hudData) {
-      disposeDefaultTextData(hudData);
-      hudData = null;
-    }
     if (feedbackLayer) {
       removeTextRendererLayer(textRenderer, feedbackLayer);
       feedbackLayer = null;
@@ -856,6 +894,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     chainVerses: KJVVerse[] | null = null,
     minStage: ScaffoldLayer = 0,
   ) {
+    wake();
     // The surface is resized before a rebuild (ResizeObserver -> resizeEngine ->
     // relayout), so this is the one place the ratio can change. Read it after the
     // resize and before any sprite or text layer is created.
@@ -912,15 +951,16 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       wordFont,
       headerFont,
       promptFont,
-      hudFont,
       cellH,
       minCellW,
       cellPad,
       gap,
-      headerY,
-      hudY,
       slotAreaTop,
+      pathY,
     } = getResponsiveMetrics(W, H);
+    // `headerY`/`hudY`/`hudFont` are deliberately not taken here: both text lines
+    // that used them are DOM now, and the layout still reserves their band (see
+    // `layout.ts`, which owns those numbers) — the canvas simply draws nothing in it.
 
     const areaX = margin;
     const areaW = W - 2 * margin;
@@ -941,9 +981,6 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // is the known limitation of authoring one band set for the phone.
     const pan = isMobile ? PARALLAX_PAN_MOBILE : PARALLAX_PAN_DESKTOP;
     const layerW = Math.max(W + 2 * (pan + 24), SCENERY_BAND_CSS_WIDTH);
-
-    // Walking Path Y-position (Prominent lower-third of canvas)
-    const pathY = isMobile ? H - 84 : H - 64;
 
     // ---------------------------------------------------------------------
     // The scene: the sunset sky, then three parallax bands (far shore, water,
@@ -1020,20 +1057,13 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       updateSprite2D(nearSprite, { ...nearBox, frame: frameIndex('scenery_near') });
     }
 
-    // Header (reference) + prompt.
-    headerData = createDefaultTextData(font, headerFont, v.reference, textColor(palette.text), {
-      align: 'center',
-    });
-    headerLayer = createTextLayer(headerData, (W - headerData.width) / 2, headerY + headerFont * 0.65);
-    addTextRendererLayer(textRenderer, headerLayer);
-
-    // HUD summary (Level, XP, Combo) - captured for updateHud() to refresh.
-    const makeHudText = () => isTiny
-      ? `Lvl ${gameState.level} • ${gameState.xp} XP • Combos: x${combo}`
-      : `Game Stats: Level ${gameState.level} • ${gameState.xp} XP • Session Combos: x${combo}`;
-    hudData = createDefaultTextData(font, hudFont, makeHudText(), textColor(palette.text, 0.8), { align: 'center' });
-    hudLayer = createTextLayer(hudData, (W - hudData.width) / 2, hudY + hudFont * 0.65);
-    addTextRendererLayer(textRenderer, hudLayer);
+    // The verse's reference and the Level/XP/Combo stats line are NOT drawn here.
+    // They are DOM text now (see `onStatsChange` and the host's prompt column):
+    // canvas text has no background plate, and over the sunset these two lines sit
+    // in the band directly above the verse, where unplated low-contrast glyphs made
+    // the whole top of the puzzle hard to read. Moving them out also lets the host
+    // measure them, so the band the canvas must stay below includes them.
+    publishStats();
 
     // Render Majestic Coastal Lighthouses & Radiant Beacons along the path
     // Cap at 12 lighthouses (the session limit) even if queue somehow exceeds it
@@ -1043,10 +1073,8 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // The tower's foot, and the three heights it can be drawn at. Only the
     // *height* is chosen here — the width is derived from it through
     // `TOWER_ASPECT`, so the frame is never stretched off its authored shape.
-    const footY = pathY + 6;
-    const towerH = isMobile
-      ? { current: 96, lit: 78, unlit: 74 }
-      : { current: 144, lit: 117, unlit: 111 };
+    const footY = pathY + TOWER_FOOT_BELOW_PATH;
+    const towerH = isMobile ? TOWER_H.mobile : TOWER_H.desktop;
     for (let i = 0; i < lampCount; i++) {
       const qv = queue[i];
       const isCurrent = i === activeIndex;
@@ -1303,6 +1331,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
 
   // Re-position everything for the current puzzle on resize.
   function relayout() {
+    wake();
     if (verse) {
       const savedPlaced = tiles.map((t) => ({ id: t.id, slot: t.placedSlotIndex }));
       // Rebuild with the same chain verses so a resize mid-passage doesn't
@@ -1330,31 +1359,72 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     (window as any).__lampGameFluencyRing = fluencyRingSprite;
     (window as any).__lampGameParticles = particleSprites;
     (window as any).__lampGameLighthouses = lighthouseSprites;
+
+    // Read-only geometry, for the layout e2e spec: it asserts that the measured
+    // DOM overlay really does sit above the verse band, and that the surface is
+    // rendering at the device's own pixel ratio. Nothing today asserts the
+    // *vertical* position of the verse, which is the defect this change fixes.
+    const [cssW, cssH] = canvasSize();
+    const l = getResponsiveMetrics(cssW, cssH);
+    (window as any).__lampGameLayout = {
+      surfaceScale: surfaceScale(),
+      topInset,
+      chromeBottom: l.chromeBottom,
+      headerY: l.headerY,
+      hudY: l.hudY,
+      hudFont: l.hudFont,
+      hudTextTop: l.hudTextTop,
+      hudTextBottom: l.hudTextBottom,
+      slotAreaTop: l.slotAreaTop,
+      /** The first row of the verse's answer slots. */
+      verseTop: l.slotAreaTop,
+      pathY: l.pathY,
+      canvasCss: { W: cssW, H: cssH },
+      bands: {
+        sky: 0,
+        far: l.pathY + SCENERY_BANDS.far.top,
+        mid: l.pathY + SCENERY_BANDS.mid.top,
+        near: l.pathY + SCENERY_BANDS.near.top,
+        bottom: l.pathY + SCENERY_BANDS.near.bottom,
+      },
+    };
+
+    // Read-only render-loop state, for the idling e2e spec. `rendering` is the
+    // engine's own loop, which is what costs the battery; `looping` is ours.
+    // Sampled rather than evented on purpose — a test polls it after a period of
+    // no interaction, which is exactly the condition being asserted.
+    (window as any).__lampGameRendering = () => ({
+      rendering: engineRunning,
+      looping: loopRunning,
+      hidden,
+      reducedMotion: opts.reducedMotion,
+      ambientSprites: ambientSpriteCount(),
+      particles: particleSprites.length,
+      /** ms since the last wake — how long the scene has been still. */
+      quietMs: performance.now() - lastActivityAt,
+    });
   }
 
-  /** Update the HUD text to reflect the current gameState (level, xp, combo). */
-  function updateHud() {
-    if (!hudLayer || !hudData) return;
-    const [W, H] = canvasSize();
-    const { isTiny, hudFont, hudY } = getResponsiveMetrics(W, H);
-    const hudText = isTiny
-      ? `Lvl ${gameState.level} • ${gameState.xp} XP • Combos: x${combo}`
-      : `Game Stats: Level ${gameState.level} • ${gameState.xp} XP • Session Combos: x${combo}`;
-    // Dispose old text data and create new one
-    disposeDefaultTextData(hudData);
-    removeTextRendererLayer(textRenderer, hudLayer);
-    const newData = createDefaultTextData(font, hudFont, hudText, textColor(palette.text, 0.8), { align: 'center' });
-    const newLayer = createTextLayer(newData, (W - newData.width) / 2, hudY + hudFont * 0.65);
-    addTextRendererLayer(textRenderer, newLayer);
-    hudData = newData;
-    hudLayer = newLayer;
+  /**
+   * Report the current level/XP/combo to the host, which renders them as DOM text.
+   *
+   * This used to rebuild a canvas text layer on every call — dispose the old
+   * `DefaultTextData`, remove the layer, create both again — which is a fair
+   * amount of work to re-draw a string that only changes on a level-up or a
+   * resolved lamp. The host holds it in React state instead.
+   */
+  function publishStats() {
+    opts.callbacks.onStatsChange?.({
+      level: gameState.level,
+      xp: gameState.xp,
+      combo,
+    });
   }
 
   function updateParallaxPositions() {
     if (disposed) return;
     const [W, H] = canvasSize();
-    const { isMobile } = getResponsiveMetrics(W, H);
-    const pathY = isMobile ? H - 84 : H - 64;
+    const { pathY } = getResponsiveMetrics(W, H);
 
     // The sky never pans: it is the far distance, and it covers the canvas.
     // Only the three bands move, each by its own factor.
@@ -1384,9 +1454,95 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // empty sky.
   }
 
-  function frameLoop() {
-    if (disposed) return;
+  /**
+   * Make sure a frame is produced for whatever just changed.
+   *
+   * Called from every visual mutation in this file — the four sprite/text
+   * wrappers, `relayout`, `buildPuzzle`, the input handlers, the resize observer —
+   * so that stopping the engine is invisible: whatever the loop decided when it
+   * last went quiet, the next thing that moves starts it again. Mutations made by
+   * the loop itself are ignored, since they are precisely what the settle check
+   * is measuring.
+   */
+  function wake() {
+    if (disposed || inFrameLoop) return;
+    lastActivityAt = performance.now();
+    if (hidden) return; // no frames to produce; `visibilitychange` wakes it
+    startEngineIfNeeded();
+    if (loopRunning) return;
+    loopRunning = true;
+    animFrameId = requestAnimationFrame(frameLoop);
+  }
 
+  /**
+   * Start the engine's own loop if it is stopped. `startEngine` resolves after the
+   * first frame, so the flag is raised *before* awaiting: a second `wake()` in the
+   * same tick must not start a second loop.
+   */
+  function startEngineIfNeeded() {
+    if (engineRunning || disposed) return;
+    engineRunning = true;
+    void startEngine(engine);
+  }
+
+  /** Stop both loops: ours, and the engine's per-frame render. */
+  function stopRendering() {
+    if (animFrameId !== null) {
+      cancelAnimationFrame(animFrameId);
+      animFrameId = null;
+    }
+    loopRunning = false;
+    if (!engineRunning) return;
+    engineRunning = false;
+    // `stopEngine` flushes the retired GPU resources (`engine.js:204`). That
+    // flush also runs at the end of every rendered frame, but the frame after a
+    // stop is the one that never comes — so a puzzle torn down just before the
+    // scene settled would otherwise hold its retired atlas bindings until
+    // something happened to move again.
+    stopEngine(engine);
+  }
+
+  /** Ambient sprites that exist right now — flames, beams, reflections. */
+  function ambientSpriteCount(): number {
+    return lampFlameSprites.length + beaconBeamSprites.length + lampReflectSprites.length;
+  }
+
+  function frameLoop() {
+    if (disposed) {
+      loopRunning = false;
+      return;
+    }
+    animFrameId = null;
+    inFrameLoop = true;
+    try {
+      runFrame();
+    } finally {
+      inFrameLoop = false;
+    }
+
+    const now = performance.now();
+    if (
+      shouldKeepRendering({
+        panning: Math.abs(targetCameraScrollX - cameraScrollX) > 0.5,
+        particles: particleSprites.length,
+        ambientSprites: ambientSpriteCount(),
+        reducedMotion: opts.reducedMotion,
+        lastActivityAt,
+        now,
+      })
+    ) {
+      animFrameId = requestAnimationFrame(frameLoop);
+      return;
+    }
+    // Nothing is moving and nothing is going to move on its own: hand the GPU
+    // back. The last presented frame stays on the canvas, so the scene the player
+    // is looking at is unchanged — it is simply no longer being redrawn 60 times
+    // a second.
+    stopRendering();
+  }
+
+  /** One frame of everything the scene animates. */
+  function runFrame() {
     // Smooth camera pan between verses (~0.5s transition)
     // Lerp factor 0.025 at 60fps gives ~120 frames = ~0.5s for most of the motion
     if (Math.abs(targetCameraScrollX - cameraScrollX) > 0.5) {
@@ -1397,9 +1553,15 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     }
 
     const now = performance.now();
-    const dt = 0.016; // ~60fps
+    // The real frame delta, clamped so a backgrounded tab (or a long GC pause)
+    // cannot fling the particles off the screen on the frame it returns. It
+    // replaces the hardcoded 16 ms, which was only ever a 60 fps assumption.
+    const dt = Math.min(0.05, Math.max(0.001, (now - lastFrameAt) / 1000));
+    lastFrameAt = now;
 
-    // Update particle positions and lifetimes
+    // Update particle positions and lifetimes. These run on every frame, at the
+    // real cadence: a celebration burst is the one animation whose speed the
+    // player is actually watching.
     for (let i = particleSprites.length - 1; i >= 0; i--) {
       const p = particleSprites[i];
       p.life -= dt;
@@ -1418,12 +1580,24 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       }
     }
 
+    // The ambient pulse — flame flicker, beam sweep, reflections — runs at its
+    // own slower cadence. It is a slow effect (the flame's period is ~1.25 s), so
+    // updating it 30 times a second instead of 60 is invisible, and it is the
+    // work the loop would otherwise do for the entire time a verse is on screen.
+    const ambient = ambientSpriteCount() > 0 && !opts.reducedMotion;
+    if (ambient && now - lastAmbientAt >= AMBIENT_INTERVAL_MS) {
+      lastAmbientAt = now;
+      animateAmbient(now / 1000);
+    }
+  }
+
+  /** The ambient pulse: flame flicker, beam sweep, reflections breathing. */
+  function animateAmbient(t: number) {
     // Animate lighthouse flames (flickering)
-    const flameTime = now / 1000;
     for (let i = 0; i < lampFlameSprites.length; i++) {
       const flame = lampFlameSprites[i];
-      const flicker = 0.8 + 0.2 * Math.sin(flameTime * 8 + i);
-      const sway = 0.5 * Math.cos(flameTime * 6 + i * 0.5);
+      const flicker = 0.8 + 0.2 * Math.sin(t * 8 + i);
+      const sway = 0.5 * Math.cos(t * 6 + i * 0.5);
       updateSprite2D(flame.sprite, {
         positionPx: [flame.baseX + sway, flame.baseY],
         color: [1, 0.85 + 0.15 * flicker, 0.3, 0.9],
@@ -1432,11 +1606,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     }
 
     // Animate beacon beams (slow sweeping rotation about the lantern)
-    const beamTime = now / 1000;
     for (const beam of beaconBeamSprites) {
       const sweep =
-        beam.restSweep + Math.sin(beamTime * 0.5 + beam.phase) * (beam.isCurrent ? 0.22 : 0.12);
-      const alphaPulse = 0.7 + 0.3 * Math.sin(beamTime * 2 + beam.phase);
+        beam.restSweep + Math.sin(t * 0.5 + beam.phase) * (beam.isCurrent ? 0.22 : 0.12);
+      const alphaPulse = 0.7 + 0.3 * Math.sin(t * 2 + beam.phase);
       const baseColor = beam.isCurrent ? [1, 0.95, 0.5, 0.9] : [1, 0.85, 0.3, 0.6];
       updateSprite2D(beam.sprite, {
         positionPx: [
@@ -1451,13 +1624,11 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     // The reflections on the water breathe, out of phase with each other, so the
     // waterline glow shimmers instead of sitting there as twelve static stripes.
     for (const refl of lampReflectSprites) {
-      const pulse = 0.8 + 0.2 * Math.sin(beamTime * 1.3 + refl.phase);
+      const pulse = 0.8 + 0.2 * Math.sin(t * 1.3 + refl.phase);
       updateSprite2D(refl.sprite, {
         color: [1, 1, 1, 0.24 * 0.85 * pulse],
       });
     }
-
-    animFrameId = requestAnimationFrame(frameLoop);
   }
 
   // =========================================================================
@@ -1529,6 +1700,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   }
 
   function onPointerDown(e: PointerEvent) {
+    // Touch is the strongest signal of "the scene should be moving": it restarts
+    // the ambient pulse as well as producing frames, so a tap on a still scene
+    // brings the flames back rather than leaving them frozen under a drag.
+    wake();
     if (awaitingRetryTap) {
       // The incorrect-answer banner stays on screen until the player taps;
       // dismiss it now and return the misplaced tiles to the bank for retry.
@@ -1570,10 +1745,12 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   }
   function onPointerMove(e: PointerEvent) {
     if (!dragging) return;
+    wake();
     const [x, y] = pointerPos(e);
     setTilePos(dragging, x - dragOffX, y - dragOffY);
   }
   function onPointerUp(e: PointerEvent) {
+    wake();
     if (!dragging) {
       // No tile was grabbed — if this was an armed leftward swipe on empty
       // canvas, swap the current verse for a different one (same lamp).
@@ -1676,21 +1853,25 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       // so this must use the same capped index and layout as `buildPuzzle` — a
       // larger queue length would put the burst off the end of the row.
       const [W, H] = canvasSize();
-      const { isMobile, margin } = getResponsiveMetrics(W, H);
+      const { isMobile, margin, pathY } = getResponsiveMetrics(W, H);
       const lampCount = Math.min(12, queue.length);
       const activeIndex = Math.max(0, Math.min(queueIndex - 1, lampCount - 1));
       if (lampCount > 0) {
         const lampStep = (W - 4 * margin) / Math.max(1, lampCount - 1);
         const lx = 2 * margin + activeIndex * lampStep;
-        const lh = isMobile ? (activeIndex === queueIndex - 1 ? 72 : 56) : (activeIndex === queueIndex - 1 ? 104 : 80);
-        const lanternCenterY = (isMobile ? H - 84 : H - 64) - lh + (isMobile ? 12 : 18);
+        // The same geometry `buildPuzzle` lays the row out with, so the burst
+        // lands in the lantern the player just lit. The current lamp is the one
+        // being resolved, so its tower is drawn at the tall `current` height.
+        const towerH = isMobile ? TOWER_H.mobile : TOWER_H.desktop;
+        const lanternCenterY =
+          pathY + TOWER_FOOT_BELOW_PATH - TOWER_LANTERN_ABOVE_FOOT * towerH.current;
         createParticleBurst(lx, lanternCenterY, 16 + combo * 2);
       }
       gameState.xp += earnedXp;
       gameState.level = levelForXp(gameState.xp);
       gameState.comboBest = Math.max(gameState.comboBest, combo);
       saveGameState(gameState);
-      updateHud(); // Refresh HUD to show new level/XP
+      publishStats(); // the host re-renders the level/XP line
     } else {
       playTileErrorSound();
     }
@@ -1927,11 +2108,15 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   }
 
   function nextPuzzle() {
+    // Woken up front rather than at each mutation below: the two terminal branches
+    // ("No verses available", "Journey Complete!") build only text layers, and this
+    // is the frame that has to show them after a stopped loop.
+    wake();
     if (queue.length === 0) {
       // Nothing to practice — show a static message.
       teardownPuzzle();
       const [W] = canvasSize();
-      headerData = createDefaultTextData(font, HEADER_FONT, 'No verses available', textColor(palette.text), { align: 'center' });
+      headerData = createDefaultTextData(font, HEADER_FONT, 'No verses available', textColor(SCENERY_TEXT_COLORS.text), { align: 'center' });
       headerLayer = createTextLayer(headerData, (W - headerData.width) / 2, HEADER_Y);
       addTextRendererLayer(textRenderer, headerLayer);
       return;
@@ -1953,11 +2138,11 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       // current slot and shortens the queue (see `moveQueueSlot`), so a session
       // can legitimately finish a lamp early.
       const lampWord = queue.length === 1 ? 'Lamp' : 'Lamps';
-      headerData = createDefaultTextData(font, HEADER_FONT, `Journey Complete! All ${queue.length} ${lampWord} Lit!`, textColor(palette.accent), { align: 'center' });
+      headerData = createDefaultTextData(font, HEADER_FONT, `Journey Complete! All ${queue.length} ${lampWord} Lit!`, textColor(SCENERY_TEXT_COLORS.accent), { align: 'center' });
       headerLayer = createTextLayer(headerData, (W - headerData.width) / 2, HEADER_Y);
       addTextRendererLayer(textRenderer, headerLayer);
 
-      promptData = createDefaultTextData(font, PROMPT_FONT, 'Tap Play Again for a new journey, or Exit', textColor(palette.text), { align: 'center' });
+      promptData = createDefaultTextData(font, PROMPT_FONT, 'Tap Play Again for a new journey, or Exit', textColor(SCENERY_TEXT_COLORS.text), { align: 'center' });
       promptLayer = createTextLayer(promptData, (W - promptData.width) / 2, HEADER_Y + 44);
       addTextRendererLayer(textRenderer, promptLayer);
       return;
@@ -2014,6 +2199,11 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     if (disposed) return;
     resizeEngine(engine);
     relayout();
+    // A resize while the loop is stopped still has to be drawn: `resizeEngine`
+    // reconfigures the swapchain, and the canvas owes the player a frame at its
+    // new size. The engine's own loop does this per frame, so it needs doing for
+    // it here when that loop is not running.
+    wake();
   });
   resizeObserver.observe(canvas);
 
@@ -2030,8 +2220,25 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
   // Boot the render loop + first puzzle.
   // =========================================================================
   await startEngine(engine);
+  engineRunning = true;
+  loopRunning = true;
   animFrameId = requestAnimationFrame(frameLoop);
   nextPuzzle();
+
+  // A backgrounded tab gets no frames from `requestAnimationFrame` at all, so the
+  // loop is not merely wasteful there — it is stopped and restarted by the
+  // browser, which is what makes the `dt` clamp in `runFrame` necessary. Stop
+  // explicitly instead: on return, the scene resumes where it was, and the ambient
+  // pulse restarts because coming back to the tab is activity.
+  const onVisibilityChange = () => {
+    hidden = document.visibilityState === 'hidden';
+    if (hidden) {
+      stopRendering();
+      return;
+    }
+    wake();
+  };
+  document.addEventListener('visibilitychange', onVisibilityChange);
 
   // =========================================================================
   // Public handle.
@@ -2056,6 +2263,18 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     currentChainVerses = null;
     currentChainLen = 1;
     buildPuzzle(verse);
+  }
+
+  function setTopInset(px: number) {
+    // Ignore sub-2px churn. A ResizeObserver fires on fractional layout shifts
+    // (a scrollbar appearing, a font settling) and each accepted change rebuilds
+    // the whole puzzle — an animation the player would see as a flicker.
+    if (Math.abs(px - topInset) < 2) return;
+    topInset = px;
+    // A pure re-layout, not a rebuild: `relayout()` re-places the existing verse
+    // and restores any tiles already in slots, so the player's progress through
+    // the puzzle survives the chrome band changing height mid-verse.
+    relayout();
   }
 
   function skipLamp() {
@@ -2215,6 +2434,8 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     if (disposed) return;
     disposed = true;
     if (animFrameId) cancelAnimationFrame(animFrameId);
+    loopRunning = false;
+    document.removeEventListener('visibilitychange', onVisibilityChange);
     resizeObserver.disconnect();
     canvas.removeEventListener('pointerdown', onPointerDown);
     canvas.removeEventListener('pointermove', onPointerMove);
@@ -2257,5 +2478,5 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       h: s.h,
     }));
 
-  return { dispose, setTheme, setStage, skipLamp, swapVerse: swapCurrentVerse, getPuzzle: () => puzzle };
+  return { dispose, setTheme, setStage, setTopInset, skipLamp, swapVerse: swapCurrentVerse, getPuzzle: () => puzzle };
 }

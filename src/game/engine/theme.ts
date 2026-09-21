@@ -44,3 +44,22 @@ const DARK: GamePalette = {
 export function paletteFor(theme: GameTheme): GamePalette {
   return theme === 'dark' ? DARK : LIGHT;
 }
+
+/**
+ * The colours for canvas text that sits **directly on the scenery**, with no plate
+ * behind it. After the chrome move that is only the three end-of-session messages
+ * ("No verses available", "Journey Complete! …", "Tap Play Again").
+ *
+ * It does not follow the theme, deliberately. The sunset is one dark dusk scene in
+ * both themes — `scenery.ts` has no `isDark` branch — while `text` and `accent`
+ * invert: light mode's `#1e293b` measures **1.15:1** against the upper sky these
+ * messages are drawn on, which is dark slate on dark navy and effectively
+ * invisible. Inverting the palette under a scene that never inverts is the trap
+ * this constant exists to close; `theme.test.ts` pins it.
+ *
+ * Against the approved composite (`/tmp/lamp-art/05-sunset-harbor-in-game.png`,
+ * sampled at the rows the messages occupy) the dark palette measures 13.7:1 for
+ * `text` and 10.1:1 for `accent`, so no plate is needed once the colour stops
+ * following the theme. Dark mode's appearance is unchanged.
+ */
+export const SCENERY_TEXT_COLORS = { text: DARK.text, accent: DARK.accent } as const;

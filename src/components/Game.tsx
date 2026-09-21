@@ -63,9 +63,18 @@ export default function Game() {
     dispose: () => void;
     setTheme: (t: Theme) => void;
     setStage: (stage: ScaffoldLayer | null) => void;
+    setTopInset: (px: number) => void;
     skipLamp: () => void;
     swapVerse: () => void;
   } | null>(null);
+
+  // The three pieces of DOM chrome that sit above the canvas: the sub-mode
+  // chips, the controls HUD, and the prompt/stage column. Measured together, so
+  // the engine can be told where its own drawing may begin — see the
+  // `setTopInset` effect below.
+  const chipsRef = useRef<HTMLDivElement | null>(null);
+  const controlsRef = useRef<HTMLDivElement | null>(null);
+  const promptRef = useRef<HTMLDivElement | null>(null);
 
   const [bootKey, setBootKey] = useState(0);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -77,6 +86,13 @@ export default function Game() {
   const [activeStage, setActiveStage] = useState<ScaffoldLayer | null>(null);
   const [stageOverride, setStageOverride] = useState<ScaffoldLayer | null>(null);
   const [activePrompt, setActivePrompt] = useState<string>('');
+  // Level / XP / session combo, pushed from the engine's `onStatsChange`. This line
+  // used to be canvas text with no background plate, sitting in the band directly
+  // above the verse — over the sunset's mid-tones it read badly, and the engine
+  // rebuilt a text layer every time it changed. As DOM text it is styled like the
+  // rest of the chrome, and the host's band measurement now includes it, so the
+  // verse is laid out *below* it.
+  const [stats, setStats] = useState<{ level: number; xp: number; combo: number } | null>(null);
   const [summary, setSummary] = useState<{ totalXp: number; lampsLit: number; bestCombo: number } | null>(null);
 
   // Skip-this-lamp affordance. The engine drives `canSkip` (true only after the
@@ -254,6 +270,7 @@ export default function Game() {
               }
             },
             onCanSkipChange: (can: boolean) => setCanSkip(can),
+            onStatsChange: (s) => setStats(s),
             onSessionComplete: (stats) => {
               if (subMode !== 'race') {
                 setSummary(stats);
@@ -281,6 +298,69 @@ export default function Game() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bootKey, subMode]);
+
+  /**
+   * Tell the engine where the DOM chrome ends, in canvas-relative CSS px.
+   *
+   * This is the fix for the unreadable verse. The engine used to *estimate* the
+   * band with a hardcoded 88 px, so whenever the real chrome was taller — a chip
+   * wrapping to a second line, a long prompt — the verse's slots were laid out
+   * underneath it, and the translucent Peek card then sat on top of the verse
+   * with canvas glyphs showing through it.
+   *
+   * Measuring every marked element and taking their lowest edge (rather than
+   * wrapping them in a container) keeps the layout untouched: these are
+   * separately absolutely-positioned, and a wrapper would change their stacking
+   * and could start intercepting pointer events.
+   */
+  useEffect(() => {
+    if (status !== 'ready') return;
+    const canvas = canvasRef.current;
+    // The chrome lives in the same containing block as the canvas, so its rects
+    // are already relative to the canvas's top edge.
+    const wrapper = canvas?.parentElement;
+    if (!canvas || !wrapper) return;
+
+    const report = () => {
+      const canvasTop = canvas.getBoundingClientRect().top;
+      let bottom = 0;
+      // Queried fresh on every measurement rather than captured once. The prompt
+      // column only mounts once `activePrompt` arrives, and unmounts again while
+      // the Peek card is open — and it is the tallest of the three on a phone, so
+      // a list captured when this effect first ran could miss the element that
+      // defines the band.
+      for (const el of Array.from(wrapper.querySelectorAll('[data-game-chrome]'))) {
+        const r = el.getBoundingClientRect();
+        // A hidden element measures 0 and must not drag the band back to the top.
+        if (r.height > 0) bottom = Math.max(bottom, r.bottom - canvasTop);
+      }
+      engineRef.current?.setTopInset(bottom);
+    };
+
+    // Measure once up front, then follow the elements as they change. The order
+    // matters: this first `report()` is what gives the engine an inset at all, so
+    // it must not sit behind anything that can fail.
+    report();
+
+    // `ResizeObserver` is present in every browser this ships to, but not in
+    // jsdom, where the component tests run — and an unguarded `new
+    // ResizeObserver(...)` throws, taking the whole Game component down with it
+    // (eleven tests, one line). The window's own resize event is the fallback:
+    // coarser, but the band still gets measured.
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', report);
+      return () => window.removeEventListener('resize', report);
+    }
+
+    const observer = new ResizeObserver(report);
+    for (const el of [chipsRef.current, controlsRef.current, promptRef.current]) {
+      if (el) observer.observe(el);
+    }
+    return () => observer.disconnect();
+    // `status` re-runs this once the engine exists and the chrome has mounted;
+    // `activePrompt` re-runs it when the prompt column appears, changes size or
+    // is replaced, since that element can mount after this effect first runs.
+  }, [status, bootKey, subMode, activePrompt]);
 
   function handleResolve(result: LampResolveResult, pool: any[]) {
     const { reference, correct } = result;
@@ -500,7 +580,7 @@ export default function Game() {
           ~124 px HUD, and `flex-wrap` sends a chip to a second line instead of
           letting the row run under the top-right controls (a live Sprint
           countdown widens the Race chip). */}
-      <div className="absolute top-2 left-2 sm:left-4 z-10 flex flex-wrap items-center gap-0.5 sm:gap-1 max-w-[calc(100vw-9rem)] sm:max-w-none">
+      <div ref={chipsRef} data-game-chrome="chips" className="absolute top-2 left-2 sm:left-4 z-10 flex flex-wrap items-center gap-0.5 sm:gap-1 max-w-[calc(100vw-9rem)] sm:max-w-none">
         <button
           type="button"
           onClick={startJourney}
@@ -544,7 +624,7 @@ export default function Game() {
       </div>
 
       {/* Top Right: Controls HUD */}
-      <div className="absolute top-2 right-2 sm:right-4 z-10 flex items-center gap-1">
+      <div ref={controlsRef} data-game-chrome="controls" className="absolute top-2 right-2 sm:right-4 z-10 flex items-center gap-1">
         <button
           type="button"
           onClick={() => { setShowPeek((prev) => !prev); setAutoPeek(false); }}
@@ -668,12 +748,22 @@ export default function Game() {
         </div>
       )}
 
-      {/* Stage instruction + stage-control chips */}
-      {status === 'ready' && !summary && !showPeek && activePrompt && (
-        <div className="absolute top-[42px] sm:top-[50px] left-1/2 -translate-x-1/2 z-10 flex flex-col items-center justify-center gap-0.5 max-w-[96vw] px-1">
-          <span className="text-[11px] sm:text-xs font-bold text-amber-500 dark:text-amber-400 text-center drop-shadow-sm">
-            {activePrompt}
-          </span>
+      {/* Stage instruction + stage-control chips, the verse reference, and the stats
+          line. All four are DOM text now: they are chrome, they are what the host
+          measures to tell the canvas where its top band ends, and the reference in
+          particular used to collide with the mode chips when the canvas drew it. */}
+      {status === 'ready' && !summary && !showPeek && (activeRef || activePrompt) && (
+        <div ref={promptRef} data-game-chrome="prompt" className="absolute top-[42px] sm:top-[50px] left-1/2 -translate-x-1/2 z-10 flex flex-col items-center justify-center gap-0.5 max-w-[96vw] px-1">
+          {activeRef && (
+            <span className="glassmorphism rounded-full px-2 py-0.5 text-[10px] sm:text-xs font-bold text-gray-700 dark:text-gray-100 shadow-sm border border-white/10">
+              {activeRef}
+            </span>
+          )}
+          {activePrompt && (
+            <span className="text-[11px] sm:text-xs font-bold text-amber-500 dark:text-amber-400 text-center drop-shadow-sm">
+              {activePrompt}
+            </span>
+          )}
           <div className="flex flex-wrap items-center justify-center gap-1 sm:gap-1.5 glassmorphism rounded-full px-2 py-0.5 shadow-md border border-white/10">
             <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-400 mr-0.5">
               Stage
@@ -709,6 +799,15 @@ export default function Game() {
               Auto
             </button>
           </div>
+          {stats && (
+            // The stats line, moved out of the canvas. It sits inside a
+            // glassmorphism pill for the same reason the stage chips do: nothing
+            // else guarantees contrast over whatever the sunset is doing at that
+            // y, and a pill reads the same in both themes.
+            <span className="glassmorphism rounded-full px-2 py-0.5 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-300 shadow-sm border border-white/10">
+              {`Level ${stats.level} · ${stats.xp} XP · Combos x${stats.combo}`}
+            </span>
+          )}
         </div>
       )}
 

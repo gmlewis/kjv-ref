@@ -11,6 +11,7 @@ const engineSetTheme = vi.fn();
 const engineSetStage = vi.fn();
 const engineSkipLamp = vi.fn();
 const engineSwapVerse = vi.fn();
+const engineSetTopInset = vi.fn();
 
 vi.mock('../game', () => ({
   createLampGame: vi.fn(async (opts: any) => {
@@ -19,6 +20,10 @@ vi.mock('../game', () => ({
       dispose: engineDispose,
       setTheme: engineSetTheme,
       setStage: engineSetStage,
+      // The host measures its own chrome and reports the band to the engine
+      // (see the measuring effect in Game.tsx); the real engine re-lays-out from
+      // it. Part of the interface, so the fake carries it too.
+      setTopInset: engineSetTopInset,
       // Skip-and-swap: no-op in the mock (the real engine swaps the verse
       // without firing onResolve or advancing the lamp).
       swapVerse: engineSwapVerse,
@@ -129,6 +134,85 @@ describe('Game host component', () => {
     expect(canvas?.className).toContain('w-full');
     expect(canvas?.className).toContain('h-dvh');
     await flush();
+    unmount();
+  });
+
+  it('measures the DOM chrome and reports the band to the engine', async () => {
+    // The host's half of the verse-readability contract: the engine cannot see
+    // the DOM, so this measurement is the only source of the band the canvas has
+    // to stay below. (The e2e layout spec checks the other end of that wire, on a
+    // real browser.) jsdom reports every rect as zero, so the geometry is stubbed
+    // to what a phone renders.
+    const { unmount } = renderGame();
+    await flush();
+
+    // The prompt column mounts only once the engine reports the verse's prompt.
+    const showPrompt = (prompt: string) =>
+      act(() => {
+        lastEngineOpts.callbacks.onVerseChange(
+          { reference: 'John 3:16', text: 'For God so loved the world' },
+          0,
+          prompt,
+        );
+      });
+    showPrompt('Tap the words in the right order');
+    await flush();
+
+    const chrome = Array.from(document.querySelectorAll('[data-game-chrome]'));
+    expect(chrome.length).toBeGreaterThan(0);
+
+    // The chips row and the controls HUD share the top bar; the prompt column
+    // hangs below both and, wrapping to a second line, reaches further down than
+    // either. That is the case the old hardcoded 88 px guess got wrong.
+    const bottoms: Record<string, number> = { chips: 40, controls: 40, prompt: 132 };
+    for (const el of chrome) {
+      const bottom = bottoms[el.getAttribute('data-game-chrome') ?? ''] ?? 40;
+      el.getBoundingClientRect = () =>
+        ({
+          top: bottom - 30,
+          bottom,
+          height: 30,
+          left: 0,
+          right: 100,
+          width: 100,
+          x: 0,
+          y: bottom - 30,
+          toJSON: () => ({}),
+        }) as DOMRect;
+    }
+
+    // Re-report through the path that is available here: a changed prompt re-runs
+    // the measuring effect (jsdom has no ResizeObserver, so the effect falls back
+    // to a window resize listener — and this also pins that fallback).
+    showPrompt('A longer prompt that wraps');
+    await flush();
+
+    expect(engineSetTopInset).toHaveBeenCalled();
+    // The lowest edge wins — not the first element measured, not the last.
+    expect(engineSetTopInset).toHaveBeenLastCalledWith(132);
+    unmount();
+  });
+
+  it('renders the level/XP/combo line the engine reports, instead of drawing it', async () => {
+    // This line used to be canvas text with no plate. It is DOM now, so the host
+    // must actually render what the engine pushes — an unhandled `onStatsChange`
+    // would silently drop the player's level and XP off the screen.
+    const { unmount } = renderGame();
+    await flush();
+
+    act(() => {
+      lastEngineOpts.callbacks.onVerseChange(
+        { reference: 'John 3:16', text: 'For God so loved the world' },
+        0,
+        'Tap the words in the right order',
+      );
+      lastEngineOpts.callbacks.onStatsChange({ level: 3, xp: 420, combo: 7 });
+    });
+    await flush();
+
+    expect(screen.getByText(/Level 3 · 420 XP · Combos x7/)).toBeDefined();
+    // The verse it belongs to is rendered in the same column.
+    expect(screen.getByText('John 3:16')).toBeDefined();
     unmount();
   });
 

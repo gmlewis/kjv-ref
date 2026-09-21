@@ -212,13 +212,73 @@ v1 should be 2D.
 **Art direction.** Reuse the app's existing glassmorphism + dark-mode palette
 (`src/index.css`) so the game feels native, not bolted on:
 
-- **Light mode:** dawn-lit hills, warm amber lamps, parchment verse tiles.
-- **Dark mode:** twilight hills, glowing lamps as the primary light source,
-  deep-blue sky with parallax stars — the lamps genuinely *illuminate* the
-  scene (a point-light glow behind each tile). This makes dark mode the
-  *prettier* mode for the game, a nice inversion.
+- ~~**Light mode:** dawn-lit hills, warm amber lamps, parchment verse tiles.~~
+  ~~**Dark mode:** twilight hills, glowing lamps as the primary light source,
+  deep-blue sky with parallax stars.~~ **Superseded** — see *Art direction as
+  built* below: one sunset scene serves both themes.
 - **Parallax layers** (3–4): far sky/mountains, mid hills, near path, foreground
   flora. Scroll gently as you advance, giving a sense of journey.
+
+### Art direction as built — Sunset Harbor
+
+The two-theme proposal above was replaced by **one painted dusk scene in both
+themes**. Three art studies were rendered offline and reviewed; they picked
+*Sunset Harbor*: a warm sunset sky, the sun's glittering reflection path across
+the water, a hazy ridge with a harbor town, a cobblestone causeway in front, and
+a single evenly-spaced row of twelve lighthouses along it. The scene is authored
+as **three parallax composites plus a sky ramp** (far ridge/town, mid
+water/glitter, near causeway painted down to the canvas bottom), replacing five
+bands at five different factors.
+
+Two reasons the scene does not follow the theme. First, the sun is the only
+light source, so the palette question is a *contrast* question, not a style one:
+light mode's `#1e293b` body text measures **1.15:1** against the upper sky —
+invisible — while the dark palette's `#e2e8f0` measures **13.7:1** there and
+`#fbbf24` **10.1:1**. Inverting the foreground palette under a scene that never
+inverts is the trap; `SCENERY_TEXT_COLORS` in `src/game/engine/theme.ts` pins the
+three scenery-drawn messages ("No verses available", "Journey Complete! …",
+"Tap Play Again") to the dark palette, and `theme.test.ts` asserts the measured
+luminance and the counterfactual. Second, everything else that used to be canvas
+text is DOM now (see §5's band note), so the scene can be graded for one look
+without dragging text legibility along with it.
+
+**Measured bands (Pixel 10 XL, 412×917 CSS px, DPR 2.6214).** These are the
+numbers the layout is built from, read off `window.__lampGameLayout` on the real
+device geometry, not estimated:
+
+| Quantity | Value |
+| --- | --- |
+| Canvas backing store | 1080×2403 device px (`surfaceScale` 2.6214 — native pixels) |
+| DOM chrome band, measured | **117 CSS px** vs the old hardcoded **88 px** guess — 29 px short |
+| Band after the chrome move | **161.5 px** (chips 8→37, controls 8→36, prompt column 42→161.5) |
+| HUD text rows | 212.7 → 227.0 |
+| Verse top (`slotAreaTop`) | **229.5** — clears the DOM by 68.0 px |
+| Causeway (`pathY`) | 833 |
+| Band tops (sky / far / mid / near / bottom) | 0 / 563 / 831 / 819 / 845 |
+
+The 29 px shortfall is why every canvas element in the top stack — the stats
+line, the reference, the first verse row — was positioned from a guess, and it is
+the defect the layout spec pins: with `layout.ts` patched to ignore the measured
+inset, all three phone cases in `e2e/game-layout.spec.ts` fail with
+`Expected: >= 114 / Received: 88`.
+
+**Cost, as measured.** 16 frames, **8.85 MB** of RGBA, **803 ms** to generate,
+widest frame **1624 px** (`scenery_far`, which sets `maxWidthPx` in the atlas
+packer), tallest 869 px. That is the price of authoring near device density
+(today's bands are 128 px wide) and it is paid once at boot; the frame loop
+idling work in §15 is what pays for the pixels per-frame.
+
+**Reviewing the art without a GPU.** `bun run render-scenery [outDir]` composites
+the real `createGameSpriteFrames()` the way `LampGame.buildPuzzle` draws it — the
+scene, the lamp row and the glow layer, in the engine's order — and writes
+`scenery-in-game.png` into `$TMPDIR/kjv-ref-scenery` by default, at the user's
+device geometry (1080×2404 device px, i.e. 412×917.1 CSS px). It reads only
+`node:zlib`, so it adds no dependency and no backend. This exists because the art
+is the one part of the game that neither code review nor the test suite can
+check: the engine is WebGPU-only, so it does not run under jsdom at all, and
+headless Chrome's default (Metal) backend boots it but composites nothing — a
+screenshot comes back pure black. `scripts/render-scenery.ts` is the only way to
+see a scenery change before it reaches a phone.
 
 **Layout (full-page).** The game canvas takes the full viewport. A slim
 overlay HUD (top): reference signpost, combo/XP, current scaffold level, a
@@ -589,14 +649,43 @@ not awarded*:
   voice, no separate control schemes to maintain. The whole game is playable
   with a single pointer.
 - **Reduced motion.** Respect `prefers-reduced-motion`: disable parallax,
-  shorten flares, kill screen shake. The game remains fully playable.
+  shorten flares, kill screen shake. The game remains fully playable. Built: the
+  camera holds at the start of the journey, and the ambient pulse (flame flicker,
+  beam sweep, the reflections on the water) is frozen outright — the scene is
+  complete, it simply never animates by itself.
 - **Text size.** Honor `kjv-verse-font-size` for tile text, so the player's
   existing preference carries in.
 - **Color-blind safe.** Lamp states use shape + label (lit/unlit icons) in
   addition to color, not color alone.
-- **Performance.** 2D Babylon, few dozen sprites, no per-frame heavy work;
-  target 60fps on mid-range phones. Dispose scene on unmount. Cap DPR at 2 to
-  avoid retina fill blowups.
+- **Performance.** 2D Babylon Lite, a few dozen sprites, one draw call per
+  layer. The canvas renders at **native device pixels** (DPR 2.6214 on the
+  phone, 1080×2403) rather than at 1× and upscaled, capped at `RENDER_SCALE_CAP`
+  = 3 so a DPR-4 desktop cannot allocate a 4× surface; MSAA is set to 1, which
+  is safe because glyph coverage is analytic in the shader.
+
+  **Idling pays for the pixels.** `@babylonjs/lite`'s loop has no dirty check —
+  `startEngine` re-arms itself every frame and re-renders whether or not anything
+  changed — so the extra fill is only saved by *stopping the engine*. The policy
+  lives in `src/game/engine/idle.ts` (pure, unit tested) and the wiring in
+  `LampGame.ts`:
+
+  | Rule | Effect |
+  | --- | --- |
+  | Ambient pulse at 30 fps, not 60 | The flame's own period is ~1.25 s, so the cadence is invisible; halved work for the one animation that runs the whole time a verse is on screen |
+  | Ambient pulse gives up after 5 s (`AMBIENT_IDLE_MS`) with no input | A phone set down on the puzzle stops drawing; the next touch or tap restores it |
+  | Every visual mutation calls `wake()` | The four sprite/text wrappers plus the input, layout and resize paths, so a stopped engine is never visible as a missed change |
+  | `stopEngine` when nothing is moving | Nothing animates on the summary screen or "No verses available" (`teardownPuzzle` removes the ambient sprites), so those screens stop with no flag of their own |
+  | `visibilitychange` | A backgrounded tab stops both loops and resumes on return |
+  | `prefers-reduced-motion` | No ambient at all, so an actively-played verse settles within the 150 ms wake window instead of 5 s |
+
+  Verified rather than assumed: an e2e spec asserts the quiet time at the moment
+  the engine stops is **≥ 5000 ms** normally and **< 2500 ms** under reduced
+  motion (the counterfactual is in the test — with the predicate patched to ignore
+  the ambient pulse, the first fails with `Expected: >= 5000 / Received: 208`).
+  The one thing that cannot be asserted from state is that the player's view is
+  unchanged: a software-WebGPU capture taken before and after the stop measures a
+  mean channel of 56.86 vs 56.81 — the canvas holds its last frame.
+
 - **Offline.** The app is already static and works offline once cached; the
   Babylon bundle is just another static asset. Verse data already ships as
   static JSON / `kjv.txt`. The game works fully offline, consistent with the
