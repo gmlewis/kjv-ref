@@ -94,6 +94,15 @@ function waitForRendering(
 }
 
 test.describe('Lamp of the Path — render-loop idling', () => {
+  // A phone geometry, and not the default `devices['Desktop Chrome']` 1280x720.
+  // Measured on the repo's own swiftshader backend: 1280x720@1 never finishes
+  // booting within the 30s ceiling (the desktop layout path is the expensive one),
+  // while every phone geometry boots in ~1.6s — so on the default viewport these
+  // two tests skipped in CI and asserted nothing there. Nothing below depends on
+  // the viewport (the lit-lamp count, the pan and the idle window are all
+  // geometry-independent), so the smallest phone is the one that actually runs.
+  test.use({ viewport: { width: 360, height: 640 }, deviceScaleFactor: 2 });
+
   test('the engine stops rendering once the scene is still, and a tap starts it again', async ({ page }) => {
     await page.goto('/kjv-ref/practice/game', { waitUntil: 'domcontentloaded' });
 
@@ -101,7 +110,9 @@ test.describe('Lamp of the Path — render-loop idling', () => {
 
     const boot = await readRendering(page);
     expect(boot, 'the engine must publish __lampGameRendering').not.toBeNull();
-    // A live verse: 12 flames + 12 beacon beams + 12 water reflections.
+    // A live verse. On a fresh profile only the *current* lamp is lit, so this is
+    // 1 flame + 1 beam + 1 reflection = 3; it grows as the player lights lamps,
+    // which is why the assertion is "some" rather than a fixed count.
     expect(boot!.ambientSprites).toBeGreaterThan(0);
     expect(boot!.reducedMotion).toBe(false);
     // …and it is rendering to begin with — the scene the player is looking at.
@@ -137,8 +148,10 @@ test.describe('Lamp of the Path — render-loop idling', () => {
 
     const stopped = await waitForRendering(page, 'stopped', 15_000);
     expect(stopped, 'the engine kept rendering with the ambient pulse frozen').not.toBeNull();
-    // An order of magnitude below the ambient timeout: with nothing to animate,
-    // the only thing keeping the loop alive was the wake window after boot.
+    // Half the ambient timeout, and comfortably above the wake window: with nothing
+    // to animate, the only thing that kept the loop alive was the ~150ms after boot.
+    // The bound is loose on purpose — a slow runner stretches a frame, and the stop
+    // is noticed on a frame — but it still separates the two cases by 2x.
     expect(stopped!.state.quietMs).toBeLessThan(AMBIENT_IDLE_MS / 2);
   });
 });

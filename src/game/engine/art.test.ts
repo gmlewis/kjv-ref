@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { createGameSpriteFrames, TOWER_LANTERN_ABOVE_FOOT, TOWER_ASPECT } from './art';
+import { describe, it, expect, beforeAll } from 'vitest';
+import { createGameSpriteFrames, type SpriteFrameSpec, TOWER_LANTERN_ABOVE_FOOT, TOWER_ASPECT } from './art';
 import { SCENERY_BANDS, SCENERY_BAND_CSS_WIDTH } from './scenery';
 
 /**
@@ -36,9 +36,29 @@ function rowMean(frame: { width: number; pixels: Uint8Array }, y: number) {
   return n === 0 ? null : { r: r / n, g: g / n, b: b / n, n };
 }
 
+/**
+ * The atlas is painted once for the whole file.
+ *
+ * `createGameSpriteFrames()` paints ~8.85 MB of RGBA, and it is not cheap: a few
+ * hundred ms on a laptop, 2-3 s on a CI runner. This file used to call it inside
+ * every test, so CI paid that cost twelve times over — ~30 s of repeated painting,
+ * which pushed the slowest test past vitest's 5 s default and failed the build on a
+ * *timeout* while every assertion in it passed. Nothing below mutates the frames,
+ * so one generation is shared by all of them.
+ *
+ * Setup gets an explicit budget because the cost is real and one-off; the tests
+ * themselves then run in milliseconds. Raising the per-test timeout instead would
+ * have hidden the redundancy and left the suite paying ~30 s for a result it
+ * already had.
+ */
+let atlas: SpriteFrameSpec[];
+beforeAll(() => {
+  atlas = createGameSpriteFrames();
+}, 60_000);
+
 describe('createGameSpriteFrames', () => {
   it('returns the exact frame inventory the engine draws from', () => {
-    const names = createGameSpriteFrames().map((f) => f.name);
+    const names = atlas.map((f) => f.name);
     // The engine looks frames up by name and now throws on an unknown one, so
     // this list is the contract between the two files.
     expect(names).toEqual([
@@ -64,7 +84,7 @@ describe('createGameSpriteFrames', () => {
   it('pins the 1x1 white pixel at index 0', () => {
     // Not cosmetic: the slot borders and the feedback pill are drawn as
     // `frame: 0` quads tinted by `color`, so index 0 must be opaque white.
-    const [first] = createGameSpriteFrames();
+    const [first] = atlas;
     expect(first.name).toBe('w');
     expect(first.width).toBe(1);
     expect(first.height).toBe(1);
@@ -72,7 +92,7 @@ describe('createGameSpriteFrames', () => {
   });
 
   it('gives every frame a well-formed RGBA buffer', () => {
-    for (const frame of createGameSpriteFrames()) {
+    for (const frame of atlas) {
       expect(frame.width).toBeGreaterThan(0);
       expect(frame.height).toBeGreaterThan(0);
       expect(frame.pixels).toBeInstanceOf(Uint8Array);
@@ -84,7 +104,7 @@ describe('createGameSpriteFrames', () => {
     // A frame that is entirely transparent renders as nothing at all, which is
     // how `beacon_beam` was silently invisible once (painted additively, so the
     // alpha channel was never written).
-    for (const frame of createGameSpriteFrames()) {
+    for (const frame of atlas) {
       if (frame.name === 'w') continue;
       let opaque = 0;
       for (let i = 3; i < frame.pixels.length; i += 4) {
@@ -98,7 +118,7 @@ describe('createGameSpriteFrames', () => {
     // Each band's frame is stretched over an extent derived from SCENERY_BANDS.
     // If its two axes were authored at different densities the band would be
     // drawn squashed, which is invisible until you look at a phone.
-    const frames = new Map(createGameSpriteFrames().map((f) => [f.name, f]));
+    const frames = new Map(atlas.map((f) => [f.name, f]));
     const density = frames.get('scenery_far')!.width / SCENERY_BAND_CSS_WIDTH;
     expect(density).toBeGreaterThan(1);
     // Every band is authored at the same width, and the two that the engine
@@ -130,7 +150,7 @@ describe('createGameSpriteFrames', () => {
     // is most suppressed at the orange, which is what the "warmest row" test
     // below measures.) A monotone ramp is what keeps a nearest-sampled gradient
     // from banding at this size.
-    const sky = createGameSpriteFrames().find((f) => f.name === 'sky')!;
+    const sky = atlas.find((f) => f.name === 'sky')!;
     const rows = [0.02, 0.2, 0.4, 0.6, 0.75, 0.88].map((t) =>
       rowMean(sky, Math.min(sky.height - 1, Math.floor(sky.height * t))),
     );
@@ -148,7 +168,7 @@ describe('createGameSpriteFrames', () => {
   it('puts the warmest sky row near the horizon, with blue most suppressed there', () => {
     // The sun sits low: the reddest, least-blue row is in the lower half but not
     // at the very bottom, where the dusk has already closed back toward violet.
-    const sky = createGameSpriteFrames().find((f) => f.name === 'sky')!;
+    const sky = atlas.find((f) => f.name === 'sky')!;
     let bestY = 0;
     let best = -Infinity;
     for (let y = 0; y < sky.height; y++) {
@@ -175,7 +195,7 @@ describe('createGameSpriteFrames', () => {
     // The reflection column is the single most-remarked feature of the scene. It
     // is painted additively over the water, so it shows as "red leads blue" in a
     // band that is otherwise a cool blue-grey.
-    const mid = createGameSpriteFrames().find((f) => f.name === 'scenery_mid')!;
+    const mid = atlas.find((f) => f.name === 'scenery_mid')!;
     // Compare the warmest column against the coolest one, over the upper third of
     // the water (the reflection fades out with depth).
     let warmest = -Infinity;
@@ -207,8 +227,8 @@ describe('createGameSpriteFrames', () => {
     // unlit tower, so the centre of mass of that difference is the lantern's
     // centre, with no assumption about which row is brightest (the cream masonry
     // out-shines the glass on any absolute measure).
-    const lit = createGameSpriteFrames().find((f) => f.name === 'lighthouse_lit')!;
-    const unlit = createGameSpriteFrames().find((f) => f.name === 'lighthouse_unlit')!;
+    const lit = atlas.find((f) => f.name === 'lighthouse_lit')!;
+    const unlit = atlas.find((f) => f.name === 'lighthouse_unlit')!;
     expect(unlit.width).toBe(lit.width);
     expect(unlit.height).toBe(lit.height);
 
@@ -231,7 +251,7 @@ describe('createGameSpriteFrames', () => {
   });
 
   it('keeps the tower frame taller than it is wide, at TOWER_ASPECT', () => {
-    const tower = createGameSpriteFrames().find((f) => f.name === 'lighthouse_lit')!;
+    const tower = atlas.find((f) => f.name === 'lighthouse_lit')!;
     expect(tower.height * TOWER_ASPECT).toBeCloseTo(tower.width, 0);
     expect(TOWER_ASPECT).toBeLessThan(0.5);
   });
@@ -240,7 +260,7 @@ describe('createGameSpriteFrames', () => {
     // The engine rotates the beam about its box centre and relies on the art's
     // apex being the bottom centre: if the painted wedge drifts off that point,
     // the sweep pivots around empty space instead of around the lantern.
-    const beam = createGameSpriteFrames().find((f) => f.name === 'beacon_beam')!;
+    const beam = atlas.find((f) => f.name === 'beacon_beam')!;
 
     const extent = (y: number) => {
       let minX = beam.width;
