@@ -893,6 +893,7 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     v: KJVVerse,
     chainVerses: KJVVerse[] | null = null,
     minStage: ScaffoldLayer = 0,
+    explicitStage?: ScaffoldLayer,
   ) {
     wake();
     // The surface is resized before a rebuild (ResizeObserver -> resizeEngine ->
@@ -907,20 +908,25 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     wrongAttempts = 0;
     setCanSkip(false);
 
-    const boot = progressFor(v.reference);
-    const timesRecited = sessionRecited.get(v.reference) ?? boot?.timesRecited ?? 0;
-    // A live override (from setStage) wins; otherwise the auto stage is computed
-    // from this session's recitations + the persisted override + mastered status.
-    // When the player chose "Auto" (setStage(null)) the persisted override is
-    // deliberately ignored so the verse reverts to a pure recitation-based stage.
-    const customForAuto = ignorePersistedOverride ? null : (boot?.customClozeLevel ?? null);
-    const computed: ScaffoldLayer =
-      stageOverride ?? getGameLayer(timesRecited, customForAuto as any, boot?.status);
-    // `minStage` forces the stage up (never down). Used only when re-presenting
-    // a verse immediately after its stage-0 read-along: tapping to continue
-    // must advance to at least stage 1, even if a persisted customClozeLevel of
-    // 0 would otherwise pin the verse back to the read-along and loop forever.
-    const stage: ScaffoldLayer = Math.max(minStage, computed) as ScaffoldLayer;
+    let stage: ScaffoldLayer;
+    if (explicitStage !== undefined) {
+      stage = explicitStage;
+    } else {
+      const boot = progressFor(v.reference);
+      const timesRecited = sessionRecited.get(v.reference) ?? boot?.timesRecited ?? 0;
+      // A live override (from setStage) wins; otherwise the auto stage is computed
+      // from this session's recitations + the persisted override + mastered status.
+      // When the player chose "Auto" (setStage(null)) the persisted override is
+      // deliberately ignored so the verse reverts to a pure recitation-based stage.
+      const customForAuto = ignorePersistedOverride ? null : (boot?.customClozeLevel ?? null);
+      const computed: ScaffoldLayer =
+        stageOverride ?? getGameLayer(timesRecited, customForAuto as any, boot?.status);
+      // `minStage` forces the stage up (never down). Used only when re-presenting
+      // a verse immediately after its stage-0 read-along: tapping to continue
+      // must advance to at least stage 1, even if a persisted customClozeLevel of
+      // 0 would otherwise pin the verse back to the read-along and loop forever.
+      stage = Math.max(minStage, computed) as ScaffoldLayer;
+    }
 
     // Task C-6: Multi-verse chain reconstruction
     puzzle = chainVerses && chainVerses.length > 1
@@ -1336,7 +1342,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
       const savedPlaced = tiles.map((t) => ({ id: t.id, slot: t.placedSlotIndex }));
       // Rebuild with the same chain verses so a resize mid-passage doesn't
       // silently collapse a stage-5 chain back to a single verse.
-      buildPuzzle(verse, currentChainVerses);
+      // Preserve the current puzzle stage so a resize or top-inset shift mid-puzzle
+      // (e.g. prompt text line wrapping/unwrapping) never resets the stage.
+      const currentStage = puzzle ? puzzle.layer : undefined;
+      buildPuzzle(verse, currentChainVerses, 0, currentStage);
       for (const p of savedPlaced) {
         if (p.slot == null) continue;
         const t = tiles.find((tt) => tt.id === p.id);
@@ -1986,7 +1995,14 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
           currentChainLen = 1;
           currentChainVerses = null;
           puzzleSeed = (Math.random() * 2 ** 31) | 0;
-          buildPuzzle(verse, null, 1);
+          if (stageOverride === 0) {
+            stageOverride = 1;
+          }
+          const boot = progressFor(verse.reference);
+          if (boot && boot.customClozeLevel === 0) {
+            boot.customClozeLevel = 1;
+          }
+          buildPuzzle(verse, null, 1, 1);
         } else {
           nextPuzzle();
         }
@@ -2247,8 +2263,10 @@ export async function createLampGame(opts: LampGameOptions): Promise<LampGame> {
     theme = next;
     palette = paletteFor(theme);
     // Rebuild the current puzzle so every sprite/text adopts the new palette.
+    // Preserve the current puzzle stage so a theme toggle doesn't reset it.
     const current = verse;
-    if (current) buildPuzzle(current, currentChainVerses);
+    const currentStage = puzzle ? puzzle.layer : undefined;
+    if (current) buildPuzzle(current, currentChainVerses, 0, currentStage);
     else relayout();
   }
 

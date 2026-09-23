@@ -227,6 +227,11 @@ test.describe('Lamp of the Path Game Mode (Stream D)', () => {
       });
       expect(after).not.toBeNull();
       expect(new Date(after as string).getTime()).toBeGreaterThan(new Date(before as string).getTime());
+
+      // Read-along tap must advance to stage 1 word-ordering and not stay stuck on stage 0
+      const advancedPuzzle = await page.evaluate(() => (window as any).__lampGamePuzzle?.());
+      expect(advancedPuzzle?.layer).toBe(1);
+      await expect(page.locator('text=/Verse Stage 1/')).toBeVisible();
     }
   });
 

@@ -54,8 +54,10 @@ const doAwardAchievement = vi.fn().mockResolvedValue(undefined);
 const doUpdateDailyGoal = vi.fn().mockResolvedValue(undefined);
 const doSetClozeLevel = vi.fn().mockResolvedValue(undefined);
 
+let mockProgress: any[] = [];
+
 vi.mock('../hooks', () => ({
-  useMyProgress: () => [[], false, null],
+  useMyProgress: () => [mockProgress, false, null],
   useDueReviews: () => [[], false, null],
   useMyBookmarks: () => [[], false, null],
   useUpdateProgressMutation: () => ({ mutate: doUpdateProgress }),
@@ -117,6 +119,7 @@ async function flush() {
 describe('Game host component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockProgress = [];
     lastEngineOpts = null;
     document.documentElement.classList.remove('dark');
     localStorage.removeItem('kjv-theme');
@@ -379,6 +382,44 @@ describe('Game host component', () => {
       lastEngineOpts.callbacks.onCanSkipChange(false);
     });
     expect(screen.queryByRole('button', { name: /skip this lamp/i })).toBeNull();
+    unmount();
+  });
+
+  it('advances stageOverride and persists level when transitioning from stage 0 read-along to stage >= 1', async () => {
+    mockProgress = [
+      {
+        verse: { reference: 'Deuteronomy 32:9' },
+        timesRecited: 0,
+        customClozeLevel: 0,
+      },
+    ];
+    const { unmount } = renderGame();
+    await flush();
+
+    act(() => {
+      lastEngineOpts.callbacks.onVerseChange(
+        { reference: 'Deuteronomy 32:9', text: "For the LORD's portion is his people" },
+        0,
+        'Verse Stage 0 — Read the verse, then tap to continue',
+      );
+    });
+    await flush();
+
+    act(() => {
+      lastEngineOpts.callbacks.onVerseChange(
+        { reference: 'Deuteronomy 32:9', text: "For the LORD's portion is his people" },
+        1,
+        'Verse Stage 1 — Tap the words in order',
+      );
+    });
+    await flush();
+
+    expect(doSetClozeLevel).toHaveBeenCalledWith({
+      reference: 'Deuteronomy 32:9',
+      level: 1,
+    });
+    const stage1Btn = screen.getByTitle('Stage 1');
+    expect(stage1Btn.className).toContain('bg-amber-500');
     unmount();
   });
 });

@@ -260,7 +260,18 @@ export default function Game() {
               const entry = progressRef.current.find(
                 (p: any) => p?.verse?.reference === v?.reference,
               );
-              setStageOverride(entry?.customClozeLevel ?? null);
+              const customLevel = entry?.customClozeLevel ?? null;
+              // If the verse had a stage-0 read-along override but has now advanced
+              // to a word-ordering stage (stage >= 1), update the override so the
+              // UI chip and persisted progress reflect the new stage rather than
+              // keeping the verse pinned to stage 0.
+              if ((customLevel === 0 || stageOverride === 0) && stage > 0) {
+                if (entry) entry.customClozeLevel = stage;
+                setStageOverride(stage);
+                void doSetClozeLevel({ reference: v?.reference, level: stage }).catch(() => {});
+              } else {
+                setStageOverride(customLevel);
+              }
               // New verse: close any stale skip confirm and hide the auto-reveal
               // (a manually opened Peek is left untouched).
               setShowSkipConfirm(false);
