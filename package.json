@@ -17,7 +17,7 @@
     "render-scenery": "bun run scripts/render-scenery.ts"
   },
   "dependencies": {
-    "@babylonjs/lite": "^1.30.0",
+    "@babylonjs/lite": "^1.31.1",
     "date-fns": "^3.6.0",
     "lucide-react": "^0.294.0",
     "minisearch": "^7.2.0",
