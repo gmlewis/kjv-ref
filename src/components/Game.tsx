@@ -766,12 +766,12 @@ export default function Game() {
       {status === 'ready' && !summary && !showPeek && (activeRef || activePrompt) && (
         <div ref={promptRef} data-game-chrome="prompt" className="absolute top-[42px] sm:top-[50px] left-1/2 -translate-x-1/2 z-10 flex flex-col items-center justify-center gap-0.5 max-w-[96vw] px-1">
           {activeRef && (
-            <span className="glassmorphism rounded-full px-2 py-0.5 text-[10px] sm:text-xs font-bold text-gray-700 dark:text-gray-100 shadow-sm border border-white/10">
+            <span className="glassmorphism rounded-full px-2 py-0.5 text-[10px] sm:text-xs font-bold text-gray-700 dark:text-gray-100 shadow-xs border border-white/10">
               {activeRef}
             </span>
           )}
           {activePrompt && (
-            <span className="text-[11px] sm:text-xs font-bold text-amber-500 dark:text-amber-400 text-center drop-shadow-sm">
+            <span className="text-[11px] sm:text-xs font-bold text-amber-500 dark:text-amber-400 text-center drop-shadow-xs">
               {activePrompt}
             </span>
           )}
@@ -789,7 +789,7 @@ export default function Game() {
                   title={`Stage ${s}`}
                   className={`min-w-[1.15rem] sm:min-w-[1.35rem] rounded-full px-1 py-0.2 text-[10px] sm:text-xs font-extrabold transition-colors ${
                     isActive
-                      ? 'bg-amber-500 text-white shadow-sm'
+                      ? 'bg-amber-500 text-white shadow-xs'
                       : 'text-gray-600 dark:text-gray-300 hover:bg-white/20'
                   }`}
                 >
@@ -803,7 +803,7 @@ export default function Game() {
               title="Auto — let the stage advance with recitation count"
               className={`rounded-full px-1.5 py-0.2 text-[10px] sm:text-xs font-extrabold transition-colors ${
                 stageOverride === null
-                  ? 'bg-indigo-500 text-white shadow-sm'
+                  ? 'bg-indigo-500 text-white shadow-xs'
                   : 'text-gray-600 dark:text-gray-300 hover:bg-white/20'
               }`}
             >
@@ -815,7 +815,7 @@ export default function Game() {
             // glassmorphism pill for the same reason the stage chips do: nothing
             // else guarantees contrast over whatever the sunset is doing at that
             // y, and a pill reads the same in both themes.
-            <span className="glassmorphism rounded-full px-2 py-0.5 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-300 shadow-sm border border-white/10">
+            <span className="glassmorphism rounded-full px-2 py-0.5 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-300 shadow-xs border border-white/10">
               {`Level ${stats.level} · ${stats.xp} XP · Combos x${stats.combo}`}
             </span>
           )}

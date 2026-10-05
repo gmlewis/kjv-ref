@@ -37,7 +37,7 @@ at **[gmlewis.github.io/kjv-ref](https://gmlewis.github.io/kjv-ref)**.
 - **Runtime/PM:** [Bun](https://bun.sh) 1.3+
 - **Framework:** React 18 + TypeScript
 - **Build:** Vite 5
-- **Styling:** Tailwind CSS 3
+- **Styling:** Tailwind CSS 4
 - **Routing:** react-router-dom 7
 - **Tests:** Vitest (unit), Playwright (e2e)
 - **Deploy:** GitHub Pages (auto-deploy on push to `master`)

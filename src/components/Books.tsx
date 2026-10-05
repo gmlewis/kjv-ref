@@ -183,7 +183,7 @@ function SearchPanel({ onNavigateAway, initialQuery = '' }: { onNavigateAway: ()
             <button
               key={t}
               onClick={() => setTestament(t)}
-              className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-all shadow-sm ${
+              className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-all shadow-xs ${
                 testament === t
                   ? t === 'all'
                     ? 'bg-gradient-to-r from-purple-500 to-indigo-600 text-white'

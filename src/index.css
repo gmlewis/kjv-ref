@@ -1,6 +1,36 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+/*
+ * Tailwind CSS v4. The v3 `@tailwind base/components/utilities` directives and
+ * `tailwind.config.js` are gone: the theme lives in CSS now, and source files
+ * are detected automatically (the project is the base directory), so the old
+ * `content` globs are no longer needed.
+ *
+ * v3's `darkMode: 'class'` is spelled as an explicit variant: this app toggles
+ * the `dark` class on <html> and styles descendants with `dark:` utilities.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Font stacks carried over verbatim from the deleted tailwind.config.js so that
+ * `font-sans` / `font-serif` keep resolving to Inter / Merriweather.
+ */
+@theme {
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-serif: 'Merriweather', Georgia, serif;
+}
+
+/*
+ * Tailwind v4's preflight stopped forcing `cursor: pointer` on buttons and
+ * [role=button] (it now leaves the browser default of `default`). The v3
+ * behaviour is restored here so every button in the app still shows a pointer.
+ */
+@layer base {
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+}
 
 /* ─── CSS custom properties ────────────────────────────────────────────────── */
 :root {

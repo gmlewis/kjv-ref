@@ -130,7 +130,7 @@ function WordBankMode({ verse, onResult }: { verse: KJVVerse; onResult: (correct
                 key={i}
                 onClick={() => tapPlaced(i)}
                 disabled={checked}
-                className="px-3 py-1.5 bg-purple-500 text-white rounded-lg text-sm font-semibold shadow-sm hover:bg-purple-600 transition-colors disabled:cursor-default"
+                className="px-3 py-1.5 bg-purple-500 text-white rounded-lg text-sm font-semibold shadow-xs hover:bg-purple-600 transition-colors disabled:cursor-default"
               >
                 {w}
               </button>
@@ -146,7 +146,7 @@ function WordBankMode({ verse, onResult }: { verse: KJVVerse; onResult: (correct
             <button
               key={i}
               onClick={() => tapAvailable(i)}
-              className="px-3 py-1.5 bg-white border-2 border-gray-200 rounded-lg text-sm font-semibold text-gray-700 hover:border-purple-400 hover:bg-purple-50 transition-all shadow-sm"
+              className="px-3 py-1.5 bg-white border-2 border-gray-200 rounded-lg text-sm font-semibold text-gray-700 hover:border-purple-400 hover:bg-purple-50 transition-all shadow-xs"
             >
               {w}
             </button>
@@ -503,7 +503,7 @@ function SimplifiedVanishingClozeMode({
             onClick={() => onLevelChange(lvl)}
             className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all border ${
               active
-                ? `${CLOZE_LEVEL_BG[lvl]} ${CLOZE_LEVEL_COLORS[lvl]} border-current shadow-sm`
+                ? `${CLOZE_LEVEL_BG[lvl]} ${CLOZE_LEVEL_COLORS[lvl]} border-current shadow-xs`
                 : 'bg-white text-gray-500 dark:bg-slate-800 dark:text-slate-300 border-gray-200 dark:border-slate-600 hover:border-gray-300 dark:hover:border-slate-400'
             }`}
             title={isAuto ? `Level ${lvl} — ${CLOZE_LEVEL_LABELS[lvl]} (auto)` : `Level ${lvl} — ${CLOZE_LEVEL_LABELS[lvl]}`}
@@ -732,7 +732,7 @@ function VanishingClozeMode({
             onClick={() => onLevelChange(lvl)}
             className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all border ${
               active
-                ? `${CLOZE_LEVEL_BG[lvl]} ${CLOZE_LEVEL_COLORS[lvl]} border-current shadow-sm`
+                ? `${CLOZE_LEVEL_BG[lvl]} ${CLOZE_LEVEL_COLORS[lvl]} border-current shadow-xs`
                 : 'bg-white text-gray-500 dark:bg-slate-800 dark:text-slate-300 border-gray-200 dark:border-slate-600 hover:border-gray-300 dark:hover:border-slate-400'
             }`}
             title={isAuto ? `Level ${lvl} — ${CLOZE_LEVEL_LABELS[lvl]} (auto)` : `Level ${lvl} — ${CLOZE_LEVEL_LABELS[lvl]}`}

@@ -97,6 +97,9 @@ Automatic on push to `master` via `.github/workflows/deploy.yml` (runs
 ## Do not
 
 - Do not create a `package-lock.json` — this repo uses `bun.lock`.
+- Do not add a `tailwind.config.js` or the v3 `@tailwind base/components/
+  utilities` directives — Tailwind CSS v4 is configured in `src/index.css`
+  (`@custom-variant` for class-based dark mode, `@theme` for the font stacks).
 - Do not run `npm install` or commit `node_modules`.
 - Do not commit `dist/` or `e2e/report/`.
 - Do not add external backend dependencies — all data is served statically.
