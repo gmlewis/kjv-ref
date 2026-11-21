@@ -7,7 +7,8 @@ const STORAGE_KEYS = {
   ACHIEVEMENTS: 'kjv-memorize-achievements',
   BOOKMARKS: 'kjv-memorize-bookmarks',
   DAILY_GOAL: 'kjv-memorize-daily-goal',
-  REVIEW_SCHEDULE: 'kjv-memorize-review-schedule'
+  REVIEW_SCHEDULE: 'kjv-memorize-review-schedule',
+  VERSE_HIGHLIGHTS: 'kjv-verse-highlights'
 };
 
 // Initialize storage with default values if not present
@@ -48,6 +49,11 @@ export function initializeStorage() {
   // Review schedule storage
   if (!localStorage.getItem(STORAGE_KEYS.REVIEW_SCHEDULE)) {
     localStorage.setItem(STORAGE_KEYS.REVIEW_SCHEDULE, JSON.stringify([]));
+  }
+
+  // Per-verse highlight colors (reference → color hex)
+  if (!localStorage.getItem(STORAGE_KEYS.VERSE_HIGHLIGHTS)) {
+    localStorage.setItem(STORAGE_KEYS.VERSE_HIGHLIGHTS, JSON.stringify({}));
   }
 }
 
@@ -158,6 +164,55 @@ export function getReviewSchedule(): any[] {
 export function setReviewSchedule(schedule: any[]): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(STORAGE_KEYS.REVIEW_SCHEDULE, JSON.stringify(schedule));
+}
+
+// ─── Per-verse highlight colors ──────────────────────────────────────────────
+//
+// Stored as a plain map of verse reference → CSS color (e.g.
+// { "John 3:16": "#4d7196" }). A reference with no entry is unhighlighted.
+// Values are validated on read so a hand-edited or imported settings file
+// cannot inject arbitrary strings that would be written into inline styles.
+
+export const VERSE_HIGHLIGHTS_KEY = STORAGE_KEYS.VERSE_HIGHLIGHTS;
+
+export function getVerseHighlights(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const data = localStorage.getItem(STORAGE_KEYS.VERSE_HIGHLIGHTS);
+    if (!data) return {};
+    const parsed = JSON.parse(data);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const result: Record<string, string> = {};
+    for (const [reference, color] of Object.entries(parsed)) {
+      // Only accept simple hex colors (#rgb / #rrggbb / #rrggbbaa).
+      if (typeof color === 'string' && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(color)) {
+        result[reference] = color;
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+export function setVerseHighlights(highlights: Record<string, string>): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(STORAGE_KEYS.VERSE_HIGHLIGHTS, JSON.stringify(highlights));
+}
+
+/**
+ * Set (or, when `color` is null, clear) the highlight color for one verse.
+ * Returns the updated map so callers can update React state synchronously.
+ */
+export function setVerseHighlight(reference: string, color: string | null): Record<string, string> {
+  const highlights = getVerseHighlights();
+  if (color === null) {
+    delete highlights[reference];
+  } else {
+    highlights[reference] = color;
+  }
+  setVerseHighlights(highlights);
+  return highlights;
 }
 
 // Add or update a review schedule entry (matched by verse reference)

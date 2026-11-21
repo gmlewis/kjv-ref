@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMyBookmarks, useCreateBookmarkMutation, useRemoveBookmarkMutation, notifyStorageChange } from '../hooks';
-import { getBookmarks, setBookmarks } from '../storage';
+import { getBookmarks, setBookmarks, getVerseHighlights, setVerseHighlight } from '../storage';
 import { ChevronRight, BookOpen, Search, Star, ArrowLeft, ArrowRight, Dumbbell, Hash, Loader2, X, ExternalLink, LinkIcon } from 'lucide-react';
 
 import { KJV_VERSES, getVersesByBook } from '../data/kjv-verses';
@@ -23,6 +23,34 @@ import { BIBLE_BOOKS, getPrevNextChapter, getNextVerse, getPrevVerse } from '../
 // before navigation so the value is available synchronously at mount time).
 // Supports ranges: { start: 1, end: 6 } for multi-verse highlights.
 let _pendingScrollTarget: VerseRange | null = null;
+
+/**
+ * The nine verse-highlight colors offered on each verse card.
+ *
+ * The whole verse card becomes this color. Most are dark enough to keep a WCAG
+ * AA contrast ratio (> 4.5:1) against white verse text. The bright yellow is
+ * the exception — it is light, so it switches the verse text to dark
+ * (`darkText`) instead. The list is sorted in rainbow/hue order.
+ */
+export interface VerseHighlightColor {
+  id: string;
+  name: string;
+  hex: string;
+  /** Use dark text on this color (needed for bright yellow to stay readable). */
+  darkText?: boolean;
+}
+
+export const VERSE_HIGHLIGHT_COLORS: readonly VerseHighlightColor[] = [
+  { id: 'red', name: 'Red', hex: '#dc2626' },
+  { id: 'orange', name: 'Orange', hex: '#ae6113' },
+  { id: 'yellow', name: 'Yellow', hex: '#eab308', darkText: true },
+  { id: 'green', name: 'Green', hex: '#15803d' },
+  { id: 'teal', name: 'Teal', hex: '#0f766e' },
+  { id: 'cyan', name: 'Cyan', hex: '#007a99' },
+  { id: 'blue', name: 'Blue', hex: '#2563eb' },
+  { id: 'indigo', name: 'Indigo', hex: '#6c64af' },
+  { id: 'lavender', name: 'Lavender', hex: '#9057a8' },
+];
 
 /** Set the pending scroll target for the next ChapterView mount (used by Tutorial). */
 export function setPendingScrollTarget(range: VerseRange) {
@@ -299,6 +327,48 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
   const [copiedVerse, setCopiedVerse] = useState<number | null>(null);
   // Track the highlight fade timer so we can cancel it on rapid navigation
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track the "Copied to Clipboard" toast timer so a rapid second copy on
+  // another verse does not get hidden early by the first copy's timer.
+  const copyToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Per-verse highlight colors (reference → hex), persisted in localStorage so
+  // they survive reloads and are included in settings export/import.
+  const [verseHighlights, setVerseHighlightsState] = useState<Record<string, string>>(() => getVerseHighlights());
+
+  useEffect(() => {
+    const refresh = () => setVerseHighlightsState(getVerseHighlights());
+    // Same-tab changes (including settings import) and cross-tab changes.
+    const onStorageChange = (e: Event) => {
+      const key = (e as CustomEvent).detail?.key;
+      if (!key || key === 'kjv-verse-highlights') refresh();
+    };
+    const onNativeStorage = (e: StorageEvent) => {
+      if (e.key === 'kjv-verse-highlights') refresh();
+    };
+    window.addEventListener('kjv-storage-change', onStorageChange);
+    window.addEventListener('storage', onNativeStorage);
+    return () => {
+      window.removeEventListener('kjv-storage-change', onStorageChange);
+      window.removeEventListener('storage', onNativeStorage);
+    };
+  }, []);
+
+  function handleHighlightToggle(reference: string, hex: string) {
+    // The same color clicked a second time clears the highlight entirely.
+    const current = getVerseHighlights()[reference];
+    const next = setVerseHighlight(reference, current === hex ? null : hex);
+    setVerseHighlightsState(next);
+    notifyStorageChange('kjv-verse-highlights');
+  }
+
+  function handleCopyLink(verse: number, url: string) {
+    if (!navigator.clipboard?.writeText) return;
+    navigator.clipboard.writeText(url).then(() => {
+      if (copyToastTimerRef.current) clearTimeout(copyToastTimerRef.current);
+      setCopiedVerse(verse);
+      copyToastTimerRef.current = setTimeout(() => setCopiedVerse(null), 2000);
+    }).catch(() => {});
+  }
 
   // Cancel the pending highlight fade on unmount. Without this, the 600 ms
   // timer fires after the component (and, in tests, the jsdom environment) is
@@ -307,6 +377,7 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
   useEffect(() => {
     return () => {
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      if (copyToastTimerRef.current) clearTimeout(copyToastTimerRef.current);
     };
   }, []);
 
@@ -879,11 +950,18 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
       <div className="space-y-3">
         {verses.map((v) => {
           const isFeatured = featuredRefs.has(v.reference);
+          const highlightColor = verseHighlights[v.reference];
+          const highlightEntry = highlightColor
+            ? VERSE_HIGHLIGHT_COLORS.find((color) => color.hex === highlightColor)
+            : undefined;
           return (
             <div
               key={v.reference}
               id={verseAnchorId(v.verse)}
+              style={highlightColor ? { backgroundColor: highlightColor } : undefined}
               className={`glassmorphism rounded-2xl p-5 shadow-md transition-all duration-150 ${
+                highlightColor ? 'verse-highlighted' : ''
+              } ${highlightEntry?.darkText ? 'verse-highlight-dark' : ''} ${
                 isFeatured ? 'border-2 border-purple-200' : ''
               } ${highlightedVerse === v.verse ? 'ring-4 ring-purple-400 ring-offset-2 bg-purple-50' : ''} ${
                 selectedRange && v.verse >= selectedRange.start && v.verse <= selectedRange.end ? 'verse-selected' : ''
@@ -916,7 +994,7 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
                       scrollToVerse(v.verse);
                     }
                   }}
-                  className="font-bold text-purple-500 text-sm min-w-[2.5rem] pt-0.5 cursor-pointer hover:text-purple-700 transition-colors select-none"
+                  className="verse-number font-bold text-purple-500 text-sm min-w-[2.5rem] pt-0.5 cursor-pointer hover:text-purple-700 transition-colors select-none"
                   title={selectedRange ? `Click to select verse ${v.verse} · Shift+click to extend selection` : `Click to select verse ${v.verse}`}
                 >{v.verse}</span>
                 <div className="flex-1 min-w-0">
@@ -1035,6 +1113,10 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
                     </div>
                   )}
                 </div>
+                {/* Right rail: favorite/link/practice on top, with the
+                    highlight swatches directly beneath them. */}
+                <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                  <div className="flex items-start gap-3">
                 <button
                   onClick={(e) => {
                     if (e.shiftKey && selectedRange) {
@@ -1088,19 +1170,24 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
                     return <Star className="w-4 h-4 text-gray-400 hover:text-yellow-400" />;
                   })()}
                 </button>
-                <button
-                  onClick={() => {
-                    const url = `${window.location.origin}/kjv-ref/books/${encodeURIComponent(bookName)}/${chapterNum}#v${v.verse}`;
-                    navigator.clipboard.writeText(url).then(() => {
-                      setCopiedVerse(v.verse);
-                      setTimeout(() => setCopiedVerse(null), 2000);
-                    });
-                  }}
-                  className="p-1.5 rounded-lg hover:bg-purple-50 transition-colors flex-shrink-0"
-                  title="Copy link to this verse"
-                >
-                  <LinkIcon className={`w-4 h-4 ${copiedVerse === v.verse ? 'text-green-500' : 'text-gray-400 hover:text-purple-400'}`} />
-                </button>
+                <div className="relative flex-shrink-0">
+                  <button
+                    onClick={() => {
+                      const url = `${window.location.origin}/kjv-ref/books/${encodeURIComponent(bookName)}/${chapterNum}#v${v.verse}`;
+                      handleCopyLink(v.verse, url);
+                    }}
+                    className="p-1.5 rounded-lg hover:bg-purple-50 transition-colors"
+                    title="Copy link to this verse"
+                    aria-label={`Copy link to verse ${v.verse}`}
+                  >
+                    <LinkIcon className={`w-4 h-4 ${copiedVerse === v.verse ? 'text-green-500' : 'text-gray-400 hover:text-purple-400'}`} />
+                  </button>
+                  {copiedVerse === v.verse && (
+                    <span role="status" aria-live="polite" className="copy-toast">
+                      Copied to Clipboard
+                    </span>
+                  )}
+                </div>
                 {(() => {
                   // When a multi-verse range is selected and this verse is in
                   // it, the Practice button targets the whole range so the
@@ -1120,6 +1207,42 @@ function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: n
                     </Link>
                   );
                 })()}
+                  </div>
+                  {/* Highlight colors — three rows of three. Click a swatch to
+                      fill this verse's background; click the active swatch
+                      again to clear it. The selected swatch stays at its hover
+                      size. */}
+                  <div
+                    className="grid grid-cols-3 justify-items-center gap-2"
+                    role="group"
+                    aria-label={`Highlight colors for verse ${v.verse}`}
+                  >
+                {VERSE_HIGHLIGHT_COLORS.map((color) => {
+                  const isActive = highlightColor === color.hex;
+                  return (
+                    <button
+                      key={color.id}
+                      type="button"
+                      onClick={() => handleHighlightToggle(v.reference, color.hex)}
+                      className={`h-6 w-6 rounded-full border-2 transition-transform duration-150 hover:scale-125 focus:outline-none focus-visible:ring-2 focus-visible:ring-white ${
+                        isActive
+                          ? `scale-125 ring-2 ${highlightEntry?.darkText ? 'ring-slate-900' : 'ring-white'} ring-offset-1`
+                          : ''
+                      }`}
+                      style={{
+                        backgroundColor: color.hex,
+                        borderColor: '#ffffff',
+                        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.35)',
+                      }}
+                      title={isActive ? `Remove ${color.name.toLowerCase()} highlight` : `Highlight verse ${v.verse} in ${color.name.toLowerCase()}`}
+                      aria-label={isActive ? `Remove ${color.name.toLowerCase()} highlight from verse ${v.verse}` : `Highlight verse ${v.verse} in ${color.name.toLowerCase()}`}
+                      aria-pressed={isActive}
+                      data-highlight-color={color.id}
+                    />
+                  );
+                })}
+                  </div>
+                </div>
               </div>
               {isFeatured && (
                 <div className="mt-2 ml-10">

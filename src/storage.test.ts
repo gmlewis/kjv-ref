@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { getDailyGoal, updateDailyGoal } from './storage';
+import { getDailyGoal, updateDailyGoal, getVerseHighlights, setVerseHighlight } from './storage';
 
 const KEY = 'kjv-memorize-daily-goal';
 
@@ -98,5 +98,58 @@ describe('daily goal resets across days', () => {
     expect(goal.completedVerses).toBe(0);
     expect(goal.completed).toBe(false);
     expect(goal.targetVerses).toBe(5);
+  });
+});
+
+// Per-verse highlight colors are a personalization saved like every other one:
+// a map of verse reference → CSS color. Clicking the same color again clears it.
+describe('verse highlight colors', () => {
+  const HIGHLIGHTS_KEY = 'kjv-verse-highlights';
+
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('returns an empty map when nothing has been highlighted', () => {
+    expect(getVerseHighlights()).toEqual({});
+  });
+
+  it('sets a color for a verse and persists it', () => {
+    setVerseHighlight('John 3:16', '#4d7196');
+    expect(getVerseHighlights()).toEqual({ 'John 3:16': '#4d7196' });
+    expect(JSON.parse(localStorage.getItem(HIGHLIGHTS_KEY)!)).toEqual({ 'John 3:16': '#4d7196' });
+  });
+
+  it('replaces an existing color for the same verse', () => {
+    setVerseHighlight('John 3:16', '#4d7196');
+    setVerseHighlight('John 3:16', '#a55569');
+    expect(getVerseHighlights()).toEqual({ 'John 3:16': '#a55569' });
+  });
+
+  it('clears a verse highlight when passed null', () => {
+    setVerseHighlight('John 3:16', '#4d7196');
+    setVerseHighlight('John 3:16', null);
+    expect(getVerseHighlights()).toEqual({});
+  });
+
+  it('keeps other verses highlighted when one is cleared', () => {
+    setVerseHighlight('John 3:16', '#4d7196');
+    setVerseHighlight('Genesis 1:1', '#3f7b4b');
+    setVerseHighlight('John 3:16', null);
+    expect(getVerseHighlights()).toEqual({ 'Genesis 1:1': '#3f7b4b' });
+  });
+
+  it('ignores malformed or non-hex values (e.g. from an imported file)', () => {
+    localStorage.setItem(HIGHLIGHTS_KEY, JSON.stringify({
+      'John 3:16': 'red; background: url(evil)',
+      'Genesis 1:1': '#3f7b4b',
+      'Psalms 23:1': 42,
+    }));
+    expect(getVerseHighlights()).toEqual({ 'Genesis 1:1': '#3f7b4b' });
+  });
+
+  it('returns an empty map for corrupt JSON', () => {
+    localStorage.setItem(HIGHLIGHTS_KEY, 'not json');
+    expect(getVerseHighlights()).toEqual({});
   });
 });

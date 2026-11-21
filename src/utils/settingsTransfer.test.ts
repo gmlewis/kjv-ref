@@ -42,8 +42,8 @@ function makeBookmarkObjects(refs: Array<{ reference: string; addedAt?: string }
 // ─── ALL_KJV_STORAGE_KEYS ─────────────────────────────────────────────────────
 
 describe('ALL_KJV_STORAGE_KEYS', () => {
-  it('includes all 11 known localStorage keys', () => {
-    expect(ALL_KJV_STORAGE_KEYS).toHaveLength(11);
+  it('includes all 12 known localStorage keys', () => {
+    expect(ALL_KJV_STORAGE_KEYS).toHaveLength(12);
   });
 
   it('includes kjv-theme', () => {
@@ -88,6 +88,10 @@ describe('ALL_KJV_STORAGE_KEYS', () => {
 
   it('includes kjv-game-state', () => {
     expect(ALL_KJV_STORAGE_KEYS).toContain('kjv-game-state');
+  });
+
+  it('includes kjv-verse-highlights', () => {
+    expect(ALL_KJV_STORAGE_KEYS).toContain('kjv-verse-highlights');
   });
 });
 
@@ -254,12 +258,12 @@ describe('collectSettings', () => {
     expect(Object.keys(data.keys)).toHaveLength(0);
   });
 
-  it('collects all 11 keys when all are set', () => {
+  it('collects all 12 keys when all are set', () => {
     for (const key of ALL_KJV_STORAGE_KEYS) {
       setLocalStorage(key, 'test-value');
     }
     const data = collectSettings();
-    expect(Object.keys(data.keys)).toHaveLength(11);
+    expect(Object.keys(data.keys)).toHaveLength(12);
   });
 
   it('exports empty bookmarks as "[]"', () => {
@@ -751,9 +755,10 @@ describe('importSettings: progress and stats are replaced (mirrored from file)',
       'kjv-memorize-daily-goal': { date: '2026-07-26', completed: true },
       'kjv-memorize-review-schedule': [{ verse: { reference: 'John 3:16' }, dueDate: '2026-08-02T00:00:00.000Z', interval: 3 }],
       'kjv-game-state': { xp: 2000, level: 6, comboBest: 12, unlockedRegionIds: [], builtRoads: [], settings: { sound: false, motion: true } },
+      'kjv-verse-highlights': { 'John 3:16': '#4d7196' },
     }));
 
-    expect(result.restoredKeys).toHaveLength(11);
+    expect(result.restoredKeys).toHaveLength(12);
     expect(result.progressCount).toBe(1);
     expect(result.bookmarkCount).toBe(2);
     expect(result.addedBookmarks).toBe(2);

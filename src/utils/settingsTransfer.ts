@@ -39,6 +39,7 @@ export const ALL_KJV_STORAGE_KEYS = [
   'kjv-memorize-daily-goal',
   'kjv-memorize-review-schedule',
   'kjv-game-state',
+  'kjv-verse-highlights',
 ] as const;
 
 // ─── Bible book order map for sorting references ─────────────────────────────

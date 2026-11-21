@@ -907,3 +907,71 @@ html.dark .modal-search-input:focus {
 html.dark .modal-search-hint {
   color: #64748b;
 }
+
+/* ─── User verse highlight colors ─────────────────────────────────────────── */
+/*
+ * Each verse can be filled with one of the highlight colors. The whole card
+ * becomes that color in both themes. Most colors are dark enough for white
+ * text (> 4.5:1); the bright yellow instead switches the verse text to dark
+ * via `.verse-highlight-dark`. Icons and buttons keep their own colors, except
+ * in dark-text mode where they are darkened for contrast.
+ */
+.verse-highlighted {
+  --verse-highlight-fg: #ffffff;
+}
+
+/* Bright colors (yellow) switch to dark text so the verse stays readable. */
+.verse-highlighted.verse-highlight-dark {
+  --verse-highlight-fg: #1a202c;
+}
+
+.verse-highlighted .verse-text,
+.verse-highlighted .verse-number,
+.verse-highlighted .interlinear-word-text {
+  color: var(--verse-highlight-fg) !important;
+}
+
+/* The verse number turns purple on hover normally; keep it the highlight fg. */
+.verse-highlighted .verse-number:hover {
+  color: var(--verse-highlight-fg) !important;
+}
+
+/* A highlighted verse's inline button hovers should read as a light wash
+ * instead of the purple wash used on normal glass cards. */
+.verse-highlighted .hover\:bg-purple-50:hover {
+  background-color: rgba(255, 255, 255, 0.18) !important;
+}
+
+/* On a light (dark-text) highlight — currently the bright yellow — the usual
+ * gray icons, gold star and Featured badge need darker colors to stay visible. */
+.verse-highlight-dark .text-gray-400 { color: rgba(26, 32, 44, 0.65) !important; }
+.verse-highlight-dark .hover\:text-purple-400:hover,
+.verse-highlight-dark .hover\:text-yellow-400:hover { color: #1a202c !important; }
+.verse-highlight-dark .text-yellow-500 { color: #7c5e00 !important; }
+.verse-highlight-dark .fill-yellow-500 { fill: #7c5e00 !important; }
+.verse-highlight-dark .bg-yellow-100 { background-color: rgba(26, 32, 44, 0.12) !important; }
+.verse-highlight-dark .text-yellow-700 { color: #1a202c !important; }
+
+.verse-highlight-dark .hover\:bg-purple-50:hover {
+  background-color: rgba(26, 32, 44, 0.12) !important;
+}
+
+/* ─── "Copied to Clipboard" toast for the per-verse link button ───────────── */
+.copy-toast {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.375rem;
+  background-color: rgba(17, 24, 39, 0.92);
+  color: #ffffff;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  animation: fadeIn 0.15s ease-out;
+}
+
