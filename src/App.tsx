@@ -2,7 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { Suspense, lazy } from 'react';
 import Dashboard from "./components/Dashboard";
 import Practice from "./components/Practice";
-import Books from "./components/Books";
+import Books, { SearchPage } from "./components/Books";
 import Favorites from "./components/Favorites";
 import Statistics from "./components/Statistics";
 import Achievements from "./components/Achievements";
@@ -37,6 +37,7 @@ function App() {
                   <Route path="/books/:book" element={<Books />} />
                   <Route path="/practice/:reference" element={<Practice />} />
                   <Route path="/books" element={<Books />} />
+                  <Route path="/search" element={<SearchPage />} />
                   <Route path="/favorites" element={<Favorites />} />
                   <Route path="/practice" element={<Practice />} />
                   <Route path="/statistics" element={<Statistics />} />

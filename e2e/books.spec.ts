@@ -15,29 +15,6 @@ test.describe('Books — grid view', () => {
     await expect(frame.locator('button:has-text("New Testament")').first()).toBeVisible();
   });
 
-  test('shows search input', async ({ page }) => {
-    const frame = await openApp(page);
-    await navigateTo(frame, 'Books', 'Browse Bible Books');
-    await expect(frame.locator('input[placeholder*="Search"]').first()).toBeVisible();
-  });
-
-  test('search filters books by name', async ({ page }) => {
-    const frame = await openApp(page);
-    await navigateTo(frame, 'Books', 'Browse Bible Books');
-    await frame.locator('input[placeholder*="Search"]').fill('John');
-    // Should show John, 1 John, 2 John, 3 John
-    await expect(frame.locator('text=John').first()).toBeVisible();
-    const visibleCount = await frame.locator('[class*="glassmorphism"] h3:has-text("John")').count();
-    expect(visibleCount).toBeGreaterThanOrEqual(1);
-  });
-
-  test('search shows 0 results for non-existent book', async ({ page }) => {
-    const frame = await openApp(page);
-    await navigateTo(frame, 'Books', 'Browse Bible Books');
-    await frame.locator('input[placeholder*="Search"]').fill('Zzzzz');
-    await expect(frame.locator('text=0 of 66')).toBeVisible({ timeout: 5_000 });
-  });
-
   test('filtering by Old Testament shows fewer books', async ({ page }) => {
     const frame = await openApp(page);
     await navigateTo(frame, 'Books', 'Browse Bible Books');

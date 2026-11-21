@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { BookOpen, Dumbbell, BarChart3, Trophy, Menu, X, LayoutDashboard, Moon, Sun, ArrowUp, Download, Upload, Star } from 'lucide-react';
+import { BookOpen, Dumbbell, BarChart3, Trophy, Menu, X, LayoutDashboard, Moon, Sun, ArrowUp, Download, Upload, Star, Search } from 'lucide-react';
 import { ShortcutsModal, SearchModal } from './KeyboardModals';
 import Tutorial from './Tutorial';
 import { downloadSettings, importSettings } from '../utils/settingsTransfer';
@@ -114,7 +114,7 @@ function Navigation() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
-        navigate('/books');
+        navigate('/search');
         return;
       }
       // Only handle shortcuts when no modal is open and not typing in an input
@@ -170,6 +170,7 @@ function Navigation() {
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/practice', icon: Dumbbell, label: 'Practice' },
     { path: '/books', icon: BookOpen, label: 'Books' },
+    { path: '/search', icon: Search, label: 'Search' },
     { path: '/favorites', icon: Star, label: 'Favorites' },
     { path: '/statistics', icon: BarChart3, label: 'Stats' },
     { path: '/achievements', icon: Trophy, label: 'Awards' },
@@ -194,19 +195,20 @@ function Navigation() {
             </div>
           </Link>
 
-          <div className="hidden md:flex items-center space-x-1">
+          <div className="hidden lg:flex items-center space-x-1">
             {navItems.map((item) => (
               <Link
                 key={item.path}
                 to={item.path}
-                className={`nav-item flex items-center space-x-2 px-4 py-3 rounded-xl transition-all ${
+                title={item.label}
+                className={`nav-item flex items-center px-4 py-3 rounded-xl transition-all xl:space-x-2 ${
                   isActive(item.path)
                     ? 'bg-gradient-to-r from-purple-100 to-indigo-100 shadow-md'
                     : 'hover:bg-gradient-to-r hover:from-purple-50 hover:to-indigo-50'
                 }`}
               >
                 <item.icon className={`w-5 h-5 ${isActive(item.path) ? 'text-purple-700' : 'text-purple-500'}`} />
-                <span className={`font-semibold ${isActive(item.path) ? 'text-purple-700' : 'text-gray-700'}`}>{item.label}</span>
+                <span className={`hidden xl:inline font-semibold ${isActive(item.path) ? 'text-purple-700' : 'text-gray-700'}`}>{item.label}</span>
               </Link>
             ))}
 
@@ -250,7 +252,7 @@ function Navigation() {
              </a>
           </div>
 
-          <div className="md:hidden flex items-center gap-2">
+          <div className="lg:hidden flex items-center gap-2">
             {/* Dark mode toggle (mobile) */}
             <button
               onClick={toggleDark}
@@ -298,7 +300,7 @@ function Navigation() {
         </div>
 
         {isOpen && (
-          <div className="md:hidden py-4 border-t border-purple-200 animate-fade-in">
+          <div className="lg:hidden py-4 border-t border-purple-200 animate-fade-in">
             {navItems.map((item) => (
               <div
                 key={item.path}

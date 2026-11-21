@@ -8,13 +8,19 @@ test.describe('Navigation', () => {
     await expect(nav).toBeVisible();
   });
 
-  test('desktop nav shows all five sections', async ({ page }) => {
+  test('desktop nav shows all sections', async ({ page }) => {
     const frame = await openApp(page);
     const nav = frame.locator('nav');
-    // Nav labels are: Dashboard, Practice, Books, Stats, Awards
-    for (const label of ['Dashboard', 'Practice', 'Books', 'Stats', 'Awards']) {
+    // Nav labels are: Dashboard, Practice, Books, Search, Favorites, Stats, Awards
+    for (const label of ['Dashboard', 'Practice', 'Books', 'Search', 'Favorites', 'Stats', 'Awards']) {
       await expect(nav.locator(`text=${label}`).first()).toBeVisible();
     }
+  });
+
+  test('navigates to the full Search page', async ({ page }) => {
+    const frame = await openApp(page);
+    await navigateTo(frame, 'Search', 'Search Verses');
+    await expect(frame.locator('input[placeholder*="Search verses"]')).toBeVisible();
   });
 
   test('navigates to Practice page', async ({ page }) => {
@@ -53,14 +59,14 @@ test.describe('Navigation', () => {
 
     // Find the hamburger button by its icon — it contains either a Menu or X
     // SVG. The hamburger is the last button in the mobile nav section.
-    const mobileSection = frame.locator('nav div.md\\:hidden');
+    const mobileSection = frame.locator('nav div.lg\\:hidden');
     const hamburger = mobileSection.locator('button').last();
     await expect(hamburger).toBeVisible();
     await hamburger.click();
 
-    // The mobile menu is a div.md:hidden that becomes visible after clicking.
+    // The mobile menu is a div.lg:hidden that becomes visible after clicking.
     // Its items are <div> elements (not <a>), scoped inside the menu container.
-    const mobileMenu = frame.locator('div.md\\:hidden').last();
+    const mobileMenu = frame.locator('div.lg\\:hidden').last();
     await expect(mobileMenu.locator('text=Practice').first()).toBeVisible();
     await mobileMenu.locator('text=Stats').first().click();
     await expect(frame.locator('text=Your Statistics').first()).toBeVisible();

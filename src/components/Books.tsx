@@ -317,6 +317,19 @@ function SearchPanel({ onNavigateAway, initialQuery = '' }: { onNavigateAway: ()
   );
 }
 
+// ─── Standalone Search page (/search) ───────────────────────────────────────
+/**
+ * Full-Bible search at its own route, so it can be linked from the main nav
+ * (and reached on mobile without the keyboard-only "/" shortcut).
+ */
+export function SearchPage() {
+  return (
+    <div className="space-y-4 animate-fade-in pb-12">
+      <SearchPanel onNavigateAway={() => {}} />
+    </div>
+  );
+}
+
 // ─── Chapter View ────────────────────────────────────────────────────────────
 function ChapterView({ bookName, chapterNum }: { bookName: string; chapterNum: number }) {
   const [verses, setVerses] = useState<KJVVerseEntry[]>([]);
@@ -1443,13 +1456,18 @@ function BooksGrid() {
   const initialSearch = searchParams.get('search');
   const [view, setView] = useState<'grid' | 'search'>(initialSearch ? 'search' : 'grid');
   const [testamentFilter, setTestamentFilter] = useState<'all' | 'old' | 'new'>('all');
-  const [searchTerm, setSearchTerm] = useState('');
 
-  const filteredBooks = BIBLE_BOOKS.filter(book => {
-    const matchesTestament = testamentFilter === 'all' || book.testament === testamentFilter;
-    const matchesSearch = book.name.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesTestament && matchesSearch;
-  });
+  // A `/books?search=...` navigation can happen while this component is already
+  // mounted (e.g. the "/" dialog submitted from the Books grid), so a state
+  // initializer alone would miss the param change. Only force the search view
+  // when a query is present, so a manual "All Books" click still sticks.
+  useEffect(() => {
+    if (initialSearch) setView('search');
+  }, [initialSearch]);
+
+  const filteredBooks = BIBLE_BOOKS.filter(book =>
+    testamentFilter === 'all' || book.testament === testamentFilter
+  );
 
   const booksWithVerses = new Set(KJV_VERSES.map(v => v.book));
 
@@ -1509,36 +1527,24 @@ function BooksGrid() {
         </p>
       </div>
 
-      {/* Search and Filter */}
+      {/* Testament filter */}
       <div className="glassmorphism rounded-2xl p-6 shadow-lg">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="Search books..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:outline-none bg-white/70"
-            />
-          </div>
-          <div className="flex gap-2">
-            {(['all', 'old', 'new'] as const).map((filter) => (
-              <button
-                key={filter}
-                onClick={() => setTestamentFilter(filter)}
-                className={`px-5 py-3 rounded-xl font-semibold transition-all shadow-md ${
-                  testamentFilter === filter
-                    ? filter === 'all' ? 'bg-gradient-to-r from-purple-500 to-indigo-600 text-white'
-                      : filter === 'old' ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-white'
-                      : 'bg-gradient-to-r from-blue-400 to-indigo-600 text-white'
-                    : 'glassmorphism text-gray-700 hover:shadow-lg'
-                }`}
-              >
-                {filter === 'all' ? 'All' : filter === 'old' ? 'Old Testament' : 'New Testament'}
-              </button>
-            ))}
-          </div>
+        <div className="flex gap-2 flex-wrap">
+          {(['all', 'old', 'new'] as const).map((filter) => (
+            <button
+              key={filter}
+              onClick={() => setTestamentFilter(filter)}
+              className={`px-5 py-3 rounded-xl font-semibold transition-all shadow-md ${
+                testamentFilter === filter
+                  ? filter === 'all' ? 'bg-gradient-to-r from-purple-500 to-indigo-600 text-white'
+                    : filter === 'old' ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-white'
+                    : 'bg-gradient-to-r from-blue-400 to-indigo-600 text-white'
+                  : 'glassmorphism text-gray-700 hover:shadow-lg'
+              }`}
+            >
+              {filter === 'all' ? 'All' : filter === 'old' ? 'Old Testament' : 'New Testament'}
+            </button>
+          ))}
         </div>
         <p className="text-sm text-gray-500 mt-3">Showing {filteredBooks.length} of {BIBLE_BOOKS.length} books</p>
       </div>
